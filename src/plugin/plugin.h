@@ -184,7 +184,7 @@ namespace cs2fow
 
 		const char* GetURL() override
 		{
-			return "https://github.com/glazki2/cs2pugin";
+			return "https://github.com/glazki2/cs2antiwh";
 		}
 
 		const char* GetLicense() override

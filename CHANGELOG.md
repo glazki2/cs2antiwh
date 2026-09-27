@@ -8,8 +8,9 @@
 - Limited mode now validates the entity list (world entity, its back-pointer, and its name) with guarded reads only.
 - On Linux, the automatic baker runs at the lowest CPU priority and asks the kernel to kill it first if memory runs out, so a bake cannot get the game server killed on a small machine.
 - Plugin metadata now states the MIT license, matching `LICENSE`.
+- The repository was renamed to `glazki2/cs2antiwh`: the plugin URL, `cs2fow.cfg`, and the automatic updater now point there. The updater only accepts download links under this prefix, so with the old name it would have rejected every release asset.
 
-## 0.4.0 (glazki2/cs2pugin fork of CS2FOW CE 0.3.8)
+## 0.4.0 (glazki2/cs2antiwh fork of CS2FOW CE 0.3.8)
 
 - Load on current Metamod:Source 2.0 (plugin API 18): the GameFrame, CheckTransmit and LoadEventsFromFile hooks now use KHook, because Metamod removed SourceHook on 2026-09-08 and refuses older plugins.
 - Build against the latest HL2SDK and Metamod for the September 2026 CS2 update (ConVar registration, IFileSystem, CGlobalVars and entity-system header changes); the plugin is linked with `-fno-gnu-unique` so Metamod can unload it.

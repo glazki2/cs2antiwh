@@ -42,8 +42,8 @@ namespace cs2fow
 		constexpr uint64_t k_maximum_archive_file_size = 256ull * 1024 * 1024;
 		constexpr uint64_t k_maximum_extracted_size = 384ull * 1024 * 1024;
 		constexpr uint32_t k_maximum_archive_files = 512;
-		constexpr const char* k_release_api = "https://api.github.com/repos/glazki2/cs2pugin/releases/latest";
-		constexpr std::string_view k_download_prefix = "https://github.com/glazki2/cs2pugin/releases/download/";
+		constexpr const char* k_release_api = "https://api.github.com/repos/glazki2/cs2antiwh/releases/latest";
+		constexpr std::string_view k_download_prefix = "https://github.com/glazki2/cs2antiwh/releases/download/";
 
 #ifdef _WIN32
 		constexpr const char* k_platform_name = "windows";

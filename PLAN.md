@@ -269,7 +269,7 @@
 ## 9. Структура проекта
 
 ```
-cs2pugin/
+cs2antiwh/
 ├── AMBuildScript, AMBuilder, configure.py, PackageScript
 ├── hl2sdk-cs2/            # сабмодуль alliedmodders/hl2sdk (ветка cs2)
 ├── metamod-source/        # сабмодуль alliedmodders/metamod-source
