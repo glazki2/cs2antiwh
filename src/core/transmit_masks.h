@@ -64,4 +64,55 @@ namespace cs2fow
 		return true;
 	}
 
+	// How a hidden entity is withheld from one recipient. Mode 0 is CS2FOW CE's
+	// paired update; the others exist to find what a CS2 build actually honours
+	// when hiding does not reach the client, and are switched with a convar.
+	enum class transmit_mode : int
+	{
+		clear_and_mark = 0, // clear the primary bit, set the second list's bit
+		clear_primary = 1,	// clear the primary bit only
+		clear_both = 2,		// clear the primary bit and the second list's bit
+		observe = 3,		// change nothing (for the read-only probe)
+		clear_extended = 4, // clear_both, plus lists +16/+24 once the probe showed they carry pawns
+	};
+
+	template<typename mask_type>
+	inline bool apply_transmit_mode(mask_type* primary, mask_type* second, int index, transmit_mode mode)
+	{
+		if (primary == nullptr || second == nullptr)
+		{
+			return false;
+		}
+		switch (mode)
+		{
+			case transmit_mode::clear_and_mark:
+				return withhold_transmit_bit(primary, second, index);
+			case transmit_mode::clear_primary:
+				if (!primary->IsBitSet(index))
+				{
+					return false;
+				}
+				primary->Clear(index);
+				return true;
+			case transmit_mode::clear_both:
+			case transmit_mode::clear_extended:
+			{
+				const bool primary_set = primary->IsBitSet(index);
+				const bool second_set = second->IsBitSet(index);
+				if (primary_set)
+				{
+					primary->Clear(index);
+				}
+				if (second_set)
+				{
+					second->Clear(index);
+				}
+				return primary_set || second_set;
+			}
+			case transmit_mode::observe:
+				return false;
+		}
+		return false;
+	}
+
 } // namespace cs2fow

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4
+
+- On CS2 1.41.8 (September 2026, where `sv_enable_donttransmit` no longer exists) a live test showed hidden enemies still moving in real time on a wallhack, even though the plugin cleared their bits every snapshot. This release adds diagnostics to find out what the new build honours:
+  - `cs2fow_probe start` samples, for ~10 seconds, whether each enemy pawn is set in the recipient lists at +0, +8, +16 and +24 and in the two union lists passed to CheckTransmit, split into pawns behind walls and visible pawns; `cs2fow_probe` prints the counts. It only reads, and reads the unknown lists through guarded memory access.
+  - `cs2fow_transmit_mode` (not saved in `cs2fow.cfg`, resets to 0): `0` the CE behaviour (clear the primary bit, set the second list's bit), `1` clear the primary bit only, `2` clear the primary and the second list's bit, `3` observe only, `4` like `2` and also clear the pawn's bit in +16/+24 when a finished probe showed that list carrying nearly every hidden pawn; those writes go through guarded memory access.
+
 ## 0.4.3
 
 - Limited mode now validates the entity system on the map's first simulated frame instead of at activation. A map whose bake already existed activated while the level was still loading, before the world entity was spawned, so the check failed and protection stayed off for that map after every server restart; only freshly baked maps (activated later) were protected.

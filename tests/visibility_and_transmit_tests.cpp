@@ -863,6 +863,33 @@ namespace
 		test_transmit_mask already_dont_transmit {true};
 		assert(withhold_transmit_bit(&primary_again, &already_dont_transmit, 10));
 		assert(!primary_again.set && already_dont_transmit.set && already_dont_transmit.sets == 1);
+
+		// Diagnostic modes: each touches exactly the lists it names.
+		test_transmit_mask mark_primary {true};
+		test_transmit_mask mark_second;
+		assert(apply_transmit_mode(&mark_primary, &mark_second, 10, transmit_mode::clear_and_mark));
+		assert(!mark_primary.set && mark_second.set);
+		test_transmit_mask only_primary {true};
+		test_transmit_mask only_second {true};
+		assert(apply_transmit_mode(&only_primary, &only_second, 10, transmit_mode::clear_primary));
+		assert(!only_primary.set && only_second.set && only_second.sets == 0 && only_second.clears == 0);
+		test_transmit_mask both_primary {true};
+		test_transmit_mask both_second {true};
+		assert(apply_transmit_mode(&both_primary, &both_second, 10, transmit_mode::clear_both));
+		assert(!both_primary.set && !both_second.set && both_second.clears == 1);
+		test_transmit_mask second_only_primary;
+		test_transmit_mask second_only_second {true};
+		assert(apply_transmit_mode(&second_only_primary, &second_only_second, 10, transmit_mode::clear_both));
+		assert(!second_only_second.set && second_only_primary.clears == 0);
+		test_transmit_mask watch_primary {true};
+		test_transmit_mask watch_second {true};
+		assert(!apply_transmit_mode(&watch_primary, &watch_second, 10, transmit_mode::observe));
+		assert(watch_primary.set && watch_second.set && watch_primary.clears == 0 && watch_second.clears == 0);
+		assert(!apply_transmit_mode<test_transmit_mask>(nullptr, &watch_second, 10, transmit_mode::clear_primary));
+		test_transmit_mask extended_primary {true};
+		test_transmit_mask extended_second {true};
+		assert(apply_transmit_mode(&extended_primary, &extended_second, 10, transmit_mode::clear_extended));
+		assert(!extended_primary.set && !extended_second.set);
 	}
 
 	void test_transmit_debug()

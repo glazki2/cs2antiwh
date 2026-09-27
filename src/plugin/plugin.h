@@ -86,6 +86,24 @@ namespace cs2fow
 		bool valid {};
 	};
 
+	// Read-only evidence of which CheckTransmit lists carry enemy pawns, for
+	// finding what a CS2 build honours when hiding does not reach the client.
+	// Lists: +0, +8, +16, +24 in the recipient record, then the two union lists.
+	inline constexpr size_t k_transmit_probe_lists = 6;
+	inline constexpr uint32_t k_transmit_probe_calls = 640;
+
+	struct transmit_probe_stats
+	{
+		uint32_t calls_left {};
+		uint64_t calls {};
+		uint64_t full_updates {};
+		std::array<uint64_t, 2> samples {}; // [0] walls block the pair, [1] visible
+		std::array<std::array<uint64_t, k_transmit_probe_lists>, 2> set {};
+		std::array<uint64_t, 2> unreadable {}; // +16, +24
+		// Lists +16/+24 that a finished probe showed carrying hidden enemy pawns.
+		std::array<bool, 2> extended_allowed {};
+	};
+
 	struct los_debug_beam
 	{
 		CEntityHandle handle;
@@ -166,6 +184,8 @@ namespace cs2fow
 		void settings_changed(uint32_t changes);
 		void print_entities(int edict);
 		void clear_entity_records();
+		void start_transmit_probe();
+		void print_transmit_probe() const;
 		void reset_transmit_state(bool clear_debug_records = true);
 
 		const char* GetAuthor() override
@@ -241,7 +261,9 @@ namespace cs2fow
 		template<size_t max_count>
 		void withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* dont_transmit,
 							const hidden_entity_group<CEntityHandle, max_count>& group, int recipient_slot, hide_reason reason,
-							std::chrono::steady_clock::time_point now);
+							std::chrono::steady_clock::time_point now, transmit_mode mode, const std::array<void*, 2>& extended_lists);
+		void sample_transmit_probe(const CCheckTransmitInfo* info, int slot, const visibility_result& result, const CBitVec<MAX_EDICTS>& union_a,
+								   const CBitVec<MAX_EDICTS>& union_b);
 		template<size_t max_count>
 		void record_hidden_entity(CGameEntitySystem* system, size_t member_index, int edict, const hidden_entity_group<CEntityHandle, max_count>& group,
 								  int recipient_slot, hide_reason reason, std::chrono::steady_clock::time_point now);
@@ -306,6 +328,7 @@ namespace cs2fow
 		std::atomic_bool transmit_layout_invalid_ {};
 		// The recipient lists were proven readable with guarded reads this map.
 		bool transmit_lists_verified_ {};
+		transmit_probe_stats transmit_probe_;
 		// Limited mode validates the entity system on the first simulated frame.
 		bool limited_validation_pending_ {};
 		uint32_t limited_validation_attempts_ {};

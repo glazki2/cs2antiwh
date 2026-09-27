@@ -103,6 +103,16 @@ namespace cs2fow
 		g_plugin.print_entities(edict);
 	}
 
+	CON_COMMAND_F(cs2fow_probe, "Diagnostic: 'cs2fow_probe start' samples CheckTransmit lists; 'cs2fow_probe' prints the result", FCVAR_NONE)
+	{
+		if (args.ArgC() == 2 && std::strcmp(args.Arg(1), "start") == 0)
+		{
+			g_plugin.start_transmit_probe();
+			return;
+		}
+		g_plugin.print_transmit_probe();
+	}
+
 	bool plugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late)
 	{
 		PLUGIN_SAVEVARS();
@@ -685,6 +695,10 @@ namespace cs2fow
 		transmit_layout_invalid_.store(false);
 		transmit_lists_verified_ = false;
 		limited_validation_pending_ = false;
+		{
+			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+			transmit_probe_ = {};
+		}
 		map_ = map;
 		if (!compatibility_.valid())
 		{

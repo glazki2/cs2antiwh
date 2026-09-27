@@ -551,6 +551,22 @@ namespace cs2fow
 #endif
 	}
 
+	bool runtime_compatibility::safe_write(void* address, const void* input, size_t size)
+	{
+		if (address == nullptr || input == nullptr || size == 0)
+		{
+			return false;
+		}
+#if defined(_WIN32)
+		SIZE_T written = 0;
+		return WriteProcessMemory(GetCurrentProcess(), address, input, size, &written) != 0 && written == size;
+#else
+		iovec local {const_cast<void*>(input), size};
+		iovec remote {address, size};
+		return process_vm_writev(getpid(), &local, 1, &remote, 1, 0) == static_cast<ssize_t>(size);
+#endif
+	}
+
 	void* runtime_compatibility::game_event_manager_vtable() const
 	{
 		return server_module_base_ == nullptr || game_event_manager_vtable_rva_ == 0

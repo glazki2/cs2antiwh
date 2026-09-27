@@ -16,6 +16,29 @@ namespace cs2fow
 	namespace
 	{
 
+		// Diagnostic only: selects how a hidden entity is withheld (see
+		// transmit_mode). Not part of cs2fow.cfg; it resets to 0 on restart.
+		CConVar<int> cs2fow_transmit_mode("cs2fow_transmit_mode", FCVAR_NONE,
+										  "Diagnostic: 0 clear+mark second list, 1 clear only, 2 clear both lists, 3 observe only, "
+										  "4 clear both plus lists +16/+24 proven by cs2fow_probe",
+										  0, true, 0, true, 4);
+
+		// Clears one entity bit in a list the probe proved to be an entity bit
+		// list, through guarded memory access so a wrong guess cannot fault.
+		void clear_extended_bit(void* list_pointer, int index)
+		{
+			auto* word = static_cast<uint32_t*>(list_pointer) + (index >> 5);
+			uint32_t value = 0;
+			const uint32_t mask = uint32_t {1} << (index & 31);
+			if (list_pointer != nullptr && runtime_compatibility::safe_read(word, &value, sizeof(value)) && (value & mask) != 0)
+			{
+				value &= ~mask;
+				runtime_compatibility::safe_write(word, &value, sizeof(value));
+			}
+		}
+
+		const char* const k_transmit_probe_names[k_transmit_probe_lists] = {"+0", "+8", "+16", "+24", "unionA", "unionB"};
+
 		visual_group_key make_current_visual_group_key(const visual_entity_group& group)
 		{
 			std::array<uint32_t, k_max_hidden_player_entities> values {};
@@ -94,7 +117,7 @@ namespace cs2fow
 	template<size_t max_count>
 	void plugin::withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* dont_transmit,
 								const hidden_entity_group<CEntityHandle, max_count>& group, int recipient_slot, hide_reason reason,
-								std::chrono::steady_clock::time_point now)
+								std::chrono::steady_clock::time_point now, transmit_mode mode, const std::array<void*, 2>& extended_lists)
 	{
 		if (primary == nullptr || dont_transmit == nullptr)
 		{
@@ -109,9 +132,16 @@ namespace cs2fow
 			{
 				continue;
 			}
-			if (withhold_transmit_bit(primary, dont_transmit, index) && debug)
+			if (apply_transmit_mode(primary, dont_transmit, index, mode) && debug)
 			{
 				record_hidden_entity(system, entity, index, group, recipient_slot, reason, now);
+			}
+			if (mode == transmit_mode::clear_extended)
+			{
+				for (void* list_pointer : extended_lists)
+				{
+					clear_extended_bit(list_pointer, index);
+				}
 			}
 		}
 	}
@@ -255,8 +285,92 @@ namespace cs2fow
 		return true;
 	}
 
-	void plugin::hook_check_transmit(CCheckTransmitInfo** infos, int count, CBitVec<MAX_EDICTS>&, CBitVec<MAX_EDICTS>&, const Entity2Networkable_t**,
-									 const uint16*, int)
+	void plugin::sample_transmit_probe(const CCheckTransmitInfo* info, int slot, const visibility_result& result,
+									   const CBitVec<MAX_EDICTS>& union_a, const CBitVec<MAX_EDICTS>& union_b)
+	{
+		const auto guarded_bit = [](const void* list_pointer, int index, bool& readable)
+		{
+			const auto* word = static_cast<const uint32_t*>(list_pointer) + (index >> 5);
+			uint32_t value = 0;
+			readable = list_pointer != nullptr && runtime_compatibility::safe_read(word, &value, sizeof(value));
+			return readable && (value & (uint32_t {1} << (index & 31))) != 0;
+		};
+		for (uint32_t target = 0; target < k_max_players; ++target)
+		{
+			const target_transmit_cache& cache = transmit_target_cache_[target];
+			if (cache.pawn == nullptr
+				|| !visibility_pair_enabled(static_cast<uint32_t>(slot), target, result.players[slot], result.players[target], result.filter_teammates))
+			{
+				continue;
+			}
+			const int index = entity_index(cache.pawn);
+			if (!valid_networked_edict_index(index))
+			{
+				continue;
+			}
+			const size_t kind = result.visible[slot][target] ? 1u : 0u;
+			++transmit_probe_.samples[kind];
+			std::array<bool, k_transmit_probe_lists> bits {};
+			bits[0] = info->m_pTransmitEntity->IsBitSet(index);
+			bits[1] = info->m_pTransmitAlways->IsBitSet(index);
+			for (size_t list = 2; list < 4; ++list)
+			{
+				const void* list_pointer = nullptr;
+				std::memcpy(&list_pointer, reinterpret_cast<const char*>(info) + list * sizeof(void*), sizeof(list_pointer));
+				bool readable = false;
+				bits[list] = guarded_bit(list_pointer, index, readable);
+				if (!readable)
+				{
+					++transmit_probe_.unreadable[list - 2];
+				}
+			}
+			bits[4] = union_a.IsBitSet(index);
+			bits[5] = union_b.IsBitSet(index);
+			for (size_t list = 0; list < bits.size(); ++list)
+			{
+				transmit_probe_.set[kind][list] += bits[list] ? 1u : 0u;
+			}
+		}
+	}
+
+	void plugin::start_transmit_probe()
+	{
+		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+		const std::array<bool, 2> allowed = transmit_probe_.extended_allowed;
+		transmit_probe_ = {};
+		transmit_probe_.extended_allowed = allowed;
+		transmit_probe_.calls_left = k_transmit_probe_calls;
+		META_CONPRINTF("[CS2FOW] transmit probe started for %u snapshots (mode %d); run cs2fow_probe again in ~10 seconds\n",
+					   k_transmit_probe_calls, cs2fow_transmit_mode.Get());
+	}
+
+	void plugin::print_transmit_probe() const
+	{
+		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+		const transmit_probe_stats& probe = transmit_probe_;
+		META_CONPRINTF("[CS2FOW] transmit probe: mode=%d snapshots=%llu full_updates=%llu %s\n", cs2fow_transmit_mode.Get(),
+					   static_cast<unsigned long long>(probe.calls), static_cast<unsigned long long>(probe.full_updates),
+					   probe.calls_left != 0 ? "(still running)" : "(finished)");
+		const char* const kinds[2] = {"behind walls", "visible"};
+		for (size_t kind = 0; kind < 2; ++kind)
+		{
+			char line[256] {};
+			int used = std::snprintf(line, sizeof(line), "[CS2FOW] enemy pawns %s: samples=%llu", kinds[kind],
+									 static_cast<unsigned long long>(probe.samples[kind]));
+			for (size_t list = 0; list < k_transmit_probe_lists && used > 0 && static_cast<size_t>(used) < sizeof(line); ++list)
+			{
+				used += std::snprintf(line + used, sizeof(line) - static_cast<size_t>(used), " %s=%llu", k_transmit_probe_names[list],
+									  static_cast<unsigned long long>(probe.set[kind][list]));
+			}
+			META_CONPRINTF("%s\n", line);
+		}
+		META_CONPRINTF("[CS2FOW] unreadable lists: +16=%llu +24=%llu; mode 4 may clear: +16=%s +24=%s\n",
+					   static_cast<unsigned long long>(probe.unreadable[0]), static_cast<unsigned long long>(probe.unreadable[1]),
+					   probe.extended_allowed[0] ? "yes" : "no", probe.extended_allowed[1] ? "yes" : "no");
+	}
+
+	void plugin::hook_check_transmit(CCheckTransmitInfo** infos, int count, CBitVec<MAX_EDICTS>& union_a, CBitVec<MAX_EDICTS>& union_b,
+									 const Entity2Networkable_t**, const uint16*, int)
 	{
 		if (!settings::current().enable || !disabled_reason_.empty() || infos == nullptr || count <= 0 || count > static_cast<int>(k_max_players)
 			|| transmit_layout_invalid_.load(std::memory_order_relaxed))
@@ -283,12 +397,33 @@ namespace cs2fow
 		const std::shared_ptr<const visibility_result> result = worker_.result();
 		const auto now = std::chrono::steady_clock::now();
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+		const bool probing = transmit_probe_.calls_left != 0;
+		if (probing)
+		{
+			++transmit_probe_.calls;
+			if (--transmit_probe_.calls_left == 0)
+			{
+				// A list earns writes only if it carried nearly every hidden pawn and
+				// was always readable.
+				for (size_t list = 0; list < 2; ++list)
+				{
+					const uint64_t hidden = transmit_probe_.samples[0];
+					transmit_probe_.extended_allowed[list] = hidden >= 64 && transmit_probe_.unreadable[list] == 0
+															 && transmit_probe_.set[0][list + 2] * 10 >= hidden * 9;
+				}
+			}
+		}
+		const transmit_mode mode = static_cast<transmit_mode>(cs2fow_transmit_mode.Get());
 		for (int i = 0; i < count; ++i)
 		{
 			CCheckTransmitInfo* info = infos[i];
 			if (info == nullptr || !read_checktransmit_full_update(info, compatibility_.transmit_offsets().full_update_offset))
 			{
 				continue;
+			}
+			if (probing)
+			{
+				++transmit_probe_.full_updates;
 			}
 			int slot = -1;
 			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
@@ -370,6 +505,22 @@ namespace cs2fow
 			{
 				continue;
 			}
+			if (probing)
+			{
+				sample_transmit_probe(info, slot, *result, union_a, union_b);
+			}
+			std::array<void*, 2> extended_lists {};
+			if (mode == transmit_mode::clear_extended)
+			{
+				for (size_t list = 0; list < extended_lists.size(); ++list)
+				{
+					if (transmit_probe_.extended_allowed[list])
+					{
+						std::memcpy(&extended_lists[list], reinterpret_cast<const char*>(info) + (list + 2) * sizeof(void*),
+									sizeof(void*));
+					}
+				}
+			}
 			for (uint32_t target = 0; target < k_max_players; ++target)
 			{
 				const player_state& player = result->players[target];
@@ -419,14 +570,17 @@ namespace cs2fow
 				{
 					if (hidden_group_quarantined(stored_group, now))
 					{
-						withhold_group(system, info->m_pTransmitEntity, dont_transmit, stored_group, slot, hide_reason::quarantine, now);
-						withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.attached, slot, hide_reason::quarantine, now);
+						withhold_group(system, info->m_pTransmitEntity, dont_transmit, stored_group, slot, hide_reason::quarantine, now, mode,
+									   extended_lists);
+						withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.attached, slot, hide_reason::quarantine, now, mode,
+									   extended_lists);
 					}
 					continue;
 				}
 				hidden_group_store(stored_group, cache.group, now, k_hidden_entity_quarantine);
-				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.group, slot, hide_reason::current, now);
-				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.attached, slot, hide_reason::current, now);
+				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.group, slot, hide_reason::current, now, mode, extended_lists);
+				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.attached, slot, hide_reason::current, now, mode,
+							   extended_lists);
 			}
 		}
 		record_timing();

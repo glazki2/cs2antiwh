@@ -97,6 +97,8 @@ namespace cs2fow
 		static bool same_module(const void* left, const void* right);
 		// Copies size bytes from address without faulting; false when unreadable.
 		static bool safe_read(const void* address, void* output, size_t size);
+		// Copies size bytes to address without faulting; false when unwritable.
+		static bool safe_write(void* address, const void* input, size_t size);
 
 		const compatibility_report& report() const
 		{
