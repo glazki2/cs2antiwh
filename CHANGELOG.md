@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1
+
+- Hide networked entities attached below a hidden player (for example another plugin's glow prop, hat, or trail) together with that player. Before, only weapons, wearables, and a carried hostage were withheld, so an attached entity could stay on the client without its parent, which is a known way to crash CS2 clients, and it also showed where the player was. A hierarchy that cannot be fully accounted for, or has another player attached, reveals the player instead.
+- Before a map's first filtered snapshot, read the CheckTransmit recipient array, each recipient record, and both entity lists with guarded reads, so a CS2 update that moved these layouts turns filtering off for the map instead of crashing the server.
+- Check every snapshot that each live recipient's own pawn is in its transmit list. If it is not, the recipient slot or list layout is wrong, so filtering stops for the map before any player could be hidden from the wrong person.
+- Limited mode now validates the entity list (world entity, its back-pointer, and its name) with guarded reads only.
+- On Linux, the automatic baker runs at the lowest CPU priority and asks the kernel to kill it first if memory runs out, so a bake cannot get the game server killed on a small machine.
+- Plugin metadata now states the MIT license, matching `LICENSE`.
+
 ## 0.4.0 (glazki2/cs2pugin fork of CS2FOW CE 0.3.8)
 
 - Load on current Metamod:Source 2.0 (plugin API 18): the GameFrame, CheckTransmit and LoadEventsFromFile hooks now use KHook, because Metamod removed SourceHook on 2026-09-08 and refuses older plugins.

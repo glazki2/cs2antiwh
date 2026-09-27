@@ -237,4 +237,45 @@ namespace cs2fow
 		return true;
 	}
 
+	// Visits every node below a scene-graph root through first-child and
+	// next-sibling links, without recursion. False when the walk would pass
+	// max_nodes (a corrupt or cyclic list) or when visit rejects a node, so the
+	// caller can fail open.
+	template<size_t max_nodes, typename node_type, typename next_type, typename child_type, typename visit_type>
+	inline bool walk_scene_descendants(node_type* first_child, next_type next_sibling, child_type child_of, visit_type visit)
+	{
+		std::array<node_type*, max_nodes> pending {};
+		size_t pending_count = 0;
+		const auto push = [&](node_type* node)
+		{
+			if (node == nullptr)
+			{
+				return true;
+			}
+			if (pending_count >= pending.size())
+			{
+				return false;
+			}
+			pending[pending_count++] = node;
+			return true;
+		};
+		if (!push(first_child))
+		{
+			return false;
+		}
+		for (size_t visited = 0; pending_count != 0; ++visited)
+		{
+			if (visited >= max_nodes)
+			{
+				return false;
+			}
+			node_type* node = pending[--pending_count];
+			if (!push(next_sibling(node)) || !push(child_of(node)) || !visit(node))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
 } // namespace cs2fow

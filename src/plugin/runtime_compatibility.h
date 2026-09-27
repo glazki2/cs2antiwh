@@ -55,6 +55,9 @@ namespace cs2fow
 		uint32_t beam_width {};
 		uint32_t beam_end_width {};
 		uint32_t render_color {};
+		uint32_t scene_node_owner {};
+		uint32_t scene_node_child {};
+		uint32_t scene_node_next_sibling {};
 	};
 
 	struct smoke_private_layout
@@ -172,6 +175,14 @@ namespace cs2fow
 			return weapon_item_schema_available_;
 		}
 
+		// Entities attached below a player (another plugin's glow prop, hat, or
+		// trail) must be hidden with the player: a client that keeps a child whose
+		// parent was withheld is the classic transmit-filter client crash.
+		bool scene_hierarchy_available() const
+		{
+			return scene_hierarchy_schema_available_;
+		}
+
 		bool debug_beam_available() const
 		{
 			return debug_beam_schema_available_ && create_entity_by_name_ != nullptr && dispatch_spawn_ != nullptr && remove_entity_ != nullptr
@@ -204,6 +215,7 @@ namespace cs2fow
 		bool weapon_item_schema_available_ {};
 		bool smoke_schema_available_ {};
 		bool debug_beam_schema_available_ {};
+		bool scene_hierarchy_schema_available_ {};
 		bool smoke_gamedata_available_ {};
 		void* server_module_base_ {};
 		void* lookup_bone_ {};

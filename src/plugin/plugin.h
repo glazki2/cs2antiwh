@@ -41,6 +41,10 @@ namespace cs2fow
 	inline constexpr uint32_t k_entity_scan_hard_limit = MAX_TOTAL_ENTITIES;
 	inline constexpr uint32_t k_max_entity_name = 64;
 	inline constexpr uint32_t k_max_hidden_player_entities = 1 + 2 + k_max_weapons + k_max_wearables + 1;
+	// Other networked entities attached below a player's scene node. More than
+	// this, or a hierarchy deeper than the walk budget, reveals the player.
+	inline constexpr uint32_t k_max_attached_entities = 32;
+	inline constexpr uint32_t k_max_scene_nodes_walked = 256;
 	inline constexpr uint8_t k_life_alive = 0;
 	inline constexpr uint8_t k_team_t = 2;
 	inline constexpr uint8_t k_team_ct = 3;
@@ -60,6 +64,7 @@ namespace cs2fow
 	};
 
 	using visual_entity_group = hidden_entity_group<CEntityHandle, k_max_hidden_player_entities>;
+	using attached_entity_group = hidden_entity_group<CEntityHandle, k_max_attached_entities>;
 	static_assert(k_max_hidden_player_entities <= k_pair_visual_group_key_max);
 
 	struct target_transmit_cache
@@ -68,6 +73,8 @@ namespace cs2fow
 		visual_entity_group group;
 		visual_group_key group_key;
 		bool group_valid {};
+		attached_entity_group attached;
+		bool attached_valid {};
 	};
 
 	struct player_bone_cache
@@ -215,6 +222,8 @@ namespace cs2fow
 		void disable(std::string reason);
 		bool validate_limited_runtime(std::string& error) const;
 		bool checktransmit_layout_plausible(CCheckTransmitInfo** infos, int count) const;
+		bool checktransmit_lists_readable(CCheckTransmitInfo** infos, int count) const;
+		bool checktransmit_recipients_consistent(CCheckTransmitInfo** infos, int count) const;
 		CGameEntitySystem* entity_system() const;
 		CEntityInstance* controller(uint32_t slot) const;
 		CEntityInstance* pawn(CEntityInstance* controller) const;
@@ -223,11 +232,16 @@ namespace cs2fow
 		void collect_smoke_entities(CGameEntitySystem* system, std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t& smoke_count,
 									bool& smoke_overflow);
 		bool collect_player_visual_group(CGameEntitySystem* system, CEntityInstance* pawn, visual_entity_group& group) const;
+		bool collect_attached_entities(CGameEntitySystem* system, CEntityInstance* pawn, const visual_entity_group& owned,
+									   attached_entity_group& attached) const;
 		bool group_fully_marked(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* bits, const visual_entity_group& group) const;
+		template<size_t max_count>
 		void withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* dont_transmit,
-							const visual_entity_group& group, int recipient_slot, hide_reason reason, std::chrono::steady_clock::time_point now);
-		void record_hidden_entity(CGameEntitySystem* system, size_t member_index, int edict, const visual_entity_group& group, int recipient_slot,
-								  hide_reason reason, std::chrono::steady_clock::time_point now);
+							const hidden_entity_group<CEntityHandle, max_count>& group, int recipient_slot, hide_reason reason,
+							std::chrono::steady_clock::time_point now);
+		template<size_t max_count>
+		void record_hidden_entity(CGameEntitySystem* system, size_t member_index, int edict, const hidden_entity_group<CEntityHandle, max_count>& group,
+								  int recipient_slot, hide_reason reason, std::chrono::steady_clock::time_point now);
 		bool capture(visibility_snapshot& value, float game_time);
 		bool capture_animated_capsules(CEntityInstance* pawn, uint32_t slot, player_state& player, std::chrono::steady_clock::time_point now);
 		bool capture_smokes(const std::array<CEntityInstance*, k_max_smoke_volumes>& entities, size_t count, bool overflow, float game_time,
@@ -287,6 +301,8 @@ namespace cs2fow
 		// Set from CheckTransmit when the recipient list looks structurally wrong;
 		// the game thread turns it into a disabled state until the next map.
 		std::atomic_bool transmit_layout_invalid_ {};
+		// The recipient lists were proven readable with guarded reads this map.
+		bool transmit_lists_verified_ {};
 		uint64_t snapshot_sequence_ {};
 		uint32_t active_worker_threads_ {};
 	};

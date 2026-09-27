@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -78,8 +79,9 @@ namespace cs2fow
 								   });
 	}
 
-	void plugin::record_hidden_entity(CGameEntitySystem* system, size_t member_index, int edict, const visual_entity_group& group, int recipient_slot,
-									  hide_reason reason, std::chrono::steady_clock::time_point now)
+	template<size_t max_count>
+	void plugin::record_hidden_entity(CGameEntitySystem* system, size_t member_index, int edict, const hidden_entity_group<CEntityHandle, max_count>& group,
+									  int recipient_slot, hide_reason reason, std::chrono::steady_clock::time_point now)
 	{
 		const CEntityHandle handle = group.handles[member_index];
 		char name[k_max_entity_name] {};
@@ -89,8 +91,10 @@ namespace cs2fow
 							 name);
 	}
 
+	template<size_t max_count>
 	void plugin::withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* dont_transmit,
-								const visual_entity_group& group, int recipient_slot, hide_reason reason, std::chrono::steady_clock::time_point now)
+								const hidden_entity_group<CEntityHandle, max_count>& group, int recipient_slot, hide_reason reason,
+								std::chrono::steady_clock::time_point now)
 	{
 		if (primary == nullptr || dont_transmit == nullptr)
 		{
@@ -182,6 +186,75 @@ namespace cs2fow
 		return true;
 	}
 
+	bool plugin::checktransmit_lists_readable(CCheckTransmitInfo** infos, int count) const
+	{
+		// Once per map, before anything is read directly: prove with guarded reads
+		// that the recipient array, each recipient record, and both entity lists are
+		// mapped memory. A CS2 update that changed these layouts fails here instead
+		// of faulting the server.
+		const auto readable = [](const void* address, size_t size)
+		{
+			if (address == nullptr)
+			{
+				return true;
+			}
+			const auto* first = static_cast<const std::byte*>(address);
+			uint32_t word = 0;
+			return runtime_compatibility::safe_read(first, &word, sizeof(word))
+				   && runtime_compatibility::safe_read(first + size - sizeof(word), &word, sizeof(word));
+		};
+		for (int i = 0; i < count; ++i)
+		{
+			CCheckTransmitInfo* info = nullptr;
+			if (!runtime_compatibility::safe_read(infos + i, &info, sizeof(info)))
+			{
+				return false;
+			}
+			if (info == nullptr)
+			{
+				continue;
+			}
+			static_assert(offsetof(CCheckTransmitInfo, m_pTransmitEntity) == 0 && offsetof(CCheckTransmitInfo, m_pTransmitAlways) == sizeof(void*));
+			CBitVec<MAX_EDICTS>* lists[2] {};
+			const size_t record_size = std::max<size_t>(compatibility_.recipient_slot_offset() + sizeof(int),
+														compatibility_.transmit_offsets().full_update_offset + sizeof(bool));
+			if (!readable(info, record_size) || !runtime_compatibility::safe_read(info, lists, sizeof(lists))
+				|| !readable(lists[0], sizeof(CBitVec<MAX_EDICTS>)) || !readable(lists[1], sizeof(CBitVec<MAX_EDICTS>)))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool plugin::checktransmit_recipients_consistent(CCheckTransmitInfo** infos, int count) const
+	{
+		// A live player always receives their own pawn. If a recipient's list lacks
+		// it, the slot or list offsets are wrong, and filtering would hide players
+		// from the wrong people; stop before any list is changed.
+		for (int i = 0; i < count; ++i)
+		{
+			const CCheckTransmitInfo* info = infos[i];
+			if (info == nullptr || info->m_pTransmitEntity == nullptr || info->m_pTransmitAlways == nullptr
+				|| read_checktransmit_full_update(info, compatibility_.transmit_offsets().full_update_offset))
+			{
+				continue;
+			}
+			int slot = -1;
+			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
+			if (slot < 0 || slot >= static_cast<int>(k_max_players))
+			{
+				continue;
+			}
+			const int own_pawn = entity_index(transmit_target_cache_[slot].pawn);
+			if (valid_networked_edict_index(own_pawn) && !info->m_pTransmitEntity->IsBitSet(own_pawn))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
 	void plugin::hook_check_transmit(CCheckTransmitInfo** infos, int count, CBitVec<MAX_EDICTS>&, CBitVec<MAX_EDICTS>&, const Entity2Networkable_t**,
 									 const uint16*, int)
 	{
@@ -189,6 +262,15 @@ namespace cs2fow
 			|| transmit_layout_invalid_.load(std::memory_order_relaxed))
 		{
 			return;
+		}
+		if (!transmit_lists_verified_)
+		{
+			if (!checktransmit_lists_readable(infos, count))
+			{
+				transmit_layout_invalid_.store(true);
+				return;
+			}
+			transmit_lists_verified_ = true;
 		}
 		if (!checktransmit_layout_plausible(infos, count))
 		{
@@ -254,6 +336,13 @@ namespace cs2fow
 			{
 				cache.group_key = make_current_visual_group_key(cache.group);
 			}
+			cache.attached_valid = cache.pawn != nullptr && collect_attached_entities(system, cache.pawn, cache.group, cache.attached);
+		}
+		if (!checktransmit_recipients_consistent(infos, count))
+		{
+			transmit_layout_invalid_.store(true);
+			record_timing();
+			return;
 		}
 		for (int i = 0; i < count; ++i)
 		{
@@ -319,16 +408,25 @@ namespace cs2fow
 					}
 					continue;
 				}
+				if (!cache.attached_valid)
+				{
+					// Something is attached that cannot be hidden with the player;
+					// withholding the player alone would orphan it on the client.
+					hidden_group_clear(stored_group);
+					continue;
+				}
 				if (!cache.group_valid)
 				{
 					if (hidden_group_quarantined(stored_group, now))
 					{
 						withhold_group(system, info->m_pTransmitEntity, dont_transmit, stored_group, slot, hide_reason::quarantine, now);
+						withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.attached, slot, hide_reason::quarantine, now);
 					}
 					continue;
 				}
 				hidden_group_store(stored_group, cache.group, now, k_hidden_entity_quarantine);
 				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.group, slot, hide_reason::current, now);
+				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.attached, slot, hide_reason::current, now);
 			}
 		}
 		record_timing();

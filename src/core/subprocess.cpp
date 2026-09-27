@@ -11,6 +11,7 @@
 #include <windows.h>
 #else
 #include <cerrno>
+#include <cstdio>
 #include <csignal>
 #include <cstring>
 #include <fcntl.h>
@@ -89,7 +90,14 @@ namespace cs2fow
 			return false;
 		}
 #else
-		if (setpriority(PRIO_PROCESS, 0, 10) != 0)
+		// Best effort: if memory runs out, the kernel should kill the baker, never
+		// the game server that started it.
+		if (FILE* oom = std::fopen("/proc/self/oom_score_adj", "w"); oom != nullptr)
+		{
+			std::fputs("1000", oom);
+			std::fclose(oom);
+		}
+		if (setpriority(PRIO_PROCESS, 0, 19) != 0)
 		{
 			error = std::string("could not lower process priority: ") + std::strerror(errno);
 			return false;

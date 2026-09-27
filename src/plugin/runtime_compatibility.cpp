@@ -168,6 +168,10 @@ namespace cs2fow
 		{
 			missing = {"animated capsules (hull-shaped body used)", "smoke occlusion", "HE event listener", "temporary LOS debug beams"};
 		}
+		if ((state == compatibility_state::limited || state == compatibility_state::compatible) && !scene_hierarchy_available())
+		{
+			missing.emplace_back("attached-entity hiding (only weapons, wearables, and hostages hide with a player)");
+		}
 		if (state == compatibility_state::compatible)
 		{
 			if (!smoke_available())
@@ -501,6 +505,9 @@ namespace cs2fow
 		require(fields_.has_death_info, "CCSPlayerPawn", "m_bHasDeathInfo");
 		require(fields_.death_info_time, "CCSPlayerPawn", "m_flDeathInfoTime");
 		require(fields_.carried_hostage_prop, "CCSPlayer_HostageServices", "m_hCarriedHostageProp");
+		scene_hierarchy_schema_available_ = optional(fields_.scene_node_owner, "CGameSceneNode", "m_pOwner")
+											&& optional(fields_.scene_node_child, "CGameSceneNode", "m_pChild")
+											&& optional(fields_.scene_node_next_sibling, "CGameSceneNode", "m_pNextSibling");
 		smoke_schema_available_ = optional(fields_.did_smoke_effect, "CSmokeGrenadeProjectile", "m_bDidSmokeEffect");
 		debug_beam_schema_available_ =
 			optional(fields_.beam_end_position, "CBeam", "m_vecEndPos") && optional(fields_.beam_width, "CBeam", "m_fWidth")

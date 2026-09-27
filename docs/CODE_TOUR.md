@@ -138,16 +138,17 @@ The finished immutable result contains its sequence, capture/completion times, c
 
 `hook_check_transmit` is deliberately conservative:
 
-1. Return without changes if CS2FOW is disabled, the map is not active, inputs are invalid, or the latest worker result is missing/stale.
+1. Return without changes if CS2FOW is disabled, the map is not active, inputs are invalid, or the latest worker result is missing/stale. On the map's first active call, read the recipient array, each recipient record, and both entity lists with guarded reads (`process_vm_readv` / `ReadProcessMemory`); unreadable memory or an implausible record stops filtering for the map.
 2. Lock `transmit_state_mutex_`. This protects lifecycle, pair-baseline, quarantined-group, and debug state shared with game-frame capture and console commands. Ray traversal and file work never run under this lock.
 3. First scan the recipients for CS2 full updates. For those recipients, clear stored hidden groups, but do not alter that full-update snapshot.
-4. Re-read live recipient/target lifecycles and visual groups. Any mismatch with the copied worker player fails open.
-5. Skip self, invalid players, and full-update snapshots. Skip teammates only when optional teammate filtering and `mp_teammates_are_enemies` are both disabled.
-6. Require a stable player pair and evidence that a complete current visual group was previously sent on an older worker sequence before the pair is allowed to hide.
-7. When hidden, store the exact visual group. For each member whose primary bit is set, set the matching bit through the existing second `CCheckTransmitInfo` pointer, locally treated as `dont_transmit`, and only then clear the primary bit.
-8. If either paired-list pointer is unavailable, change neither list and fail open. If a primary bit is already clear, leave both bits alone.
-9. If rays later say visible, stop withholding the current group and let ordinary snapshots handle it; CS2FOW does not wait for or request a full update.
-10. When a current group cannot be rebuilt, a still-valid quarantined old group may be withheld briefly through the same paired operation. Invalid handles/indexes are skipped rather than guessed.
+4. Re-read live recipient/target lifecycles and visual groups. Any mismatch with the copied worker player fails open. Also walk each target pawn's scene-node children: every other networked entity attached below it joins an "attached" list that is withheld together with the group, and a hierarchy that cannot be fully accounted for (walk budget, capacity, unresolvable owner, another player attached) reveals that target.
+5. Require every live recipient's own pawn to be set in its primary list. A missing own pawn means the recipient slot or list layout is wrong, so filtering stops for the map before any list is changed.
+6. Skip self, invalid players, and full-update snapshots. Skip teammates only when optional teammate filtering and `mp_teammates_are_enemies` are both disabled.
+7. Require a stable player pair and evidence that a complete current visual group was previously sent on an older worker sequence before the pair is allowed to hide.
+8. When hidden, store the exact visual group. For each member whose primary bit is set, set the matching bit through the existing second `CCheckTransmitInfo` pointer, locally treated as `dont_transmit`, and only then clear the primary bit.
+9. If either paired-list pointer is unavailable, change neither list and fail open. If a primary bit is already clear, leave both bits alone.
+10. If rays later say visible, stop withholding the current group and let ordinary snapshots handle it; CS2FOW does not wait for or request a full update.
+11. When a current group cannot be rebuilt, a still-valid quarantined old group may be withheld briefly through the same paired operation. Invalid handles/indexes are skipped rather than guessed.
 
 Those are the only two lists CS2FOW changes. Full-update snapshots, `+16` out-of-PVS updates, and `+24` HLTV storage are untouched. Valve mode `0` uses its compatibility behavior; mode `1` consumes the explicit `dont_transmit` information maintained by the same code.
 

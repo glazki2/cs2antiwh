@@ -1232,8 +1232,67 @@ namespace
 
 } // namespace
 
+namespace
+{
+
+	struct fake_scene_node
+	{
+		fake_scene_node* child {};
+		fake_scene_node* next {};
+		int id {};
+	};
+
+	void test_scene_descendant_walk()
+	{
+		using namespace cs2fow;
+		const auto next = [](fake_scene_node* node) { return node->next; };
+		const auto child = [](fake_scene_node* node) { return node->child; };
+		std::vector<int> seen;
+		const auto record = [&](fake_scene_node* node)
+		{
+			seen.push_back(node->id);
+			return true;
+		};
+
+		// root -> {a -> {c}, b}: every descendant once, root itself never.
+		fake_scene_node c {nullptr, nullptr, 3};
+		fake_scene_node b {nullptr, nullptr, 2};
+		fake_scene_node a {&c, &b, 1};
+		assert(walk_scene_descendants<8>(&a, next, child, record));
+		std::sort(seen.begin(), seen.end());
+		assert((seen == std::vector<int> {1, 2, 3}));
+
+		seen.clear();
+		assert(walk_scene_descendants<8>(static_cast<fake_scene_node*>(nullptr), next, child, record) && seen.empty());
+
+		// A cyclic sibling list must stop at the budget instead of spinning.
+		fake_scene_node loop_a {nullptr, nullptr, 1};
+		fake_scene_node loop_b {nullptr, &loop_a, 2};
+		loop_a.next = &loop_b;
+		assert(!walk_scene_descendants<16>(&loop_a, next, child, [](fake_scene_node*) { return true; }));
+		fake_scene_node self_child {nullptr, nullptr, 1};
+		self_child.child = &self_child;
+		assert(!walk_scene_descendants<16>(&self_child, next, child, [](fake_scene_node*) { return true; }));
+
+		// More nodes than the budget fails open; exactly the budget passes.
+		std::array<fake_scene_node, 9> chain {};
+		for (size_t index = 0; index + 1 < chain.size(); ++index)
+		{
+			chain[index].next = &chain[index + 1];
+		}
+		assert(!walk_scene_descendants<8>(&chain[0], next, child, [](fake_scene_node*) { return true; }));
+		chain[7].next = nullptr;
+		assert(walk_scene_descendants<8>(&chain[0], next, child, [](fake_scene_node*) { return true; }));
+
+		// A visitor that rejects a node ends the walk with failure.
+		assert(!walk_scene_descendants<8>(&a, next, child, [](fake_scene_node* node) { return node->id != 3; }));
+	}
+
+} // namespace
+
 void run_visibility_and_transmit_tests()
 {
+	test_scene_descendant_walk();
 	test_visibility_pair_eligibility();
 	test_smoke_occlusion();
 	test_visibility_sampling();

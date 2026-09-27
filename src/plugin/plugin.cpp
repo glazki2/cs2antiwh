@@ -641,6 +641,7 @@ namespace cs2fow
 		source_ = {};
 		reset_transmit_state();
 		transmit_layout_invalid_.store(false);
+		transmit_lists_verified_ = false;
 		map_ = map;
 		if (!compatibility_.valid())
 		{

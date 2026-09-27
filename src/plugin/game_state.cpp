@@ -91,10 +91,39 @@ namespace cs2fow
 			error = "limited mode: entity system offset does not point at the game entity system";
 			return false;
 		}
-		CEntityInstance* world = static_cast<CGameEntitySystem*>(system_pointer)->GetEntityInstance(CEntityIndex(0));
-		const char* name = world != nullptr && world->m_pEntity != nullptr ? world->m_pEntity->GetClassname() : nullptr;
+		// Walk entity 0 with guarded reads only, so an entity-list layout that moved
+		// in a CS2 update fails this check instead of faulting the server.
+		auto* system = static_cast<CGameEntitySystem*>(system_pointer);
+		CEntityIdentity* identity = nullptr;
+		CEntityInstance* world = nullptr;
+		CEntityHandle handle;
+		CEntityIdentity* back_pointer = nullptr;
+		const char* name_pointer = nullptr;
+		static_assert(sizeof(CUtlSymbolLarge) == sizeof(const char*));
+		if (!runtime_compatibility::safe_read(&system->m_EntityList.m_pIdentityChunks[0], &identity, sizeof(identity)) || identity == nullptr
+			|| !runtime_compatibility::safe_read(&identity->m_pInstance, &world, sizeof(world)) || world == nullptr
+			|| !runtime_compatibility::safe_read(&identity->m_EHandle, &handle, sizeof(handle)) || handle.GetEntryIndex() != 0
+			|| !runtime_compatibility::safe_read(&world->m_pEntity, &back_pointer, sizeof(back_pointer)) || back_pointer != identity
+			|| !runtime_compatibility::safe_read(&identity->m_designerName, &name_pointer, sizeof(name_pointer)) || name_pointer == nullptr)
+		{
+			error = "limited mode: the entity list does not have the expected layout";
+			return false;
+		}
+		char name[16] {};
+		for (size_t index = 0; index + 1 < sizeof(name); ++index)
+		{
+			if (!runtime_compatibility::safe_read(name_pointer + index, &name[index], 1))
+			{
+				error = "limited mode: the world entity name is unreadable";
+				return false;
+			}
+			if (name[index] == '\0')
+			{
+				break;
+			}
+		}
 		// CS2 registers the world as "worldent"; "worldspawn" is its map-file name.
-		if (name == nullptr || (std::strcmp(name, "worldent") != 0 && std::strcmp(name, "worldspawn") != 0))
+		if (std::strcmp(name, "worldent") != 0 && std::strcmp(name, "worldspawn") != 0)
 		{
 			error = "limited mode: entity 0 is not the world entity";
 			return false;
@@ -338,6 +367,56 @@ namespace cs2fow
 			return false;
 		}
 		return group.count != 0;
+	}
+
+	bool plugin::collect_attached_entities(CGameEntitySystem* system, CEntityInstance* pawn_entity, const visual_entity_group& owned,
+										   attached_entity_group& attached) const
+	{
+		hidden_group_clear(attached);
+		if (!compatibility_.scene_hierarchy_available())
+		{
+			return true;
+		}
+		if (system == nullptr || pawn_entity == nullptr)
+		{
+			return false;
+		}
+		void* body_component = field<void*>(pawn_entity, compatibility_.fields().body_component);
+		void* root = body_component == nullptr ? nullptr : field<void*>(body_component, compatibility_.fields().scene_node);
+		if (root == nullptr)
+		{
+			return false;
+		}
+		attached.source = entity_handle(pawn_entity);
+		const auto next_sibling = [&](void* node) { return field<void*>(node, compatibility_.fields().scene_node_next_sibling); };
+		const auto child_of = [&](void* node) { return field<void*>(node, compatibility_.fields().scene_node_child); };
+		const auto visit = [&](void* node)
+		{
+			CEntityInstance* owner = field<CEntityInstance*>(node, compatibility_.fields().scene_node_owner);
+			if (owner == nullptr || owner == pawn_entity)
+			{
+				return true;
+			}
+			const CEntityHandle handle = entity_handle(owner);
+			if (!handle.IsValid() || system->GetEntityInstance(handle) != owner)
+			{
+				return false;
+			}
+			if (!valid_networked_edict_index(entity_index(owner)) || hidden_group_contains(owned, handle))
+			{
+				return true;
+			}
+			// Never withhold another player riding on this one: that player may be
+			// the recipient, who must always receive their own pawn.
+			const char* classname = owner->m_pEntity->GetClassname();
+			if (classname == nullptr || std::strcmp(classname, "player") == 0)
+			{
+				return false;
+			}
+			return hidden_group_append_unique(attached, handle);
+		};
+		// Anything the walk cannot account for reveals the player instead.
+		return walk_scene_descendants<k_max_scene_nodes_walked>(child_of(root), next_sibling, child_of, visit);
 	}
 
 	bool plugin::capture_animated_capsules(CEntityInstance* pawn, uint32_t slot, player_state& player, std::chrono::steady_clock::time_point now)
