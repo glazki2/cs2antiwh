@@ -592,8 +592,18 @@ namespace cs2fow
 		};
 		if (!check_executable(baker))
 		{
-			disable("baker missing execute permission (chmod +x " + baker.string() + ")");
-			return;
+			// Hosting panels often drop the execute bit when they unpack a zip.
+			std::error_code ec;
+			std::filesystem::permissions(baker,
+										 std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec
+											 | std::filesystem::perms::others_exec,
+										 std::filesystem::perm_options::add, ec);
+			if (ec || !check_executable(baker))
+			{
+				disable("baker missing execute permission (chmod +x " + baker.string() + ")");
+				return;
+			}
+			META_CONPRINTF("[CS2FOW] restored execute permission on %s\n", baker.string().c_str());
 		}
 #endif
 		disabled_reason_ = "automatic bake in progress";

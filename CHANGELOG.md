@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- On Linux, restore the execute bit on `tools/cs2fow_baker` when it is missing instead of disabling the map. Hosting-panel file managers drop it when they unpack the package zip, which left protection off with `baker missing execute permission`.
+
 ## 0.4.1
 
 - Hide networked entities attached below a hidden player (for example another plugin's glow prop, hat, or trail) together with that player. Before, only weapons, wearables, and a carried hostage were withheld, so an attached entity could stay on the client without its parent, which is a known way to crash CS2 clients, and it also showed where the player was. A hierarchy that cannot be fully accounted for, or has another player attached, reveals the player instead.
