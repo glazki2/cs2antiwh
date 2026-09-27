@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Limited mode now validates the entity system on the map's first simulated frame instead of at activation. A map whose bake already existed activated while the level was still loading, before the world entity was spawned, so the check failed and protection stayed off for that map after every server restart; only freshly baked maps (activated later) were protected.
+- Every reason that turns protection off for a map is now printed to the server console as `[CS2FOW] protection off: ...`, so a silent failure like the one above shows up in the log.
+
 ## 0.4.2
 
 - On Linux, restore the execute bit on `tools/cs2fow_baker` when it is missing instead of disabling the map. Hosting-panel file managers drop it when they unpack the package zip, which left protection off with `baker missing execute permission`.

@@ -154,8 +154,8 @@ namespace cs2fow
 		}
 		if (!compatibility_.valid())
 		{
+			META_CONPRINTF("[CS2FOW] compatibility state: %s\n", compatibility_state_name(compatibility_.report().state));
 			disable(compatibility_.report().technical_detail);
-			META_CONPRINTF("[CS2FOW] %s: %s\n", compatibility_state_name(compatibility_.report().state), disabled_reason_.c_str());
 		}
 		else if (!compatibility_.smoke_available())
 		{
@@ -258,6 +258,7 @@ namespace cs2fow
 		data_ = {};
 		source_ = {};
 		reset_transmit_state();
+		limited_validation_pending_ = false;
 		map_.clear();
 		pending_map_.clear();
 		if (settings::cancel_load())
@@ -276,7 +277,9 @@ namespace cs2fow
 		destroy_los_debug_beams();
 		data_ = {};
 		reset_transmit_state();
+		limited_validation_pending_ = false;
 		disabled_reason_ = std::move(reason);
+		META_CONPRINTF("[CS2FOW] protection off: %s\n", disabled_reason_.c_str());
 	}
 
 	bool plugin::resolve_map_source(const std::string& map, map_source& source, std::string& error) const
@@ -368,12 +371,6 @@ namespace cs2fow
 				disable("CS2 server build differs from verified gamedata and cs2fow_limited_mode is 0");
 				return;
 			}
-			std::string error;
-			if (!validate_limited_runtime(error))
-			{
-				disable(error);
-				return;
-			}
 		}
 		data_ = std::move(data);
 		active_worker_threads_ = static_cast<uint32_t>(settings::current().worker_threads);
@@ -383,9 +380,44 @@ namespace cs2fow
 			disable("could not start visibility worker threads");
 			return;
 		}
+		if (compatibility_.limited())
+		{
+			// A map whose bake already exists activates while the level is still
+			// loading, before the world entity is spawned. Limited mode validates the
+			// entity system on the first simulated frame instead.
+			limited_validation_pending_ = true;
+			limited_validation_attempts_ = 0;
+			disabled_reason_ = "validating map";
+			return;
+		}
+		announce_active();
+	}
+
+	void plugin::announce_active()
+	{
 		disabled_reason_.clear();
 		META_CONPRINTF("[CS2FOW] active for %s: crc=0x%08x, triangles=%u, nodes=%u, packets=%u\n", map_.c_str(), data_.header.source_crc32,
 					   data_.header.triangle_count, data_.header.node_count, data_.header.packet_count);
+	}
+
+	void plugin::finish_limited_validation(bool simulating)
+	{
+		if (!limited_validation_pending_ || !simulating)
+		{
+			return;
+		}
+		std::string error;
+		if (validate_limited_runtime(error))
+		{
+			limited_validation_pending_ = false;
+			announce_active();
+			return;
+		}
+		// Give a map that is still settling a few seconds before giving up.
+		if (++limited_validation_attempts_ >= k_limited_validation_attempts)
+		{
+			disable(error);
+		}
 	}
 
 	void plugin::request_map_change(const std::string& map)
@@ -401,6 +433,7 @@ namespace cs2fow
 		data_ = {};
 		source_ = {};
 		reset_transmit_state();
+		limited_validation_pending_ = false;
 		pending_map_ = map;
 		disabled_reason_ = "loading configuration";
 		if (settings::loading())
@@ -627,8 +660,7 @@ namespace cs2fow
 		}
 		if (!completion.success)
 		{
-			disable("automatic bake failed: " + completion.error);
-			META_CONPRINTF("[CS2FOW] automatic bake failed for %s: %s\n", map_.c_str(), completion.error.c_str());
+			disable("automatic bake failed for " + map_ + ": " + completion.error);
 			return;
 		}
 		map_source current;
@@ -652,6 +684,7 @@ namespace cs2fow
 		reset_transmit_state();
 		transmit_layout_invalid_.store(false);
 		transmit_lists_verified_ = false;
+		limited_validation_pending_ = false;
 		map_ = map;
 		if (!compatibility_.valid())
 		{
@@ -701,8 +734,8 @@ namespace cs2fow
 		if (transmit_layout_invalid_.load() && disabled_reason_.empty())
 		{
 			disable("CheckTransmit recipient layout check failed; filtering stays off until the next map");
-			META_CONPRINTF("[CS2FOW] %s\n", disabled_reason_.c_str());
 		}
+		finish_limited_validation(simulating);
 		const runtime_configuration& configuration = settings::current();
 		if (!simulating || !configuration.enable || !disabled_reason_.empty())
 		{

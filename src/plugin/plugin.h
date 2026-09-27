@@ -50,6 +50,7 @@ namespace cs2fow
 	inline constexpr uint8_t k_team_ct = 3;
 	inline constexpr auto k_lifecycle_fail_open = std::chrono::milliseconds(1000);
 	inline constexpr auto k_hidden_entity_quarantine = std::chrono::milliseconds(3000);
+	inline constexpr uint32_t k_limited_validation_attempts = 256;
 	static_assert(MAX_EDICTS == 16384);
 
 	class game_resource_service
@@ -216,6 +217,8 @@ namespace cs2fow
 		void draw_los_debug(const visibility_snapshot& value);
 		void destroy_los_debug_beams(bool remove_entities = true);
 		void activate(bvh8_data data);
+		void announce_active();
+		void finish_limited_validation(bool simulating);
 		void request_map_change(const std::string& map);
 		void finish_config_load(bool success);
 		void change_map(const std::string& map);
@@ -303,6 +306,9 @@ namespace cs2fow
 		std::atomic_bool transmit_layout_invalid_ {};
 		// The recipient lists were proven readable with guarded reads this map.
 		bool transmit_lists_verified_ {};
+		// Limited mode validates the entity system on the first simulated frame.
+		bool limited_validation_pending_ {};
+		uint32_t limited_validation_attempts_ {};
 		uint64_t snapshot_sequence_ {};
 		uint32_t active_worker_threads_ {};
 	};
