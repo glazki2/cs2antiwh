@@ -9,7 +9,7 @@
 #include <cstring>
 #include <string_view>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct checktransmit_private_offsets
@@ -64,7 +64,7 @@ namespace cs2fow
 		return true;
 	}
 
-	// How a hidden entity is withheld from one recipient. Mode 0 is CS2FOW CE's
+	// How a hidden entity is withheld from one recipient. Mode 0 is the original
 	// paired update; the others exist to find what a CS2 build actually honours
 	// when hiding does not reach the client, and are switched with a convar.
 	enum class transmit_mode : int
@@ -115,4 +115,4 @@ namespace cs2fow
 		return false;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

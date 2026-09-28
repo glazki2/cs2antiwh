@@ -4,7 +4,7 @@
 #include <cctype>
 #include <string_view>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	bool physics_group_accepted(const std::vector<std::string>& tags, const std::string& surface_property)
@@ -40,4 +40,4 @@ namespace cs2fow
 		return std::any_of(std::begin(opaque), std::end(opaque), [&surface](std::string_view value) { return surface.starts_with(value); });
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

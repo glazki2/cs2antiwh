@@ -8,7 +8,7 @@
 #include <array>
 #include <cstdint>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	inline constexpr uint32_t k_visibility_origin_count_max = 6;
@@ -99,4 +99,4 @@ namespace cs2fow
 	bool visibility_muzzle_point(const visibility_player& player, vec3& point);
 	std::array<vec3, k_visibility_aabb_point_count> visibility_aabb_points(const visibility_player& player);
 
-} // namespace cs2fow
+} // namespace cs2glaz

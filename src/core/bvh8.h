@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct vec3
@@ -139,4 +139,4 @@ namespace cs2fow
 		return ref & k_leaf_index_mask;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

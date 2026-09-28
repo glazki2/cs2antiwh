@@ -15,7 +15,7 @@
 #include <string>
 #include <thread>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct bake_request
@@ -58,4 +58,4 @@ namespace cs2fow
 		bool running_ {};
 	};
 
-} // namespace cs2fow
+} // namespace cs2glaz

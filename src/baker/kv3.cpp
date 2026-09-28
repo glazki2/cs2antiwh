@@ -15,7 +15,7 @@
 #include <new>
 #include <type_traits>
 
-namespace cs2fow::kv3
+namespace cs2glaz::kv3
 {
 	namespace
 	{
@@ -1200,4 +1200,4 @@ namespace cs2fow::kv3
 		}
 	}
 
-} // namespace cs2fow::kv3
+} // namespace cs2glaz::kv3

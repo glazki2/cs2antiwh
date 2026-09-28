@@ -1,9 +1,9 @@
 # vim: set sts=2 ts=2 sw=2 et:
 
-function(CS2FOW_add_package target)
+function(CS2GLAZ_add_package target)
     set(_package_dir "${CMAKE_BINARY_DIR}/package")
     set(_addons_root "${_package_dir}/game/csgo/addons")
-    set(_plugin_root "${_addons_root}/cs2fow")
+    set(_plugin_root "${_addons_root}/cs2glaz")
     set(_metamod_dir "${_addons_root}/metamod")
     set(_cfg_dir "${_package_dir}/game/csgo/cfg")
 
@@ -22,27 +22,27 @@ function(CS2FOW_add_package target)
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_bin_dir}"
             COMMAND ${CMAKE_COMMAND} -E copy
             "$<TARGET_FILE:${target}>"
-            "${_bin_dir}/cs2fow$<TARGET_FILE_SUFFIX:${target}>"
-            COMMENT "cs2fow: coping .dll/.so in package/"
+            "${_bin_dir}/cs2glaz$<TARGET_FILE_SUFFIX:${target}>"
+            COMMENT "cs2glaz: coping .dll/.so in package/"
     )
 
 
     add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_gamedata_dir}"
             COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_SOURCE_DIR}/gamedata/cs2fow.games.txt"
-            "${_gamedata_dir}/cs2fow.games.txt"
+            "${CMAKE_SOURCE_DIR}/gamedata/cs2glaz.games.txt"
+            "${_gamedata_dir}/cs2glaz.games.txt"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_cfg_dir}"
             COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_SOURCE_DIR}/cfg/cs2fow.cfg"
-            "${_cfg_dir}/cs2fow.cfg"
-            COMMENT "cs2fow: coping gamedata/cfg in package/"
+            "${CMAKE_SOURCE_DIR}/cfg/cs2glaz.cfg"
+            "${_cfg_dir}/cs2glaz.cfg"
+            COMMENT "cs2glaz: coping gamedata/cfg in package/"
     )
 
 
     add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_translations_dir}"
-            COMMENT "cs2fow: coping translations in package/"
+            COMMENT "cs2glaz: coping translations in package/"
     )
     file(GLOB _translation_files
             "${CMAKE_SOURCE_DIR}/translations/*.txt"
@@ -63,12 +63,12 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md")
   list(APPEND _optional_docs "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md")
 endif()
 
-# Collect license files that actually exist (adjust the source list to cs2fow).
+# Collect license files that actually exist (adjust the source list to cs2glaz).
 set(_license_sources
   "${CMAKE_SOURCE_DIR}/LICENSE"
-  "${CS2FOW_THIRD_PARTY_ROOT}/masked_occlusion_culling/LICENSE"
-  "${CS2FOW_FUNCHOOK_ROOT}/LICENSE"
-  # add/remove entries to match what cs2fow really vendors
+  "${CS2GLAZ_THIRD_PARTY_ROOT}/masked_occlusion_culling/LICENSE"
+  "${CS2GLAZ_FUNCHOOK_ROOT}/LICENSE"
+  # add/remove entries to match what cs2glaz really vendors
 )
 foreach(_lic ${_license_sources})
   if(EXISTS "${_lic}")
@@ -87,13 +87,13 @@ foreach(_doc ${_optional_docs})
   add_custom_command(TARGET ${target} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_licenses_dir}"
     COMMAND ${CMAKE_COMMAND} -E copy "${_doc}" "${_doc_dest}"
-    COMMENT "cs2fow: packaging ${_doc_name}"
+    COMMENT "cs2glaz: packaging ${_doc_name}"
   )
 endforeach()
 
     set(_licenses_dir "${_plugin_root}/licenses")
     set(_license_pairs
-            "${CMAKE_SOURCE_DIR}/LICENSE|cs2fow-AGPL-3.0.txt"
+            "${CMAKE_SOURCE_DIR}/LICENSE|cs2glaz-AGPL-3.0.txt"
             "${CMAKE_SOURCE_DIR}/licenses/CLIENTCVARVALUE-GPL-3.0.txt|CLIENTCVARVALUE-GPL-3.0.txt"
             "${CMAKE_SOURCE_DIR}/licenses/DYNLIBUTILS-MIT.txt|DYNLIBUTILS-MIT.txt"
             "${CMAKE_SOURCE_DIR}/licenses/CS2KZ-AGPL-3.0.txt|CS2KZ-AGPL-3.0.txt"
@@ -102,7 +102,7 @@ endforeach()
             "${CMAKE_SOURCE_DIR}/licenses/PICOSHA2-MIT.txt|PICOSHA2-MIT.txt"
             "${CMAKE_SOURCE_DIR}/licenses/MINIZ-MIT.txt|MINIZ-MIT.txt"
             "${CMAKE_SOURCE_DIR}/metamod-source/LICENSE.txt|METAMOD-SOURCE.txt"
-            "${CS2FOW_SDK_ROOT}/thirdparty/protobuf-3.21.8/LICENSE|PROTOBUF.txt"
+            "${CS2GLAZ_SDK_ROOT}/thirdparty/protobuf-3.21.8/LICENSE|PROTOBUF.txt"
     )
 
     set(_real_license_pairs "")
@@ -118,7 +118,7 @@ endforeach()
     if (_real_license_pairs)
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E make_directory "${_licenses_dir}"
-                COMMENT "cs2fow: packaging licenses to package/"
+                COMMENT "cs2glaz: packaging licenses to package/"
         )
         foreach (_pair ${_real_license_pairs})
             string(REPLACE "|" ";" _pair_list "${_pair}")
@@ -132,13 +132,13 @@ endforeach()
 
 
     file(MAKE_DIRECTORY "${_metamod_dir}")
-    file(WRITE "${_metamod_dir}/cs2fow.vdf"
+    file(WRITE "${_metamod_dir}/cs2glaz.vdf"
             "\"Metamod Plugin\"
 {
-\t\"alias\"\t\"cs2fow\"
-\t\"file\"\t\"addons/cs2fow/bin/${_platform_folder}/cs2fow\"
+\t\"alias\"\t\"cs2glaz\"
+\t\"file\"\t\"addons/cs2glaz/bin/${_platform_folder}/cs2glaz\"
 }
 ")
 
-    message(STATUS "cs2fow: ${_package_dir}")
+    message(STATUS "cs2glaz: ${_package_dir}")
 endfunction()

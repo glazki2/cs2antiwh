@@ -31,7 +31,7 @@
 namespace
 {
 
-	using namespace cs2fow;
+	using namespace cs2glaz;
 
 	bvh8_data test_world(const std::vector<triangle>& triangles)
 	{
@@ -1271,7 +1271,7 @@ namespace
 
 	void test_scene_descendant_walk()
 	{
-		using namespace cs2fow;
+		using namespace cs2glaz;
 		const auto next = [](fake_scene_node* node) { return node->next; };
 		const auto child = [](fake_scene_node* node) { return node->child; };
 		std::vector<int> seen;
@@ -1334,7 +1334,7 @@ void run_visibility_and_transmit_tests()
 	test_hidden_entity_group();
 }
 
-double run_worker_benchmark(const cs2fow::bvh8_data& data, const std::string& label)
+double run_worker_benchmark(const cs2glaz::bvh8_data& data, const std::string& label)
 {
 	return benchmark_worker_loop(data, label);
 }

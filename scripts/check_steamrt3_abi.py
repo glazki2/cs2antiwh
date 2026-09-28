@@ -13,9 +13,9 @@ LIMITS = {"GLIBC": (2, 31), "GLIBCXX": (3, 4, 28), "CXXABI": (1, 3, 12)}
 
 def main() -> None:
   paths = [
-    ROOT / "build-linux/cs2fow/linux-x86_64/cs2fow.so",
-    ROOT / "build-linux/cs2fow_baker/linux-x86_64/cs2fow_baker",
-    ROOT / "build-linux/cs2fow_tests/linux-x86_64/cs2fow_tests",
+    ROOT / "build-linux/cs2glaz/linux-x86_64/cs2glaz.so",
+    ROOT / "build-linux/cs2glaz_baker/linux-x86_64/cs2glaz_baker",
+    ROOT / "build-linux/cs2glaz_tests/linux-x86_64/cs2glaz_tests",
   ]
   failures: list[str] = []
   for path in paths:

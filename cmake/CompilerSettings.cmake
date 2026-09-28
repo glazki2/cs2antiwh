@@ -1,14 +1,14 @@
 # vim: set sts=2 ts=2 sw=2 et:
 #
-# Common compiler/target configuration shared by cs2fow-protobuf and cs2fow.
+# Common compiler/target configuration shared by cs2glaz-protobuf and cs2glaz.
 # Mirrors AMBuildScript + SdkHelpers.configureCxx.
 
-function(cs2fow_configure_target target)
+function(cs2glaz_configure_target target)
   target_compile_features(${target} PRIVATE cxx_std_20)
 
   target_compile_definitions(${target} PRIVATE
-    ${CS2FOW_SE_DEFINES}
-    SOURCE_ENGINE=${CS2FOW_SDK_CODE}
+    ${CS2GLAZ_SE_DEFINES}
+    SOURCE_ENGINE=${CS2GLAZ_SDK_CODE}
     GAME_DLL
     RAD_TELEMETRY_DISABLED
     X64BITS
@@ -19,14 +19,14 @@ function(cs2fow_configure_target target)
   target_include_directories(${target} PRIVATE
     "${CMAKE_BINARY_DIR}/versioning"
     "${CMAKE_SOURCE_DIR}"
-    ${CS2FOW_SDK_INCLUDE_DIRS}
-    "${CS2FOW_MMS_ROOT}/core"
-    "${CS2FOW_MMS_ROOT}/third_party/khook/include"
+    ${CS2GLAZ_SDK_INCLUDE_DIRS}
+    "${CS2GLAZ_MMS_ROOT}/core"
+    "${CS2GLAZ_MMS_ROOT}/third_party/khook/include"
   )
 
   # IMPORTANT: convar.cpp / memoverride.cpp are NOT added here. They are listed
-  # explicitly in the cs2fow plugin target only. Putting them here would also
-  # compile them into cs2fow-protobuf, and since the plugin links that static
+  # explicitly in the cs2glaz plugin target only. Putting them here would also
+  # compile them into cs2glaz-protobuf, and since the plugin links that static
   # lib, the linker would see duplicate definitions (LNK2005).
 
   if(MSVC)
@@ -51,7 +51,7 @@ function(cs2fow_configure_target target)
       /wd4005 /wd4018 /wd4099 /wd4146 /wd4244 /wd4267 /wd5033 /wd5048
       /std:c++20 /Oy-
       /experimental:deterministic
-      /pathmap:${CMAKE_SOURCE_DIR}=cs2fow
+      /pathmap:${CMAKE_SOURCE_DIR}=cs2glaz
     )
 
     target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/TP>)
@@ -65,7 +65,7 @@ function(cs2fow_configure_target target)
   else()
     # Clang / GCC (Linux).
     target_compile_definitions(${target} PRIVATE
-      ${CS2FOW_SDK_LINUX_DEFINES}
+      ${CS2GLAZ_SDK_LINUX_DEFINES}
       _GNU_SOURCE
     )
 

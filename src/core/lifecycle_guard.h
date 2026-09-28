@@ -10,7 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct lifecycle_key
@@ -278,4 +278,4 @@ namespace cs2fow
 		return true;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

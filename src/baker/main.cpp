@@ -22,7 +22,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
@@ -354,10 +354,10 @@ namespace cs2fow
 			arguments args;
 			if (!parse_arguments(argv, args))
 			{
-				std::cerr << "usage: cs2fow_baker --game <cs2-root> --map <name> [--vpk <file>] [--low-priority] [--output <file>] "
+				std::cerr << "usage: cs2glaz_baker --game <cs2-root> --map <name> [--vpk <file>] [--low-priority] [--output <file>] "
 							 "[--compare-glb <physics.glb>] [--debug-obj <file>] [--studio-surfaces <file>]\n"
-						  << "       cs2fow_baker --list-maps --vpk <file>\n"
-						  << "       cs2fow_baker --inspect-bvh8 <file>\n";
+						  << "       cs2glaz_baker --list-maps --vpk <file>\n"
+						  << "       cs2glaz_baker --inspect-bvh8 <file>\n";
 				return 2;
 			}
 			if (!args.inspect_bvh8.empty())
@@ -366,7 +366,7 @@ namespace cs2fow
 				std::string error;
 				if (!load_bvh8(args.inspect_bvh8, data, error))
 				{
-					std::cerr << "cs2fow_baker: " << error << '\n';
+					std::cerr << "cs2glaz_baker: " << error << '\n';
 					return 1;
 				}
 				const bvh8_header& header = data.header;
@@ -383,7 +383,7 @@ namespace cs2fow
 				std::string error;
 				if (!list_vpk_maps(args.vpk, maps, error))
 				{
-					std::cerr << "cs2fow_baker: " << error << '\n';
+					std::cerr << "cs2glaz_baker: " << error << '\n';
 					return 1;
 				}
 				for (const std::string& map : maps)
@@ -394,7 +394,7 @@ namespace cs2fow
 			}
 			if (!valid_map_name(args.map))
 			{
-				std::cerr << "cs2fow_baker: map name is not a safe relative path\n";
+				std::cerr << "cs2glaz_baker: map name is not a safe relative path\n";
 				return 2;
 			}
 			if (args.low_priority)
@@ -402,7 +402,7 @@ namespace cs2fow
 				std::string priority_error;
 				if (!lower_process_priority(priority_error))
 				{
-					std::cerr << "cs2fow_baker: warning: " << priority_error << '\n';
+					std::cerr << "cs2glaz_baker: warning: " << priority_error << '\n';
 				}
 			}
 			const std::filesystem::path vpk = args.vpk.empty() ? args.game / "game" / "csgo" / "maps" / (args.map + ".vpk") : args.vpk;
@@ -411,23 +411,23 @@ namespace cs2fow
 			std::string error;
 			if (!find_map_source(vpk, args.map, source, error))
 			{
-				std::cerr << "cs2fow_baker: " << error << '\n';
+				std::cerr << "cs2glaz_baker: " << error << '\n';
 				return 1;
 			}
 			const std::filesystem::path temporary =
-				std::filesystem::temp_directory_path() / ("cs2fow-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+				std::filesystem::temp_directory_path() / ("cs2glaz-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
 			std::filesystem::create_directories(temporary);
 			std::filesystem::path map_vpk = vpk;
 			if (source.flags == k_bvh8_flag_nested_map_vpk && !extract_nested_map(source, temporary, map_vpk, error))
 			{
-				std::cerr << "cs2fow_baker: " << error << '\n';
+				std::cerr << "cs2glaz_baker: " << error << '\n';
 				std::filesystem::remove_all(temporary);
 				return 1;
 			}
 			vpk_entry physics;
 			if (!find_vpk_entry(map_vpk, resource, physics, error))
 			{
-				std::cerr << "cs2fow_baker: " << error << '\n';
+				std::cerr << "cs2glaz_baker: " << error << '\n';
 				std::filesystem::remove_all(temporary);
 				return 1;
 			}
@@ -439,7 +439,7 @@ namespace cs2fow
 				|| !import_physics_resource_file(physics_file, triangles, report, error,
 												 args.studio_surfaces.empty() ? nullptr : &triangle_surfaces))
 			{
-				std::cerr << "cs2fow_baker: " << error << '\n';
+				std::cerr << "cs2glaz_baker: " << error << '\n';
 				std::filesystem::remove_all(temporary);
 				return 1;
 			}
@@ -448,14 +448,14 @@ namespace cs2fow
 			{
 				if (!compare_with_glb(args.compare_glb, report, error))
 				{
-					std::cerr << "cs2fow_baker: " << error << '\n';
+					std::cerr << "cs2glaz_baker: " << error << '\n';
 					return 1;
 				}
 				std::cout << args.map << ": native physics matches " << args.compare_glb.string() << '\n';
 			}
 			if (args.map == "de_ancient" && physics.crc32 == 0x85c89fb4u && (report.raw_triangles != 967742u || report.accepted_triangles != 958598u))
 			{
-				std::cerr << "cs2fow_baker: Ancient fixture triangle counts do not match (raw=" << report.raw_triangles
+				std::cerr << "cs2glaz_baker: Ancient fixture triangle counts do not match (raw=" << report.raw_triangles
 						  << ", accepted=" << report.accepted_triangles << ")\n";
 				return 1;
 			}
@@ -463,7 +463,7 @@ namespace cs2fow
 			std::vector<uint32_t> packet_sources;
 			if (!build_bvh8(triangles, data, error, args.studio_surfaces.empty() ? nullptr : &packet_sources))
 			{
-				std::cerr << "cs2fow_baker: " << error << '\n';
+				std::cerr << "cs2glaz_baker: " << error << '\n';
 				return 1;
 			}
 			data.header.flags = source.flags;
@@ -472,31 +472,31 @@ namespace cs2fow
 			std::copy_n(args.map.c_str(), std::min(args.map.size(), sizeof(data.header.map_name) - 1u), data.header.map_name);
 			if (!write_bvh8(args.output, data, error))
 			{
-				std::cerr << "cs2fow_baker: " << error << '\n';
+				std::cerr << "cs2glaz_baker: " << error << '\n';
 				return 1;
 			}
 			bvh8_data verified;
 			if (!load_bvh8(args.output, verified, error) || verified.header.payload_crc32 != data.header.payload_crc32)
 			{
-				std::cerr << "cs2fow_baker: output validation failed: " << error << '\n';
+				std::cerr << "cs2glaz_baker: output validation failed: " << error << '\n';
 				return 1;
 			}
 			if (!args.studio_surfaces.empty()
 				&& !write_surface_sidecar(args.studio_surfaces, args.map, data, triangle_surfaces, packet_sources, error))
 			{
-				std::cerr << "cs2fow_baker: " << error << '\n';
+				std::cerr << "cs2glaz_baker: " << error << '\n';
 				return 1;
 			}
 			if (!args.debug_obj.empty() && !write_obj(args.debug_obj, triangles, error))
 			{
-				std::cerr << "cs2fow_baker: " << error << '\n';
+				std::cerr << "cs2glaz_baker: " << error << '\n';
 				return 1;
 			}
 			std::filesystem::path report_path = args.output;
 			report_path.replace_extension(".json");
 			if (!write_report(report_path, args, source, physics, report, data, error))
 			{
-				std::cerr << "cs2fow_baker: " << error << '\n';
+				std::cerr << "cs2glaz_baker: " << error << '\n';
 				return 1;
 			}
 			std::cout << args.map << ": crc=0x" << std::hex << source.metadata.crc32 << std::dec << ", raw=" << report.raw_triangles
@@ -506,7 +506,7 @@ namespace cs2fow
 		}
 
 	} // namespace
-} // namespace cs2fow
+} // namespace cs2glaz
 
 template<typename character>
 int run_main(int argc, character** argv)
@@ -517,7 +517,7 @@ int run_main(int argc, character** argv)
 	{
 		arguments.emplace_back(argv[i]);
 	}
-	return cs2fow::run(arguments);
+	return cs2glaz::run(arguments);
 }
 
 #if defined(_WIN32)

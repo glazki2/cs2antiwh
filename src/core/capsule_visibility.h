@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <span>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	enum class capsule_query_result : uint8_t
@@ -52,4 +52,4 @@ namespace cs2fow
 													 std::chrono::steady_clock::time_point deadline, const std::atomic_bool* stopping = nullptr,
 													 capsule_query_stats* stats = nullptr, capsule_occluder_cache* occluder_cache = nullptr);
 
-} // namespace cs2fow
+} // namespace cs2glaz

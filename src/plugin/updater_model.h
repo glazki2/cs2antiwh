@@ -9,7 +9,7 @@
 #include <string_view>
 #include <system_error>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct semantic_version
@@ -108,7 +108,7 @@ namespace cs2fow
 			++end;
 		}
 		const std::string_view name = line.substr(start, end - start);
-		return name.rfind("cs2fow_", 0) == 0 || name == "sv_enable_donttransmit" || name == "mp_playerid" ? name : std::string_view {};
+		return name.rfind("cs2glaz_", 0) == 0 || name == "sv_enable_donttransmit" || name == "mp_playerid" ? name : std::string_view {};
 	}
 
 	inline bool safe_update_archive_path(std::string_view path)
@@ -131,9 +131,9 @@ namespace cs2fow
 			}
 			start = end + 1;
 		}
-		return path.rfind("addons/cs2fow/", 0) == 0 || path.rfind("tools/", 0) == 0 || path.rfind("licenses/", 0) == 0
-			   || path == "addons/metamod/cs2fow.vdf" || path == "cfg/cs2fow.cfg" || path == "LICENSE" || path == "THIRD_PARTY_NOTICES"
+		return path.rfind("addons/cs2glaz/", 0) == 0 || path.rfind("tools/", 0) == 0 || path.rfind("licenses/", 0) == 0
+			   || path == "addons/metamod/cs2glaz.vdf" || path == "cfg/cs2glaz.cfg" || path == "LICENSE" || path == "THIRD_PARTY_NOTICES"
 			   || path == "CHANGELOG.md" || path == "README.md";
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

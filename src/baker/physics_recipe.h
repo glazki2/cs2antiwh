@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct physics_group_report
@@ -29,4 +29,4 @@ namespace cs2fow
 
 	bool physics_group_accepted(const std::vector<std::string>& tags, const std::string& surface_property);
 
-} // namespace cs2fow
+} // namespace cs2glaz

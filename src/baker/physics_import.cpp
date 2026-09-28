@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <utility>
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
@@ -909,4 +909,4 @@ namespace cs2fow
 		return import_physics_resource(bytes, triangles, report, error, triangle_surfaces);
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

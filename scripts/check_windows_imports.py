@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main() -> None:
   paths = (
-    ROOT / "build/cs2fow/windows-x86_64/cs2fow.dll",
-    ROOT / "build/cs2fow_baker/windows-x86_64/cs2fow_baker.exe",
-    ROOT / "build/cs2fow_tests/windows-x86_64/cs2fow_tests.exe",
+    ROOT / "build/cs2glaz/windows-x86_64/cs2glaz.dll",
+    ROOT / "build/cs2glaz_baker/windows-x86_64/cs2glaz_baker.exe",
+    ROOT / "build/cs2glaz_tests/windows-x86_64/cs2glaz_tests.exe",
   )
   forbidden = ("VCRUNTIME140D", "MSVCP140D", "ucrtbased")
   for path in paths:

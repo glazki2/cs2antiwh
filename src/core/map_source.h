@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct map_source
@@ -29,4 +29,4 @@ namespace cs2fow
 	bool find_map_source(const std::filesystem::path& vpk, const std::string& map, map_source& source, std::string& error);
 	bool same_map_source(const map_source& left, const map_source& right);
 
-} // namespace cs2fow
+} // namespace cs2glaz

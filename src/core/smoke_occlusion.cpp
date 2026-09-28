@@ -5,7 +5,7 @@
 #include <cstring>
 #include <limits>
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
@@ -291,4 +291,4 @@ namespace cs2fow
 		return false;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

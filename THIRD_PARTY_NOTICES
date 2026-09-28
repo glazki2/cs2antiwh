@@ -1,4 +1,4 @@
-CS2FOW contains or adapts the following third-party work:
+CS2GLAZ contains or adapts the following third-party work:
 
 cgltf 1.15
 Copyright (c) 2018-2021 Johannes Kuhlmann
@@ -19,7 +19,7 @@ MIT License. Vendored from commit
 161cb3fc4170fa7a3eca9e582cebd27cc4d1fe29 for update-package SHA-256 checks.
 
 Metamod:Source and HL2SDK interfaces are consumed at build time and are not
-part of the CS2FOW license grant. See their upstream license files.
+part of the CS2GLAZ license grant. See their upstream license files.
 
 The CheckTransmit integration pattern is adapted from CS2KZ and CS2Fixes.
 Their source and license files are retained in the workspace references.
@@ -41,5 +41,5 @@ network_connection.pb.h is generated from Valve's HL2SDK protocol definition
 and is included only to compile the public engine interface declarations.
 
 Generated .bvh8 map data is derived from Counter-Strike 2 game data and is
-not licensed under the CS2FOW MIT license. Distribution requires compliance
+not licensed under the CS2GLAZ MIT license. Distribution requires compliance
 with Valve's applicable terms.

@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-using namespace cs2fow;
+using namespace cs2glaz;
 
 namespace
 {

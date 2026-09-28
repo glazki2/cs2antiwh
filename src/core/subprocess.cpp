@@ -22,7 +22,7 @@
 extern char** environ;
 #endif
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
@@ -422,4 +422,4 @@ namespace cs2fow
 		return true;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

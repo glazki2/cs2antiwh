@@ -11,10 +11,10 @@
 #include <string>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	bool import_physics_glb(const std::filesystem::path& path, std::vector<triangle>& triangles, import_report& report, std::string& error,
 							std::vector<std::string>* triangle_surfaces = nullptr);
 	
-} // namespace cs2fow
+} // namespace cs2glaz

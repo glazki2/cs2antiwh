@@ -22,7 +22,7 @@
 #include <thread>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	inline constexpr uint32_t k_max_players = 64;
@@ -202,4 +202,4 @@ namespace cs2fow
 		uint32_t recent_worker_next_ {};
 	};
 
-} // namespace cs2fow
+} // namespace cs2glaz

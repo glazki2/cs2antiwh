@@ -8,6 +8,6 @@ linux-x86_64:
     - bash scripts/build-linux.sh --install-tools
   artifacts:
     paths:
-      - packages/cs2fow-*-linux-x86_64.zip
+      - packages/cs2glaz-*-linux-x86_64.zip
       - packages/SHA256SUMS.txt
     expire_in: 1 week

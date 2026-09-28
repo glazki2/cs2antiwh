@@ -3,7 +3,7 @@
 #include <chrono>
 #include <cstdint>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct runtime_configuration
@@ -170,4 +170,4 @@ namespace cs2fow
 		std::chrono::steady_clock::time_point last_loaded_ {};
 	};
 
-} // namespace cs2fow
+} // namespace cs2glaz

@@ -33,7 +33,7 @@
 namespace
 {
 
-	using namespace cs2fow;
+	using namespace cs2glaz;
 
 	template<typename type>
 	void append(std::vector<std::byte>& bytes, type value)

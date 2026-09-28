@@ -8,7 +8,7 @@
 #include <cctype>
 #include <set>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	bool valid_map_name(std::string_view map)
@@ -147,4 +147,4 @@ namespace cs2fow
 		return left.flags == right.flags && left.metadata.crc32 == right.metadata.crc32 && left.metadata.size == right.metadata.size;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

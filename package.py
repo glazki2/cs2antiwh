@@ -22,9 +22,9 @@ PACKAGES = ROOT / "packages"
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 RELEASE_MANIFEST = ROOT / "release" / f"v{VERSION}-manifest.json"
 ARCHIVE_NAMES = {
-  "windows-x86_64": f"cs2fow-{VERSION}-windows-x86_64.zip",
-  "linux-x86_64": f"cs2fow-{VERSION}-linux-x86_64.zip",
-  "official-maps": f"cs2fow-{VERSION}-official-maps.zip",
+  "windows-x86_64": f"cs2glaz-{VERSION}-windows-x86_64.zip",
+  "linux-x86_64": f"cs2glaz-{VERSION}-linux-x86_64.zip",
+  "official-maps": f"cs2glaz-{VERSION}-official-maps.zip",
 }
 LICENSE_FILES = {
   ROOT / "third_party" / "cgltf.LICENSE": "cgltf.LICENSE",
@@ -101,35 +101,35 @@ def copy_common_files(out: Path) -> None:
   copy_file(ROOT / "THIRD_PARTY_NOTICES", out / "THIRD_PARTY_NOTICES")
   copy_file(ROOT / "CHANGELOG.md", out / "CHANGELOG.md")
   copy_file(ROOT / "README.md", out / "README.md")
-  copy_file(ROOT / "cfg" / "cs2fow.cfg", out / "cfg" / "cs2fow.cfg")
-  copy_file(ROOT / "gamedata" / "cs2fow.games.txt", out / "addons" / "cs2fow" / "gamedata" / "cs2fow.games.txt")
+  copy_file(ROOT / "cfg" / "cs2glaz.cfg", out / "cfg" / "cs2glaz.cfg")
+  copy_file(ROOT / "gamedata" / "cs2glaz.games.txt", out / "addons" / "cs2glaz" / "gamedata" / "cs2glaz.games.txt")
   for source, name in LICENSE_FILES.items():
     copy_file(source, out / "licenses" / name)
-  write_text(out / "addons" / "cs2fow" / "data" / "maps" / ".gitkeep", "")
+  write_text(out / "addons" / "cs2glaz" / "data" / "maps" / ".gitkeep", "")
 
 
 def build_core_package(platform: str, plugin_name: str, baker_name: str) -> Path:
-  out = package_root(f"cs2fow-{VERSION}-{platform}")
+  out = package_root(f"cs2glaz-{VERSION}-{platform}")
   copy_common_files(out)
-  copy_file(ROOT / plugin_name, out / "addons" / "cs2fow" / "bin" / Path(plugin_name).name)
+  copy_file(ROOT / plugin_name, out / "addons" / "cs2glaz" / "bin" / Path(plugin_name).name)
   copy_file(ROOT / baker_name, out / "tools" / Path(baker_name).name)
   write_text(
-    out / "addons" / "metamod" / "cs2fow.vdf",
-    '"Metamod Plugin"\n{\n  "alias"  "cs2fow"\n  "file"   "addons/cs2fow/bin/cs2fow"\n}\n',
+    out / "addons" / "metamod" / "cs2glaz.vdf",
+    '"Metamod Plugin"\n{\n  "alias"  "cs2glaz"\n  "file"   "addons/cs2glaz/bin/cs2glaz"\n}\n',
   )
 
   modes: dict[str, int] = {}
   if platform.startswith("linux"):
-    (out / "tools" / "cs2fow_baker").chmod(0o755)
+    (out / "tools" / "cs2glaz_baker").chmod(0o755)
     modes = {
-      "tools/cs2fow_baker": 0o755,
+      "tools/cs2glaz_baker": 0o755,
     }
   archive = make_zip(out, modes)
   required = {
-    "addons/cs2fow/bin/" + Path(plugin_name).name,
-    "addons/cs2fow/gamedata/cs2fow.games.txt",
-    "addons/metamod/cs2fow.vdf",
-    "cfg/cs2fow.cfg",
+    "addons/cs2glaz/bin/" + Path(plugin_name).name,
+    "addons/cs2glaz/gamedata/cs2glaz.games.txt",
+    "addons/metamod/cs2glaz.vdf",
+    "cfg/cs2glaz.cfg",
     "tools/" + Path(baker_name).name,
   } | {f"licenses/{name}" for name in LICENSE_FILES.values()}
   verify_zip(archive, required, set(modes))
@@ -138,15 +138,15 @@ def build_core_package(platform: str, plugin_name: str, baker_name: str) -> Path
 
 def find_baker() -> Path:
   candidates = [
-    ROOT / "build" / "cs2fow_baker" / "windows-x86_64" / "cs2fow_baker.exe",
-    ROOT / "build-linux" / "cs2fow_baker" / "linux-x86_64" / "cs2fow_baker",
+    ROOT / "build" / "cs2glaz_baker" / "windows-x86_64" / "cs2glaz_baker.exe",
+    ROOT / "build-linux" / "cs2glaz_baker" / "linux-x86_64" / "cs2glaz_baker",
   ]
   if os.name != "nt":
     candidates.reverse()
   for candidate in candidates:
     if candidate.is_file():
       return candidate
-  raise RuntimeError("built cs2fow_baker is required to validate official maps")
+  raise RuntimeError("built cs2glaz_baker is required to validate official maps")
 
 
 def inspect_bvh8(path: Path) -> dict[str, object]:
@@ -214,12 +214,12 @@ def build_official_maps_package() -> Path:
   for name in map_names:
     validate_map_pair(name, ROOT / "data" / "maps" / f"{name}.bvh8", ROOT / "data" / "maps" / f"{name}.json")
 
-  out = package_root(f"cs2fow-{VERSION}-official-maps")
+  out = package_root(f"cs2glaz-{VERSION}-official-maps")
   copy_file(ROOT / "DATA_NOTICE", out / "DATA_NOTICE")
   for path in maps:
-    copy_file(path, out / "addons" / "cs2fow" / "data" / "maps" / path.name)
+    copy_file(path, out / "addons" / "cs2glaz" / "data" / "maps" / path.name)
   archive = make_zip(out)
-  verify_zip(archive, {"DATA_NOTICE"} | {f"addons/cs2fow/data/maps/{path.name}" for path in maps})
+  verify_zip(archive, {"DATA_NOTICE"} | {f"addons/cs2glaz/data/maps/{path.name}" for path in maps})
   return archive
 
 
@@ -245,7 +245,7 @@ def write_checksums(archives: list[Path], require_complete: bool = False) -> Non
 
 
 def current_archives() -> list[Path]:
-  return sorted(PACKAGES.glob(f"cs2fow-{VERSION}-*.zip"))
+  return sorted(PACKAGES.glob(f"cs2glaz-{VERSION}-*.zip"))
 
 
 def main() -> None:
@@ -258,14 +258,14 @@ def main() -> None:
   if "windows-x86_64" in targets:
     archives.append(build_core_package(
       "windows-x86_64",
-      "build/cs2fow/windows-x86_64/cs2fow.dll",
-      "build/cs2fow_baker/windows-x86_64/cs2fow_baker.exe",
+      "build/cs2glaz/windows-x86_64/cs2glaz.dll",
+      "build/cs2glaz_baker/windows-x86_64/cs2glaz_baker.exe",
     ))
   if "linux-x86_64" in targets:
     archives.append(build_core_package(
       "linux-x86_64",
-      "build-linux/cs2fow/linux-x86_64/cs2fow.so",
-      "build-linux/cs2fow_baker/linux-x86_64/cs2fow_baker",
+      "build-linux/cs2glaz/linux-x86_64/cs2glaz.so",
+      "build-linux/cs2glaz_baker/linux-x86_64/cs2glaz_baker",
     ))
   if "official-maps" in targets:
     archives.append(build_official_maps_package())

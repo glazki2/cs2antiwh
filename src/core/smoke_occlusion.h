@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	inline constexpr uint32_t k_smoke_axis_cells = 32;
@@ -105,4 +105,4 @@ namespace cs2fow
 	bool smoke_line_blocked(const smoke_snapshot& snapshot, vec3 origin, vec3 target, float age_advance_seconds = 0.0f,
 							const bvh8_data* geometry = nullptr);
 
-} // namespace cs2fow
+} // namespace cs2glaz

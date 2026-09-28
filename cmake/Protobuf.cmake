@@ -1,20 +1,20 @@
 # vim: set sts=2 ts=2 sw=2 et:
 
-function(CS2FOW_generate_protobuf out_sources_var out_include_dir_var)
+function(CS2GLAZ_generate_protobuf out_sources_var out_include_dir_var)
     if (WIN32)
-        set(_protoc_rel "${CS2FOW_SDK_WINDOWS_PROTOC_PATH}")
+        set(_protoc_rel "${CS2GLAZ_SDK_WINDOWS_PROTOC_PATH}")
         set(_platform_subdir "windows-x86_64")
     else ()
-        set(_protoc_rel "${CS2FOW_SDK_LINUX_PROTOC_PATH}")
+        set(_protoc_rel "${CS2GLAZ_SDK_LINUX_PROTOC_PATH}")
         set(_platform_subdir "linuxsteamrt64")
     endif ()
 
-    set(_protoc "${CS2FOW_SDK_ROOT}/${_protoc_rel}")
+    set(_protoc "${CS2GLAZ_SDK_ROOT}/${_protoc_rel}")
     if (NOT EXISTS "${_protoc}")
         message(FATAL_ERROR "protoc не найден по пути ${_protoc}.")
     endif ()
 
-    set(_gen_dir "${CMAKE_BINARY_DIR}/cs2fow-protobuf/${_platform_subdir}")
+    set(_gen_dir "${CMAKE_BINARY_DIR}/cs2glaz-protobuf/${_platform_subdir}")
     file(MAKE_DIRECTORY "${_gen_dir}")
 
     set(_proto_entries
@@ -40,8 +40,8 @@ function(CS2FOW_generate_protobuf out_sources_var out_include_dir_var)
         list(GET _parts 1 _proto_rel)
         list(GET _parts 2 _dir_rel)
 
-        set(_proto_file "${CS2FOW_SDK_ROOT}/${_proto_rel}")
-        set(_proto_dir "${CS2FOW_SDK_ROOT}/${_dir_rel}")
+        set(_proto_file "${CS2GLAZ_SDK_ROOT}/${_proto_rel}")
+        set(_proto_dir "${CS2GLAZ_SDK_ROOT}/${_dir_rel}")
         set(_out_h "${_gen_dir}/${_name}.pb.h")
         set(_out_cc "${_gen_dir}/${_name}.pb.cc")
 
@@ -51,7 +51,7 @@ function(CS2FOW_generate_protobuf out_sources_var out_include_dir_var)
 
         
         set(_include_args "--proto_path=${_proto_dir}")
-        foreach (_inc ${CS2FOW_SDK_INCLUDE_DIRS})
+        foreach (_inc ${CS2GLAZ_SDK_INCLUDE_DIRS})
             if (IS_DIRECTORY "${_inc}")
                 list(APPEND _include_args "--proto_path=${_inc}")
             endif ()
@@ -62,7 +62,7 @@ function(CS2FOW_generate_protobuf out_sources_var out_include_dir_var)
                 COMMAND "${_protoc}" ${_include_args} "--cpp_out=${_gen_dir}" "${_proto_file}"
                 DEPENDS "${_proto_file}"
                 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-                COMMENT "cs2fow: protoc -> ${_name}.pb.cc"
+                COMMENT "cs2glaz: protoc -> ${_name}.pb.cc"
                 VERBATIM
         )
 
@@ -70,7 +70,7 @@ function(CS2FOW_generate_protobuf out_sources_var out_include_dir_var)
         list(APPEND _cc_sources "${_out_cc}")
     endforeach ()
 
-    add_custom_target(cs2fow-protobuf-gen DEPENDS ${_all_generated})
+    add_custom_target(cs2glaz-protobuf-gen DEPENDS ${_all_generated})
 
     set(${out_sources_var} "${_cc_sources}" PARENT_SCOPE)
     set(${out_include_dir_var} "${_gen_dir}" PARENT_SCOPE)

@@ -25,7 +25,7 @@
 #include <Windows.h>
 #endif
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	namespace
@@ -49,12 +49,12 @@ namespace cs2fow
 		constexpr const char* k_platform_name = "windows";
 		constexpr const char* k_asset_platform = "windows-x86_64";
 		constexpr const char* k_binary_extension = ".dll";
-		constexpr const char* k_baker_name = "cs2fow_baker.exe";
+		constexpr const char* k_baker_name = "cs2glaz_baker.exe";
 #else
 		constexpr const char* k_platform_name = "linux";
 		constexpr const char* k_asset_platform = "linux-x86_64";
 		constexpr const char* k_binary_extension = ".so";
-		constexpr const char* k_baker_name = "cs2fow_baker";
+		constexpr const char* k_baker_name = "cs2glaz_baker";
 #endif
 
 		fs::path game_root()
@@ -71,7 +71,7 @@ namespace cs2fow
 
 		fs::path update_root(const fs::path& root)
 		{
-			return root / "addons" / "cs2fow" / "update";
+			return root / "addons" / "cs2glaz" / "update";
 		}
 
 		fs::path pending_marker(const fs::path& root)
@@ -202,7 +202,7 @@ namespace cs2fow
 						saved[name] = line;
 					}
 				}
-				const fs::path backup = current.parent_path() / ("cs2fow.cfg.before-" + std::string(version));
+				const fs::path backup = current.parent_path() / ("cs2glaz.cfg.before-" + std::string(version));
 				std::error_code error;
 				if (!fs::exists(backup, error) && !copy_file_atomically(current, backup))
 				{
@@ -251,10 +251,10 @@ namespace cs2fow
 		bool write_vdf(const fs::path& root, std::string_view binary_name)
 		{
 			const std::string contents = "\"Metamod Plugin\"\n{\n"
-										 "  \"alias\"  \"cs2fow\"\n"
-										 "  \"file\"   \"addons/cs2fow/bin/"
+										 "  \"alias\"  \"cs2glaz\"\n"
+										 "  \"file\"   \"addons/cs2glaz/bin/"
 										 + std::string(binary_name) + "\"\n}\n";
-			return write_text_file_atomically(root / "addons" / "metamod" / "cs2fow.vdf", contents);
+			return write_text_file_atomically(root / "addons" / "metamod" / "cs2glaz.vdf", contents);
 		}
 
 		bool file_digest_matches(const std::vector<uint8_t>& body, std::string_view expected_digest)
@@ -322,16 +322,16 @@ namespace cs2fow
 
 		fs::path package_binary(const fs::path& package_root)
 		{
-			return package_root / "addons" / "cs2fow" / "bin" / (std::string("cs2fow") + k_binary_extension);
+			return package_root / "addons" / "cs2glaz" / "bin" / (std::string("cs2glaz") + k_binary_extension);
 		}
 
 		bool complete_staged_package(const fs::path& stage)
 		{
 			std::error_code error;
 			if (!fs::is_regular_file(package_binary(stage), error)
-				|| !fs::is_regular_file(stage / "addons" / "cs2fow" / "gamedata" / "cs2fow.games.txt", error)
-				|| !fs::is_regular_file(stage / "cfg" / "cs2fow.cfg", error)
-				|| !fs::is_regular_file(stage / "addons" / "metamod" / "cs2fow.vdf", error)
+				|| !fs::is_regular_file(stage / "addons" / "cs2glaz" / "gamedata" / "cs2glaz.games.txt", error)
+				|| !fs::is_regular_file(stage / "cfg" / "cs2glaz.cfg", error)
+				|| !fs::is_regular_file(stage / "addons" / "metamod" / "cs2glaz.vdf", error)
 				|| !fs::is_regular_file(stage / "tools" / k_baker_name, error) || !fs::is_regular_file(stage / "THIRD_PARTY_NOTICES", error)
 				|| !fs::is_directory(stage / "licenses", error))
 			{
@@ -359,11 +359,11 @@ namespace cs2fow
 				return;
 			}
 			std::error_code error;
-			const fs::path binary_directory = root / "addons" / "cs2fow" / "bin";
+			const fs::path binary_directory = root / "addons" / "cs2glaz" / "bin";
 			for (fs::directory_iterator entry(binary_directory, error), end; !error && entry != end; entry.increment(error))
 			{
 				const std::string name = entry->path().filename().string();
-				if (name.rfind("cs2fow-", 0) == 0 && entry->path().extension() == k_binary_extension)
+				if (name.rfind("cs2glaz-", 0) == 0 && entry->path().extension() == k_binary_extension)
 				{
 					fs::remove(entry->path(), error);
 					if (error)
@@ -414,20 +414,20 @@ namespace cs2fow
 		{
 			version.pop_back();
 		}
-		if (!safe_update_version(version) || version != CS2FOW_VERSION)
+		if (!safe_update_version(version) || version != CS2GLAZ_VERSION)
 		{
 			return;
 		}
 
 		const fs::path stage = update_root(root) / version;
-		const fs::path live_plugin = root / "addons" / "cs2fow";
-		const fs::path stable_binary = live_plugin / "bin" / (std::string("cs2fow") + k_binary_extension);
-		const fs::path previous_binary = live_plugin / "bin" / (std::string("cs2fow.previous") + k_binary_extension);
+		const fs::path live_plugin = root / "addons" / "cs2glaz";
+		const fs::path stable_binary = live_plugin / "bin" / (std::string("cs2glaz") + k_binary_extension);
+		const fs::path previous_binary = live_plugin / "bin" / (std::string("cs2glaz.previous") + k_binary_extension);
 		const fs::path backup_marker = update_root(root) / version / "stable-backed-up";
 		std::error_code error;
 		if (!complete_staged_package(stage))
 		{
-			Warning("[CS2FOW] The downloaded update is incomplete. "
+			Warning("[CS2GLAZ] The downloaded update is incomplete. "
 					"The current installation was left unchanged.\n");
 			return;
 		}
@@ -436,29 +436,29 @@ namespace cs2fow
 		{
 			if (!copy_file_atomically(stable_binary, previous_binary) || !write_text_file_atomically(backup_marker, version))
 			{
-				Warning("[CS2FOW] The update could not back up the previous plugin "
+				Warning("[CS2GLAZ] The update could not back up the previous plugin "
 						"binary. The current installation was left unchanged.\n");
 				return;
 			}
 		}
 
 		const fs::path live_baker = root / "tools" / k_baker_name;
-		if (!copy_file_atomically(stage / "addons" / "cs2fow" / "gamedata" / "cs2fow.games.txt", live_plugin / "gamedata" / "cs2fow.games.txt")
+		if (!copy_file_atomically(stage / "addons" / "cs2glaz" / "gamedata" / "cs2glaz.games.txt", live_plugin / "gamedata" / "cs2glaz.games.txt")
 			|| !copy_file_atomically(stage / "tools" / k_baker_name, live_baker)
-			|| !merge_config(stage / "cfg" / "cs2fow.cfg", root / "cfg" / "cs2fow.cfg", version)
+			|| !merge_config(stage / "cfg" / "cs2glaz.cfg", root / "cfg" / "cs2glaz.cfg", version)
 			|| !copy_file_atomically(stage / "THIRD_PARTY_NOTICES", live_plugin / "THIRD_PARTY_NOTICES")
 			|| !copy_directory(stage / "licenses", live_plugin / "licenses") || !copy_file_atomically(stage / "README.md", live_plugin / "README.md")
 			|| !copy_file_atomically(stage / "CHANGELOG.md", live_plugin / "CHANGELOG.md")
 			|| !copy_file_atomically(stage / "LICENSE", live_plugin / "LICENSE") || !copy_file_atomically(package_binary(stage), stable_binary)
-			|| !set_executable(live_baker) || !write_vdf(root, "cs2fow"))
+			|| !set_executable(live_baker) || !write_vdf(root, "cs2glaz"))
 		{
-			Warning("[CS2FOW] The downloaded update could not be installed "
-					"completely. CS2FOW will retry on the next server start.\n");
+			Warning("[CS2GLAZ] The downloaded update could not be installed "
+					"completely. CS2GLAZ will retry on the next server start.\n");
 			return;
 		}
 
 		fs::remove(pending_marker(root), error);
-		Msg("[CS2FOW] CS2FOW %s was installed successfully. Future starts will "
+		Msg("[CS2GLAZ] CS2GLAZ %s was installed successfully. Future starts will "
 			"use the normal plugin path again.\n",
 			version.c_str());
 	}
@@ -497,18 +497,18 @@ namespace cs2fow
 	{
 		if (staging_.valid() || request_ != INVALID_HTTPREQUEST_HANDLE)
 		{
-			Msg("[CS2FOW] An update check is already running.\n");
+			Msg("[CS2GLAZ] An update check is already running.\n");
 			return;
 		}
 		const fs::path root = csgo_root();
 		std::error_code error;
 		if (!root.empty() && fs::exists(pending_marker(root), error))
 		{
-			Msg("[CS2FOW] An update is already prepared; restart the server to "
+			Msg("[CS2GLAZ] An update is already prepared; restart the server to "
 				"install it.\n");
 			return;
 		}
-		Msg("[CS2FOW] Checking for an update now.\n");
+		Msg("[CS2GLAZ] Checking for an update now.\n");
 		next_check_ = std::chrono::steady_clock::now();
 		check_release();
 		// Carries the manual run through the automatic path's own guards, and
@@ -543,7 +543,7 @@ namespace cs2fow
 		{
 			if (!http_unavailable_warned_)
 			{
-				Msg("[CS2FOW] Automatic updates are waiting because Steam's HTTP "
+				Msg("[CS2GLAZ] Automatic updates are waiting because Steam's HTTP "
 					"service is not ready yet.\n");
 				http_unavailable_warned_ = true;
 			}
@@ -554,7 +554,7 @@ namespace cs2fow
 		request_ = http_->CreateHTTPRequest(k_EHTTPMethodGET, k_release_api);
 		if (request_ == INVALID_HTTPREQUEST_HANDLE || !http_->SetHTTPRequestHeaderValue(request_, "Accept", "application/vnd.github+json")
 			|| !http_->SetHTTPRequestHeaderValue(request_, "X-GitHub-Api-Version", "2022-11-28")
-			|| !http_->SetHTTPRequestUserAgentInfo(request_, "CS2FOW-Updater") || !http_->SetHTTPRequestNetworkActivityTimeout(request_, 10)
+			|| !http_->SetHTTPRequestUserAgentInfo(request_, "CS2GLAZ-Updater") || !http_->SetHTTPRequestNetworkActivityTimeout(request_, 10)
 			|| !http_->SetHTTPRequestAbsoluteTimeoutMS(request_, 20000) || !http_->SetHTTPRequestRequiresVerifiedCertificate(request_, true))
 		{
 			retry_later("The release check could not be prepared.");
@@ -574,7 +574,7 @@ namespace cs2fow
 	void updater_service::download_manifest()
 	{
 		request_ = http_->CreateHTTPRequest(k_EHTTPMethodGET, manifest_url_.c_str());
-		if (request_ == INVALID_HTTPREQUEST_HANDLE || !http_->SetHTTPRequestUserAgentInfo(request_, "CS2FOW-Updater")
+		if (request_ == INVALID_HTTPREQUEST_HANDLE || !http_->SetHTTPRequestUserAgentInfo(request_, "CS2GLAZ-Updater")
 			|| !http_->SetHTTPRequestNetworkActivityTimeout(request_, 10) || !http_->SetHTTPRequestAbsoluteTimeoutMS(request_, 20000)
 			|| !http_->SetHTTPRequestRequiresVerifiedCertificate(request_, true))
 		{
@@ -595,7 +595,7 @@ namespace cs2fow
 	void updater_service::download_package()
 	{
 		request_ = http_->CreateHTTPRequest(k_EHTTPMethodGET, package_url_.c_str());
-		if (request_ == INVALID_HTTPREQUEST_HANDLE || !http_->SetHTTPRequestUserAgentInfo(request_, "CS2FOW-Updater")
+		if (request_ == INVALID_HTTPREQUEST_HANDLE || !http_->SetHTTPRequestUserAgentInfo(request_, "CS2GLAZ-Updater")
 			|| !http_->SetHTTPRequestNetworkActivityTimeout(request_, 20) || !http_->SetHTTPRequestAbsoluteTimeoutMS(request_, 300000)
 			|| !http_->SetHTTPRequestRequiresVerifiedCertificate(request_, true))
 		{
@@ -651,7 +651,7 @@ namespace cs2fow
 			{
 				if (manual_check_ && !release_selection_failed_)
 				{
-					Msg("[CS2FOW] CS2FOW is already up to date.\n");
+					Msg("[CS2GLAZ] CS2GLAZ is already up to date.\n");
 				}
 				manual_check_ = false;
 				next_check_ = std::chrono::steady_clock::now() + (release_selection_failed_ ? k_retry_delay : k_regular_check_delay);
@@ -693,7 +693,7 @@ namespace cs2fow
 		cancel_request();
 		manual_check_ = false;
 		next_check_ = std::chrono::steady_clock::now() + k_retry_delay;
-		Warning("[CS2FOW] %s The current version will keep running, and CS2FOW "
+		Warning("[CS2GLAZ] %s The current version will keep running, and CS2GLAZ "
 				"will try again later.\n",
 				reason != nullptr ? reason : "The automatic update failed.");
 	}
@@ -719,7 +719,7 @@ namespace cs2fow
 		if (release == nullptr || !parsed)
 		{
 			release_selection_failed_ = true;
-			Warning("[CS2FOW] GitHub returned release information CS2FOW could "
+			Warning("[CS2GLAZ] GitHub returned release information CS2GLAZ could "
 					"not read.\n");
 			return false;
 		}
@@ -728,21 +728,21 @@ namespace cs2fow
 		semantic_version available;
 		semantic_version current;
 		const bool newer = !release->GetBool("draft") && !release->GetBool("prerelease") && parse_semantic_version(tag, available)
-						   && parse_semantic_version(CS2FOW_VERSION, current) && compare_semantic_versions(available, current) > 0;
+						   && parse_semantic_version(CS2GLAZ_VERSION, current) && compare_semantic_versions(available, current) > 0;
 		if (!newer)
 		{
 			return false;
 		}
 
 		update_version_ = tag.front() == 'v' ? tag.substr(1) : tag;
-		const std::string package_name = "cs2fow-" + update_version_ + "-" + k_asset_platform + ".zip";
+		const std::string package_name = "cs2glaz-" + update_version_ + "-" + k_asset_platform + ".zip";
 		const std::string manifest_name = "v" + update_version_ + "-manifest.json";
 		KeyValues* assets = release->FindKey("assets", false);
 		if (!select_asset(assets, package_name, package_url_, package_digest_, package_size_, k_maximum_package_size)
 			|| !select_asset(assets, manifest_name, manifest_url_, manifest_digest_, manifest_size_, k_maximum_manifest_size))
 		{
 			release_selection_failed_ = true;
-			Warning("[CS2FOW] The newest GitHub release does not contain valid "
+			Warning("[CS2GLAZ] The newest GitHub release does not contain valid "
 					"%s package and compatibility-manifest assets.\n",
 					k_asset_platform);
 			return false;
@@ -756,7 +756,7 @@ namespace cs2fow
 		if (body.size() != manifest_size_ || !file_digest_matches(body, manifest_digest_))
 		{
 			release_selection_failed_ = true;
-			Warning("[CS2FOW] The update compatibility manifest failed its "
+			Warning("[CS2GLAZ] The update compatibility manifest failed its "
 					"size or SHA-256 check.\n");
 			return false;
 		}
@@ -767,12 +767,12 @@ namespace cs2fow
 		if (manifest == nullptr || !parsed || update_version_ != manifest->GetString("version", ""))
 		{
 			release_selection_failed_ = true;
-			Warning("[CS2FOW] The update compatibility manifest could not be "
+			Warning("[CS2GLAZ] The update compatibility manifest could not be "
 					"validated.\n");
 			return false;
 		}
 
-		const std::string package_name = "cs2fow-" + update_version_ + "-" + k_asset_platform + ".zip";
+		const std::string package_name = "cs2glaz-" + update_version_ + "-" + k_asset_platform + ".zip";
 		KeyValues* artifacts = manifest->FindKey("artifacts", false);
 		const std::string manifest_package_digest = artifacts == nullptr ? "" : artifacts->GetString(package_name.c_str(), "");
 		const std::string expected_manifest_digest = "sha256:" + manifest_package_digest;
@@ -781,7 +781,7 @@ namespace cs2fow
 						   [](unsigned char left, unsigned char right) { return std::tolower(left) == std::tolower(right); }))
 		{
 			release_selection_failed_ = true;
-			Warning("[CS2FOW] The release manifest and package SHA-256 values "
+			Warning("[CS2GLAZ] The release manifest and package SHA-256 values "
 					"do not agree.\n");
 			return false;
 		}
@@ -797,7 +797,7 @@ namespace cs2fow
 			if (size == 0 || size > UINT32_MAX || !parse_crc32(entry->GetString("crc32", ""), crc))
 			{
 				release_selection_failed_ = true;
-				Warning("[CS2FOW] The update manifest contains an invalid %s "
+				Warning("[CS2GLAZ] The update manifest contains an invalid %s "
 						"server fingerprint.\n",
 						k_platform_name);
 				return false;
@@ -807,14 +807,14 @@ namespace cs2fow
 		if (accepted.empty())
 		{
 			release_selection_failed_ = true;
-			Warning("[CS2FOW] The update manifest contains no %s server "
+			Warning("[CS2GLAZ] The update manifest contains no %s server "
 					"fingerprints.\n",
 					k_platform_name);
 			return false;
 		}
 		if (!matches_server_binary_fingerprint(accepted, detected_fingerprint_.size, detected_fingerprint_.crc32))
 		{
-			Msg("[CS2FOW] CS2FOW %s is available, but it does not support this "
+			Msg("[CS2GLAZ] CS2GLAZ %s is available, but it does not support this "
 				"server binary fingerprint. The current installation was left "
 				"unchanged.\n",
 				update_version_.c_str());
@@ -860,7 +860,7 @@ namespace cs2fow
 		}
 		if (result.success)
 		{
-			Msg("[CS2FOW] CS2FOW %s is ready. It will be installed the next "
+			Msg("[CS2GLAZ] CS2GLAZ %s is ready. It will be installed the next "
 				"time the server starts.\n",
 				result.version.c_str());
 			manual_check_ = false;
@@ -896,9 +896,9 @@ namespace cs2fow
 			return result;
 		}
 
-		const fs::path update_binary = root / "addons" / "cs2fow" / "bin" / (std::string("cs2fow-update") + k_binary_extension);
+		const fs::path update_binary = root / "addons" / "cs2glaz" / "bin" / (std::string("cs2glaz-update") + k_binary_extension);
 		if (!copy_file_atomically(package_binary(stage), update_binary) || !write_text_file_atomically(pending_marker(root), result.version + "\n")
-			|| !write_vdf(root, "cs2fow-update"))
+			|| !write_vdf(root, "cs2glaz-update"))
 		{
 			result.error = "The verified update could not prepare its restart "
 						   "marker and bootstrap binary.";
@@ -908,4 +908,4 @@ namespace cs2fow
 		return result;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

@@ -1,4 +1,4 @@
-// CS2FOW private runtime compatibility data.
+// CS2GLAZ private runtime compatibility data.
 // Verified against the public CS2 app build 24537688 (1.41.7.4).
 // Unknown binaries fail open. Keep exactly one fingerprint per platform.
 

@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	inline constexpr size_t k_process_output_tail_bytes = 8u * 1024u;
@@ -35,4 +35,4 @@ namespace cs2fow
 					 std::string& error);
 	bool lower_process_priority(std::string& error);
 
-} // namespace cs2fow
+} // namespace cs2glaz

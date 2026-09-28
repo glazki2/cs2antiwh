@@ -21,9 +21,9 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: cs2fow-windows-x86_64
+          name: cs2glaz-windows-x86_64
           path: |
-            packages/cs2fow-*-windows-x86_64.zip
+            packages/cs2glaz-*-windows-x86_64.zip
             packages/SHA256SUMS.txt
 
   linux:
@@ -38,7 +38,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: cs2fow-linux-x86_64
+          name: cs2glaz-linux-x86_64
           path: |
-            packages/cs2fow-*-linux-x86_64.zip
+            packages/cs2glaz-*-linux-x86_64.zip
             packages/SHA256SUMS.txt

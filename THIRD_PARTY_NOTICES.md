@@ -1,8 +1,11 @@
 # Third-party notices
 
-This CS2FOW-based plugin uses the following third-party software. Each project
+cs2glaz is derived from an MIT-licensed plugin by karola3vax and contributors; that
+project's copyright and permission notice is kept in `LICENSE`.
+
+cs2glaz uses the following third-party software. Each project
 remains under its own license and copyright. Packaged license texts are placed
-under `addons/cs2fow/licenses`.
+under `addons/cs2glaz/licenses`.
 
 - [Metamod:Source](https://github.com/alliedmodders/metamod-source) and its
   [KHook](https://github.com/Kenzzer/KHook) headers, consumed at build time at the

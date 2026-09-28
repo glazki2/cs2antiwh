@@ -10,7 +10,7 @@
 #include <string_view>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct vpk_entry
@@ -32,4 +32,4 @@ namespace cs2fow
 	bool find_vpk_entry(const std::filesystem::path& vpk_path, const std::string& entry_path, vpk_entry& entry, std::string& error);
 	bool extract_vpk_entry(const std::filesystem::path& vpk_path, const vpk_entry& entry, const std::filesystem::path& output, std::string& error);
 
-} // namespace cs2fow
+} // namespace cs2glaz

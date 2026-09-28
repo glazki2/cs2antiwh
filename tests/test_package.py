@@ -122,12 +122,12 @@ class PackageTests(unittest.TestCase):
     def test_config_transaction_marker_is_last(self):
         lines = [
             line.strip()
-            for line in (package.ROOT / "cfg/cs2fow.cfg").read_text(encoding="utf-8").splitlines()
+            for line in (package.ROOT / "cfg/cs2glaz.cfg").read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.lstrip().startswith("//")
         ]
-        self.assertEqual(lines[-1], "cs2fow_config_loaded")
-        self.assertEqual(lines.count("cs2fow_config_loaded"), 1)
-        self.assertIn("cs2fow_auto_update 0", lines)
+        self.assertEqual(lines[-1], "cs2glaz_config_loaded")
+        self.assertEqual(lines.count("cs2glaz_config_loaded"), 1)
+        self.assertIn("cs2glaz_auto_update 0", lines)
 
 
 if __name__ == "__main__":

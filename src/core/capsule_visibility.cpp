@@ -11,7 +11,7 @@
 #include <memory>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
@@ -909,4 +909,4 @@ namespace cs2fow
 		return capsule_query_result::blocked;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

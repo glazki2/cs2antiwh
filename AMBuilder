@@ -60,7 +60,7 @@ physics_reader = [
   os.path.join(root, 'third_party', 'zstd', 'zstddeclib.c'),
 ]
 
-baker = config.cxx.Program('cs2fow_baker')
+baker = config.cxx.Program('cs2glaz_baker')
 configure(baker.compiler)
 baker.sources += geometry + map_io + physics_reader + [
   os.path.join(root, 'src', 'core', 'subprocess.cpp'),
@@ -69,7 +69,7 @@ baker.sources += geometry + map_io + physics_reader + [
 ]
 builder.Add(baker)
 
-tests = config.cxx.Program('cs2fow_tests')
+tests = config.cxx.Program('cs2glaz_tests')
 configure(tests.compiler)
 tests.compiler.cxxincludes += [os.path.join(root, 'src', 'plugin')]
 if 'NDEBUG' in tests.compiler.defines:
@@ -91,7 +91,7 @@ tests.sources += geometry + map_io + physics_reader + [
 ]
 builder.Add(tests)
 
-plugin = config.cxx.Library('cs2fow')
+plugin = config.cxx.Library('cs2glaz')
 configure(plugin.compiler, True)
 plugin.compiler.cxxincludes += [
   os.path.join(root, 'src', 'plugin'),
@@ -101,7 +101,7 @@ plugin.compiler.cxxincludes += [
 ]
 for manifest in config.sdk_manifests:
   plugin.compiler.defines += ['SE_{}={}'.format(manifest['define'], manifest['code'])]
-plugin.compiler.defines += ['META_IS_SOURCE2', 'CS2FOW_VERSION="{}"'.format(version)]
+plugin.compiler.defines += ['META_IS_SOURCE2', 'CS2GLAZ_VERSION="{}"'.format(version)]
 plugin.compiler.defines += ['MINIZ_NO_ARCHIVE_WRITING_APIS', 'MINIZ_NO_ZLIB_APIS']
 config.SdkHelpers.configureCxx(builder, plugin, sdk)
 plugin.sources += [

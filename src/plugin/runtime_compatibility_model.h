@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct server_binary_fingerprint
@@ -55,13 +55,13 @@ namespace cs2fow
 					"Walls-only protection is active. Install gamedata verified for this CS2 build to restore animated capsules and smoke.";
 				break;
 			case compatibility_state::update_required:
-				report.operator_action = "Install the CS2FOW package built for this CS2 server version.";
+				report.operator_action = "Install the CS2GLAZ package built for this CS2 server version.";
 				break;
 			case compatibility_state::unsupported_system:
 				report.operator_action = "Move the server to an operating system and CPU with AVX support.";
 				break;
 			case compatibility_state::error:
-				report.operator_action = "Run cs2fow_metrics, then repair or reinstall the reported component.";
+				report.operator_action = "Run cs2glaz_metrics, then repair or reinstall the reported component.";
 				break;
 		}
 		return report;
@@ -85,4 +85,4 @@ namespace cs2fow
 		return "error";
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

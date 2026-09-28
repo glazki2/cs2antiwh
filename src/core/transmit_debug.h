@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	inline constexpr uint8_t k_transmit_reason_current = 1u << 0u;
@@ -101,4 +101,4 @@ namespace cs2fow
 		size_t next_ {};
 	};
 
-} // namespace cs2fow
+} // namespace cs2glaz

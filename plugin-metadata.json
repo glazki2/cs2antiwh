@@ -1,11 +1,11 @@
 {
-  "name": "cs2fow",
-  "alias": "cs2fow",
-  "display_name": "CS2FOW",
-  "description": "CS2FOW plugin for Counter-Strike 2",
+  "name": "cs2glaz",
+  "alias": "cs2glaz",
+  "display_name": "CS2GLAZ",
+  "description": "CS2GLAZ plugin for Counter-Strike 2",
   "author": "karola3vax, Artemon0, glazki2",
   "url": "https://github.com/glazki2/cs2antiwh",
-  "log_tag": "CS2FOW",
+  "log_tag": "CS2GLAZ",
   "license": "MIT",
-  "version": "0.4.4"
+  "version": "0.5.0"
 }

@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
@@ -357,4 +357,4 @@ namespace cs2fow
 				 {maximum.x, maximum.y, maximum.z}}};
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

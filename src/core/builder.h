@@ -8,10 +8,10 @@
 #include <span>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	bool build_bvh8(std::span<const triangle> triangles, bvh8_data& result, std::string& error,
 					std::vector<uint32_t>* packet_triangle_sources = nullptr);
 
-} // namespace cs2fow
+} // namespace cs2glaz

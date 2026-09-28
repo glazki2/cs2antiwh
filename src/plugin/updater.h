@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	class updater_service
@@ -75,4 +75,4 @@ namespace cs2fow
 		bool manual_check_ {};
 	};
 
-} // namespace cs2fow
+} // namespace cs2glaz

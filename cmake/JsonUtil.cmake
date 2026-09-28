@@ -1,6 +1,6 @@
 # vim: set sts=2 ts=2 sw=2 et:
 
-function(CS2FOW_json_string json_content out_var)
+function(CS2GLAZ_json_string json_content out_var)
     set(_keys ${ARGN})
     string(JSON _value ERROR_VARIABLE _err GET "${json_content}" ${_keys})
     if (_err)
@@ -10,7 +10,7 @@ function(CS2FOW_json_string json_content out_var)
 endfunction()
 
 
-function(CS2FOW_json_string_array json_content out_var)
+function(CS2GLAZ_json_string_array json_content out_var)
     set(_keys ${ARGN})
     string(JSON _len ERROR_VARIABLE _err LENGTH "${json_content}" ${_keys})
     if (_err)

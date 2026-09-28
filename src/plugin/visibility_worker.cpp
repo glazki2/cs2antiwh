@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <system_error>
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
@@ -531,4 +531,4 @@ namespace cs2fow
 #endif
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

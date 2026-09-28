@@ -1,12 +1,12 @@
 Generated map data
 ==================
 
-CS2FOW `.bvh8` files and matching JSON bake reports are derived from
-Counter-Strike 2 game data. They are runtime assets for CS2FOW, but they are not
+CS2GLAZ `.bvh8` files and matching JSON bake reports are derived from
+Counter-Strike 2 game data. They are runtime assets for CS2GLAZ, but they are not
 licensed under the project MIT license.
 
 Each bake is valid only for the map resource CRC and source size recorded in its
-JSON report and `.bvh8` header. If Valve updates a map resource, CS2FOW rejects
+JSON report and `.bvh8` header. If Valve updates a map resource, CS2GLAZ rejects
 the old bake and generates or requires a matching replacement.
 
 Distribution of generated map data requires compliance with Valve's applicable

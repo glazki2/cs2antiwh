@@ -1,4 +1,4 @@
-"""Configure, build, test, verify, and package one CS2FOW platform."""
+"""Configure, build, test, verify, and package one CS2GLAZ platform."""
 
 from __future__ import annotations
 
@@ -42,8 +42,8 @@ def main() -> None:
   run(python, "-c", "from ambuild2.run import cli_run; cli_run()", cwd=build, env=env)
 
   target = "windows-x86_64" if args.platform == "windows" else "linux-x86_64"
-  executable = build / "cs2fow_tests" / target / (
-    "cs2fow_tests.exe" if args.platform == "windows" else "cs2fow_tests"
+  executable = build / "cs2glaz_tests" / target / (
+    "cs2glaz_tests.exe" if args.platform == "windows" else "cs2glaz_tests"
   )
   run(str(executable))
   run(python, "-m", "unittest", "discover", "-v", "tests")
@@ -52,7 +52,7 @@ def main() -> None:
   run(python, str(ROOT / "scripts" / checker))
   run(python, str(ROOT / "package.py"), target)
 
-  archive = ROOT / "packages" / f"cs2fow-{(ROOT / 'VERSION').read_text().strip()}-{target}.zip"
+  archive = ROOT / "packages" / f"cs2glaz-{(ROOT / 'VERSION').read_text().strip()}-{target}.zip"
   if not archive.is_file() or archive.stat().st_size == 0:
     raise SystemExit(f"package was not produced: {archive}")
   print(f"Verified package: {archive}")

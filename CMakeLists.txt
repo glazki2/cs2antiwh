@@ -1,15 +1,15 @@
 # vim: set sts=2 ts=2 sw=2 et:
 #
-# CS2FOW - CMake build.
+# CS2GLAZ - CMake build.
 #
 # Port of the AMBuild scripts (configure.py / AMBuildScript / AMBuilder /
 # PackageScript) to CMake. Mirrors the cs2ac-ce approach, but the plugin target
-# follows cs2fow's own AMBuilder exactly:
+# follows cs2glaz's own AMBuilder exactly:
 #   - plugin sources are an EXPLICIT list (no GLOB), so baker/tests-only TUs
 #     (src/baker/*, src/core/builder.cpp) never leak into the module;
 #   - third_party/miniz.c and MaskedOcclusionCulling.cpp are part of the plugin;
 #   - tier1/convar.cpp and public/tier0/memoverride.cpp are compiled into the
-#     plugin ONLY (not into cs2fow-protobuf), avoiding duplicate symbols.
+#     plugin ONLY (not into cs2glaz-protobuf), avoiding duplicate symbols.
 #
 # Dependencies stay where they were: hl2sdk-cs2/, metamod-source/,
 # vendor/funchook/, third_party/.
@@ -24,7 +24,7 @@
 #   cmake --build build-linux-release --parallel
 
 cmake_minimum_required(VERSION 3.19)
-project(cs2fow LANGUAGES CXX C)
+project(cs2glaz LANGUAGES CXX C)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(JsonUtil)
@@ -36,7 +36,7 @@ include(Package)
 # Platform / toolchain checks (MMSPluginConfig.__init__ in AMBuildScript)
 # -----------------------------------------------------------------------------
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-  message(FATAL_ERROR "cs2fow only builds for x86_64.")
+  message(FATAL_ERROR "cs2glaz only builds for x86_64.")
 endif()
 
 if(WIN32)
@@ -48,7 +48,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "The Linux build needs Clang.")
   endif()
 else()
-  message(FATAL_ERROR "cs2fow only builds for Windows or Linux.")
+  message(FATAL_ERROR "cs2glaz only builds for Windows or Linux.")
 endif()
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -73,18 +73,18 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # -----------------------------------------------------------------------------
 # Required dependency directories (requireDirectory())
 # -----------------------------------------------------------------------------
-set(CS2FOW_SDK_ROOT         "${CMAKE_SOURCE_DIR}/hl2sdk-cs2")
-set(CS2FOW_MMS_ROOT         "${CMAKE_SOURCE_DIR}/metamod-source")
-set(CS2FOW_MANIFESTS_ROOT   "${CS2FOW_MMS_ROOT}/hl2sdk-manifests/manifests")
-set(CS2FOW_FUNCHOOK_ROOT    "${CMAKE_SOURCE_DIR}/vendor/funchook")
-set(CS2FOW_THIRD_PARTY_ROOT "${CMAKE_SOURCE_DIR}/third_party")
+set(CS2GLAZ_SDK_ROOT         "${CMAKE_SOURCE_DIR}/hl2sdk-cs2")
+set(CS2GLAZ_MMS_ROOT         "${CMAKE_SOURCE_DIR}/metamod-source")
+set(CS2GLAZ_MANIFESTS_ROOT   "${CS2GLAZ_MMS_ROOT}/hl2sdk-manifests/manifests")
+set(CS2GLAZ_FUNCHOOK_ROOT    "${CMAKE_SOURCE_DIR}/vendor/funchook")
+set(CS2GLAZ_THIRD_PARTY_ROOT "${CMAKE_SOURCE_DIR}/third_party")
 
 foreach(_pair
-    "CS2FOW_SDK_ROOT|CS2 SDK"
-    "CS2FOW_MMS_ROOT|Metamod:Source"
-    "CS2FOW_MANIFESTS_ROOT|HL2SDK manifests"
-    "CS2FOW_FUNCHOOK_ROOT|funchook"
-    "CS2FOW_THIRD_PARTY_ROOT|third_party")
+    "CS2GLAZ_SDK_ROOT|CS2 SDK"
+    "CS2GLAZ_MMS_ROOT|Metamod:Source"
+    "CS2GLAZ_MANIFESTS_ROOT|HL2SDK manifests"
+    "CS2GLAZ_FUNCHOOK_ROOT|funchook"
+    "CS2GLAZ_THIRD_PARTY_ROOT|third_party")
   string(REPLACE "|" ";" _pair_list "${_pair}")
   list(GET _pair_list 0 _var)
   list(GET _pair_list 1 _desc)
@@ -94,35 +94,35 @@ foreach(_pair
 endforeach()
 
 # Vendored sources that are part of the plugin must exist (mirrors AMBuilder).
-if(NOT EXISTS "${CS2FOW_THIRD_PARTY_ROOT}/masked_occlusion_culling/MaskedOcclusionCulling.h")
-  message(FATAL_ERROR "MaskedOcclusionCulling is missing at ${CS2FOW_THIRD_PARTY_ROOT}/masked_occlusion_culling.")
+if(NOT EXISTS "${CS2GLAZ_THIRD_PARTY_ROOT}/masked_occlusion_culling/MaskedOcclusionCulling.h")
+  message(FATAL_ERROR "MaskedOcclusionCulling is missing at ${CS2GLAZ_THIRD_PARTY_ROOT}/masked_occlusion_culling.")
 endif()
-if(NOT EXISTS "${CS2FOW_THIRD_PARTY_ROOT}/masked_occlusion_culling/MaskedOcclusionCulling.cpp")
-  message(FATAL_ERROR "MaskedOcclusionCulling.cpp is missing at ${CS2FOW_THIRD_PARTY_ROOT}/masked_occlusion_culling.")
+if(NOT EXISTS "${CS2GLAZ_THIRD_PARTY_ROOT}/masked_occlusion_culling/MaskedOcclusionCulling.cpp")
+  message(FATAL_ERROR "MaskedOcclusionCulling.cpp is missing at ${CS2GLAZ_THIRD_PARTY_ROOT}/masked_occlusion_culling.")
 endif()
-if(NOT EXISTS "${CS2FOW_THIRD_PARTY_ROOT}/miniz.c")
-  message(FATAL_ERROR "miniz.c is missing at ${CS2FOW_THIRD_PARTY_ROOT}/miniz.c.")
+if(NOT EXISTS "${CS2GLAZ_THIRD_PARTY_ROOT}/miniz.c")
+  message(FATAL_ERROR "miniz.c is missing at ${CS2GLAZ_THIRD_PARTY_ROOT}/miniz.c.")
 endif()
 
 # -----------------------------------------------------------------------------
 # Plugin metadata (MMSPluginConfig.loadMetadata())
 # -----------------------------------------------------------------------------
-file(READ "${CMAKE_SOURCE_DIR}/plugin-metadata.json" _cs2fow_metadata_json)
+file(READ "${CMAKE_SOURCE_DIR}/plugin-metadata.json" _cs2glaz_metadata_json)
 foreach(_key name alias display_name description author url log_tag license version)
-  cs2fow_json_string("${_cs2fow_metadata_json}" _value ${_key})
+  cs2glaz_json_string("${_cs2glaz_metadata_json}" _value ${_key})
   if(NOT DEFINED _value)
     message(FATAL_ERROR "plugin-metadata.json is missing: ${_key}.")
   endif()
   string(TOUPPER "${_key}" _key_upper)
-  set(CS2FOW_META_${_key_upper} "${_value}")
+  set(CS2GLAZ_META_${_key_upper} "${_value}")
   unset(_value)
 endforeach()
 
-if(NOT CS2FOW_META_NAME STREQUAL "cs2fow" OR NOT CS2FOW_META_ALIAS STREQUAL "cs2fow")
-  message(FATAL_ERROR "The plugin name and alias must both stay cs2fow.")
+if(NOT CS2GLAZ_META_NAME STREQUAL "cs2glaz" OR NOT CS2GLAZ_META_ALIAS STREQUAL "cs2glaz")
+  message(FATAL_ERROR "The plugin name and alias must both stay cs2glaz.")
 endif()
-if(NOT CS2FOW_META_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
-  message(FATAL_ERROR "The CS2FOW version must use major.minor.patch format.")
+if(NOT CS2GLAZ_META_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+  message(FATAL_ERROR "The CS2GLAZ version must use major.minor.patch format.")
 endif()
 
 configure_file(
@@ -134,69 +134,69 @@ configure_file(
 # -----------------------------------------------------------------------------
 # SDK manifest cs2.json (SdkTarget / SdkHelpers.configureCxx)
 # -----------------------------------------------------------------------------
-file(READ "${CS2FOW_MANIFESTS_ROOT}/cs2.json" _cs2fow_cs2_manifest_json)
+file(READ "${CS2GLAZ_MANIFESTS_ROOT}/cs2.json" _cs2glaz_cs2_manifest_json)
 
-cs2fow_json_string("${_cs2fow_cs2_manifest_json}" CS2FOW_SDK_CODE code)
-cs2fow_json_string_array("${_cs2fow_cs2_manifest_json}" _cs2fow_sdk_include_paths include_paths)
-set(CS2FOW_SDK_INCLUDE_DIRS "")
-foreach(_p ${_cs2fow_sdk_include_paths})
-  list(APPEND CS2FOW_SDK_INCLUDE_DIRS "${CS2FOW_SDK_ROOT}/${_p}")
+cs2glaz_json_string("${_cs2glaz_cs2_manifest_json}" CS2GLAZ_SDK_CODE code)
+cs2glaz_json_string_array("${_cs2glaz_cs2_manifest_json}" _cs2glaz_sdk_include_paths include_paths)
+set(CS2GLAZ_SDK_INCLUDE_DIRS "")
+foreach(_p ${_cs2glaz_sdk_include_paths})
+  list(APPEND CS2GLAZ_SDK_INCLUDE_DIRS "${CS2GLAZ_SDK_ROOT}/${_p}")
 endforeach()
 
-cs2fow_json_string_array("${_cs2fow_cs2_manifest_json}" CS2FOW_SDK_LINUX_DEFINES linux defines)
-cs2fow_json_string_array("${_cs2fow_cs2_manifest_json}" _cs2fow_sdk_linux_postlink_libs linux x86_64 postlink_libs)
-cs2fow_json_string_array("${_cs2fow_cs2_manifest_json}" _cs2fow_sdk_linux_dynamic_libs linux x86_64 dynamic_libs)
-cs2fow_json_string("${_cs2fow_cs2_manifest_json}" CS2FOW_SDK_LINUX_PROTOC_PATH linux protoc_path)
+cs2glaz_json_string_array("${_cs2glaz_cs2_manifest_json}" CS2GLAZ_SDK_LINUX_DEFINES linux defines)
+cs2glaz_json_string_array("${_cs2glaz_cs2_manifest_json}" _cs2glaz_sdk_linux_postlink_libs linux x86_64 postlink_libs)
+cs2glaz_json_string_array("${_cs2glaz_cs2_manifest_json}" _cs2glaz_sdk_linux_dynamic_libs linux x86_64 dynamic_libs)
+cs2glaz_json_string("${_cs2glaz_cs2_manifest_json}" CS2GLAZ_SDK_LINUX_PROTOC_PATH linux protoc_path)
 
-cs2fow_json_string_array("${_cs2fow_cs2_manifest_json}" _cs2fow_sdk_windows_libs windows x86_64 libs)
-cs2fow_json_string("${_cs2fow_cs2_manifest_json}" CS2FOW_SDK_WINDOWS_PROTOC_PATH windows protoc_path)
+cs2glaz_json_string_array("${_cs2glaz_cs2_manifest_json}" _cs2glaz_sdk_windows_libs windows x86_64 libs)
+cs2glaz_json_string("${_cs2glaz_cs2_manifest_json}" CS2GLAZ_SDK_WINDOWS_PROTOC_PATH windows protoc_path)
 
 # postlink_libs / dynamic_libs / libs in the manifest are relative to sdk['path'].
-set(CS2FOW_SDK_LINUX_POSTLINK_LIBS "")
-foreach(_lib ${_cs2fow_sdk_linux_postlink_libs})
-  list(APPEND CS2FOW_SDK_LINUX_POSTLINK_LIBS "${CS2FOW_SDK_ROOT}/${_lib}")
+set(CS2GLAZ_SDK_LINUX_POSTLINK_LIBS "")
+foreach(_lib ${_cs2glaz_sdk_linux_postlink_libs})
+  list(APPEND CS2GLAZ_SDK_LINUX_POSTLINK_LIBS "${CS2GLAZ_SDK_ROOT}/${_lib}")
 endforeach()
-set(CS2FOW_SDK_LINUX_DYNAMIC_LIBS "")
-foreach(_lib ${_cs2fow_sdk_linux_dynamic_libs})
-  list(APPEND CS2FOW_SDK_LINUX_DYNAMIC_LIBS "${CS2FOW_SDK_ROOT}/${_lib}")
+set(CS2GLAZ_SDK_LINUX_DYNAMIC_LIBS "")
+foreach(_lib ${_cs2glaz_sdk_linux_dynamic_libs})
+  list(APPEND CS2GLAZ_SDK_LINUX_DYNAMIC_LIBS "${CS2GLAZ_SDK_ROOT}/${_lib}")
 endforeach()
-set(CS2FOW_SDK_WINDOWS_LIBS "")
-foreach(_lib ${_cs2fow_sdk_windows_libs})
-  list(APPEND CS2FOW_SDK_WINDOWS_LIBS "${CS2FOW_SDK_ROOT}/${_lib}")
+set(CS2GLAZ_SDK_WINDOWS_LIBS "")
+foreach(_lib ${_cs2glaz_sdk_windows_libs})
+  list(APPEND CS2GLAZ_SDK_WINDOWS_LIBS "${CS2GLAZ_SDK_ROOT}/${_lib}")
 endforeach()
 
 # SE_<ENGINE>=<code> for every manifest in hl2sdk-manifests/manifests.
-file(GLOB _cs2fow_all_manifests "${CS2FOW_MANIFESTS_ROOT}/*.json")
-set(CS2FOW_SE_DEFINES "")
-foreach(_manifest ${_cs2fow_all_manifests})
+file(GLOB _cs2glaz_all_manifests "${CS2GLAZ_MANIFESTS_ROOT}/*.json")
+set(CS2GLAZ_SE_DEFINES "")
+foreach(_manifest ${_cs2glaz_all_manifests})
   file(READ "${_manifest}" _m_json)
-  cs2fow_json_string("${_m_json}" _m_define define)
-  cs2fow_json_string("${_m_json}" _m_code code)
-  list(APPEND CS2FOW_SE_DEFINES "SE_${_m_define}=${_m_code}")
+  cs2glaz_json_string("${_m_json}" _m_define define)
+  cs2glaz_json_string("${_m_json}" _m_code code)
+  list(APPEND CS2GLAZ_SE_DEFINES "SE_${_m_define}=${_m_code}")
   unset(_m_define)
   unset(_m_code)
 endforeach()
 
 # -----------------------------------------------------------------------------
-# cs2fow-protobuf: static lib with generated protobuf sources (createProtobufLibrary()).
+# cs2glaz-protobuf: static lib with generated protobuf sources (createProtobufLibrary()).
 # NOTE: convar.cpp / memoverride.cpp are deliberately NOT part of this target.
 # -----------------------------------------------------------------------------
-cs2fow_generate_protobuf(CS2FOW_PROTOBUF_SOURCES CS2FOW_PROTOBUF_GEN_DIR)
+cs2glaz_generate_protobuf(CS2GLAZ_PROTOBUF_SOURCES CS2GLAZ_PROTOBUF_GEN_DIR)
 
-add_library(cs2fow-protobuf STATIC ${CS2FOW_PROTOBUF_SOURCES})
-add_dependencies(cs2fow-protobuf cs2fow-protobuf-gen)
-cs2fow_configure_target(cs2fow-protobuf)
-target_include_directories(cs2fow-protobuf PRIVATE "${CS2FOW_PROTOBUF_GEN_DIR}")
+add_library(cs2glaz-protobuf STATIC ${CS2GLAZ_PROTOBUF_SOURCES})
+add_dependencies(cs2glaz-protobuf cs2glaz-protobuf-gen)
+cs2glaz_configure_target(cs2glaz-protobuf)
+target_include_directories(cs2glaz-protobuf PRIVATE "${CS2GLAZ_PROTOBUF_GEN_DIR}")
 
 # -----------------------------------------------------------------------------
-# cs2fow: the plugin module (AMBuilder "plugin" target).
+# cs2glaz: the plugin module (AMBuilder "plugin" target).
 #
 # Explicit source list, identical to AMBuilder plugin.sources. This is intentional:
 # a GLOB over src/ would pull in src/baker/* (main.cpp with int main(), and
 # glb_import.cpp which needs cgltf) and src/core/builder.cpp - none of which
 # belong in the plugin. convar.cpp / memoverride.cpp live here (and only here).
 # -----------------------------------------------------------------------------
-set(CS2FOW_PLUGIN_SOURCES
+set(CS2GLAZ_PLUGIN_SOURCES
   # src/core
   "${CMAKE_SOURCE_DIR}/src/core/bvh8.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/bvh8_format.cpp"
@@ -219,52 +219,52 @@ set(CS2FOW_PLUGIN_SOURCES
   "${CMAKE_SOURCE_DIR}/src/plugin/visibility_worker.cpp"
 
   # third_party (vendored, part of the plugin)
-  "${CS2FOW_THIRD_PARTY_ROOT}/miniz.c"
-  "${CS2FOW_THIRD_PARTY_ROOT}/masked_occlusion_culling/MaskedOcclusionCulling.cpp"
+  "${CS2GLAZ_THIRD_PARTY_ROOT}/miniz.c"
+  "${CS2GLAZ_THIRD_PARTY_ROOT}/masked_occlusion_culling/MaskedOcclusionCulling.cpp"
 
   # SDK translation units compiled into the plugin
-  "${CS2FOW_SDK_ROOT}/tier1/convar.cpp"
-  "${CS2FOW_SDK_ROOT}/public/tier0/memoverride.cpp"
+  "${CS2GLAZ_SDK_ROOT}/tier1/convar.cpp"
+  "${CS2GLAZ_SDK_ROOT}/public/tier0/memoverride.cpp"
 )
 
-add_library(cs2fow MODULE ${CS2FOW_PLUGIN_SOURCES})
-add_dependencies(cs2fow cs2fow-protobuf-gen)
-cs2fow_configure_target(cs2fow)
+add_library(cs2glaz MODULE ${CS2GLAZ_PLUGIN_SOURCES})
+add_dependencies(cs2glaz cs2glaz-protobuf-gen)
+cs2glaz_configure_target(cs2glaz)
 
-set_target_properties(cs2fow PROPERTIES
+set_target_properties(cs2glaz PROPERTIES
   PREFIX ""
-  OUTPUT_NAME "cs2fow"
+  OUTPUT_NAME "cs2glaz"
 )
 
-target_compile_definitions(cs2fow PRIVATE
+target_compile_definitions(cs2glaz PRIVATE
   MINIZ_NO_ARCHIVE_WRITING_APIS
   MINIZ_NO_ZLIB_APIS
-  CS2FOW_VERSION="${CS2FOW_META_VERSION}"
+  CS2GLAZ_VERSION="${CS2GLAZ_META_VERSION}"
 )
 
 # Include dirs mirror AMBuilder configure() + plugin.compiler.cxxincludes.
 # src/baker is kept as an include dir (AMBuilder adds it for every target), but
 # no baker .cpp is compiled here, so cgltf is NOT required by the plugin.
-target_include_directories(cs2fow PRIVATE
+target_include_directories(cs2glaz PRIVATE
   "${CMAKE_SOURCE_DIR}/src"
   "${CMAKE_SOURCE_DIR}/src/core"
   "${CMAKE_SOURCE_DIR}/src/baker"
   "${CMAKE_SOURCE_DIR}/src/plugin"
 
-  "${CS2FOW_THIRD_PARTY_ROOT}"
+  "${CS2GLAZ_THIRD_PARTY_ROOT}"
 
-  "${CS2FOW_SDK_ROOT}"
-  "${CS2FOW_SDK_ROOT}/public/entity2"
+  "${CS2GLAZ_SDK_ROOT}"
+  "${CS2GLAZ_SDK_ROOT}/public/entity2"
 
-  "${CS2FOW_FUNCHOOK_ROOT}/include"
-  "${CS2FOW_PROTOBUF_GEN_DIR}"
+  "${CS2GLAZ_FUNCHOOK_ROOT}/include"
+  "${CS2GLAZ_PROTOBUF_GEN_DIR}"
 )
 
-if(EXISTS "${CS2FOW_THIRD_PARTY_ROOT}/generated")
-  target_include_directories(cs2fow PRIVATE "${CS2FOW_THIRD_PARTY_ROOT}/generated")
+if(EXISTS "${CS2GLAZ_THIRD_PARTY_ROOT}/generated")
+  target_include_directories(cs2glaz PRIVATE "${CS2GLAZ_THIRD_PARTY_ROOT}/generated")
 endif()
 
-target_link_libraries(cs2fow PRIVATE cs2fow-protobuf)
+target_link_libraries(cs2glaz PRIVATE cs2glaz-protobuf)
 
 if(WIN32)
   set(_windows_sdk_roots
@@ -313,27 +313,27 @@ if(WIN32)
     message(FATAL_ERROR "delayimp.lib was not found in the installed MSVC toolchain. Install the C++ build tools and retry.")
   endif()
 
-  target_link_libraries(cs2fow PRIVATE
-    ${CS2FOW_SDK_WINDOWS_LIBS}                                        # protobuf/mathlib/tier0/interfaces from cs2.json
+  target_link_libraries(cs2glaz PRIVATE
+    ${CS2GLAZ_SDK_WINDOWS_LIBS}                                        # protobuf/mathlib/tier0/interfaces from cs2.json
     "${PSAPI_LIB}"
-    "${CS2FOW_FUNCHOOK_ROOT}/lib/funchook.lib"
-    "${CS2FOW_FUNCHOOK_ROOT}/lib/distorm.lib"
-    "${CS2FOW_SDK_ROOT}/lib/public/win64/mathlib.lib"
-    "${CS2FOW_SDK_ROOT}/lib/public/win64/steam_api64.lib"
+    "${CS2GLAZ_FUNCHOOK_ROOT}/lib/funchook.lib"
+    "${CS2GLAZ_FUNCHOOK_ROOT}/lib/distorm.lib"
+    "${CS2GLAZ_SDK_ROOT}/lib/public/win64/mathlib.lib"
+    "${CS2GLAZ_SDK_ROOT}/lib/public/win64/steam_api64.lib"
     "${DELAYIMP_LIB}"
   )
-  target_link_options(cs2fow PRIVATE "/DELAYLOAD:steam_api64.dll")
+  target_link_options(cs2glaz PRIVATE "/DELAYLOAD:steam_api64.dll")
 else()
-  target_link_libraries(cs2fow PRIVATE
-    ${CS2FOW_SDK_LINUX_POSTLINK_LIBS}                                 # mathlib.a / interfaces.a / libprotobuf.a
-    ${CS2FOW_SDK_LINUX_DYNAMIC_LIBS}                                  # libtier0.so
-    "${CS2FOW_FUNCHOOK_ROOT}/lib/libfunchook.a"
-    "${CS2FOW_FUNCHOOK_ROOT}/lib/libdistorm.a"
-    "${CS2FOW_SDK_ROOT}/lib/linux64/mathlib.a"
+  target_link_libraries(cs2glaz PRIVATE
+    ${CS2GLAZ_SDK_LINUX_POSTLINK_LIBS}                                 # mathlib.a / interfaces.a / libprotobuf.a
+    ${CS2GLAZ_SDK_LINUX_DYNAMIC_LIBS}                                  # libtier0.so
+    "${CS2GLAZ_FUNCHOOK_ROOT}/lib/libfunchook.a"
+    "${CS2GLAZ_FUNCHOOK_ROOT}/lib/libdistorm.a"
+    "${CS2GLAZ_SDK_ROOT}/lib/linux64/mathlib.a"
   )
 endif()
 
 # -----------------------------------------------------------------------------
 # Packaging (PackageScript)
 # -----------------------------------------------------------------------------
-cs2fow_add_package(cs2fow)
+cs2glaz_add_package(cs2glaz)

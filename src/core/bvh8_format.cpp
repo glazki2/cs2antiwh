@@ -21,12 +21,12 @@
 #include <cstdio>
 #endif
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
 
-		constexpr char k_magic[8] = {'C', 'S', '2', 'F', 'O', 'W', '8', '\0'};
+		constexpr char k_magic[8] = {'C', 'S', '2', 'G', 'L', 'A', 'Z', '8'};
 
 		constexpr std::array<uint32_t, 256> make_crc32_table()
 		{
@@ -539,4 +539,4 @@ namespace cs2fow
 		return true;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

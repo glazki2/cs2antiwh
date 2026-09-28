@@ -15,7 +15,7 @@
 #include <string_view>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	bool import_physics_resource(std::span<const uint8_t> resource, std::vector<triangle>& triangles, import_report& report, std::string& error,
@@ -28,4 +28,4 @@ namespace cs2fow
 	// Surface property name for a token, or "unknown_surface_<token>".
 	std::string surface_property_name(uint32_t token);
 
-} // namespace cs2fow
+} // namespace cs2glaz

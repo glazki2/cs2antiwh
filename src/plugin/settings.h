@@ -8,7 +8,7 @@
 class IVEngineServer2;
 class ICvar;
 
-namespace cs2fow::settings
+namespace cs2glaz::settings
 {
 
 	using change_callback = void (*)(uint32_t changes);
@@ -28,4 +28,4 @@ namespace cs2fow::settings
 	bool donttransmit_mode(int& value);
 	bool playerid_mode(int& value);
 
-} // namespace cs2fow::settings
+} // namespace cs2glaz::settings

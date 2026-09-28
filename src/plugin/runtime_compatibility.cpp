@@ -20,7 +20,7 @@
 #include <unistd.h>
 #endif
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
@@ -112,7 +112,7 @@ namespace cs2fow
 			return false;
 		}
 		std::string error;
-		const std::filesystem::path gamedata = base_directory / "addons" / "cs2fow" / "gamedata" / "cs2fow.games.txt";
+		const std::filesystem::path gamedata = base_directory / "addons" / "cs2glaz" / "gamedata" / "cs2glaz.games.txt";
 		if (!read_gamedata(gamedata, error))
 		{
 			set_report(compatibility_state::error, std::move(error), he_event_manager_available);
@@ -574,4 +574,4 @@ namespace cs2fow
 				   : static_cast<uint8_t*>(server_module_base_) + game_event_manager_vtable_rva_;
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

@@ -10,7 +10,7 @@
 class ISchemaSystem;
 class ISource2GameEntities;
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	struct schema_offsets
@@ -227,4 +227,4 @@ namespace cs2fow
 		void* remove_entity_ {};
 	};
 
-} // namespace cs2fow
+} // namespace cs2glaz

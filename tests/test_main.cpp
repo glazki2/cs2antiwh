@@ -26,7 +26,7 @@
 #include <unistd.h>
 #endif
 
-using namespace cs2fow;
+using namespace cs2glaz;
 
 namespace
 {
@@ -88,7 +88,7 @@ int run_tests(std::span<const std::filesystem::path> argv)
 	}
 	assert(cpu_supports_avx());
 	const std::filesystem::path directory =
-		std::filesystem::temp_directory_path() / ("cs2fow-tests-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+		std::filesystem::temp_directory_path() / ("cs2glaz-tests-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
 	std::filesystem::remove_all(directory);
 	std::filesystem::create_directories(directory);
 	run_structure_tests();
@@ -96,7 +96,7 @@ int run_tests(std::span<const std::filesystem::path> argv)
 	run_physics_import_tests(std::filesystem::absolute(argv[0]));
 	run_visibility_and_transmit_tests();
 	std::filesystem::remove_all(directory);
-	std::cout << "cs2fow_tests: all checks passed\n";
+	std::cout << "cs2glaz_tests: all checks passed\n";
 
 	if (argv.size() != 2)
 	{

@@ -1,6 +1,6 @@
 #pragma once
 
-// Declares the one CS2FOW plugin object and the fixed runtime state shared by
+// Declares the one CS2GLAZ plugin object and the fixed runtime state shared by
 // its modules. Live engine objects stay with game-thread/CheckTransmit callers;
 // the worker receives copied snapshots, and uncertain state must fail open.
 
@@ -32,7 +32,7 @@
 
 PLUGIN_GLOBALVARS();
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	inline constexpr uint32_t k_max_weapons = 64;
@@ -195,7 +195,7 @@ namespace cs2fow
 
 		const char* GetName() override
 		{
-			return "CS2FOW";
+			return "CS2GLAZ";
 		}
 
 		const char* GetDescription() override
@@ -215,7 +215,7 @@ namespace cs2fow
 
 		const char* GetVersion() override
 		{
-			return CS2FOW_VERSION;
+			return CS2GLAZ_VERSION;
 		}
 
 		const char* GetDate() override
@@ -225,7 +225,7 @@ namespace cs2fow
 
 		const char* GetLogTag() override
 		{
-			return "CS2FOW";
+			return "CS2GLAZ";
 		}
 
 	private:
@@ -338,4 +338,4 @@ namespace cs2fow
 
 	extern plugin g_plugin;
 
-} // namespace cs2fow
+} // namespace cs2glaz

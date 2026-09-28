@@ -31,7 +31,7 @@
 #include <string>
 #include <vector>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	plugin g_plugin;
@@ -75,7 +75,7 @@ namespace cs2fow
 		return true;
 	}
 
-	CON_COMMAND_F(cs2fow_entity, "List, filter, or clear actual CS2FOW transmit clears", FCVAR_NONE)
+	CON_COMMAND_F(cs2glaz_entity, "List, filter, or clear actual CS2GLAZ transmit clears", FCVAR_NONE)
 	{
 		if (args.ArgC() == 1)
 		{
@@ -84,7 +84,7 @@ namespace cs2fow
 		}
 		if (args.ArgC() != 2)
 		{
-			META_CONPRINTF("[CS2FOW] usage: cs2fow_entity [<edict>|clear]\n");
+			META_CONPRINTF("[CS2GLAZ] usage: cs2glaz_entity [<edict>|clear]\n");
 			return;
 		}
 		const char* text = args.Arg(1);
@@ -97,13 +97,13 @@ namespace cs2fow
 		const auto result = std::from_chars(text, text + std::strlen(text), edict);
 		if (result.ec != std::errc {} || *result.ptr != '\0')
 		{
-			META_CONPRINTF("[CS2FOW] invalid edict: %s\n", text);
+			META_CONPRINTF("[CS2GLAZ] invalid edict: %s\n", text);
 			return;
 		}
 		g_plugin.print_entities(edict);
 	}
 
-	CON_COMMAND_F(cs2fow_probe, "Diagnostic: 'cs2fow_probe start' samples CheckTransmit lists; 'cs2fow_probe' prints the result", FCVAR_NONE)
+	CON_COMMAND_F(cs2glaz_probe, "Diagnostic: 'cs2glaz_probe start' samples CheckTransmit lists; 'cs2glaz_probe' prints the result", FCVAR_NONE)
 	{
 		if (args.ArgC() == 2 && std::strcmp(args.Arg(1), "start") == 0)
 		{
@@ -150,7 +150,7 @@ namespace cs2fow
 		settings::initialize(engine_, cvar_, [](uint32_t changes) { g_plugin.settings_changed(changes); });
 		if (!settings::begin_load())
 		{
-			META_CONPRINTF("[CS2FOW] warning: could not start the initial configuration load; compiled defaults remain active\n");
+			META_CONPRINTF("[CS2GLAZ] warning: could not start the initial configuration load; compiled defaults remain active\n");
 		}
 		g_SMAPI->AddListener(this, this);
 
@@ -164,19 +164,19 @@ namespace cs2fow
 		}
 		if (!compatibility_.valid())
 		{
-			META_CONPRINTF("[CS2FOW] compatibility state: %s\n", compatibility_state_name(compatibility_.report().state));
+			META_CONPRINTF("[CS2GLAZ] compatibility state: %s\n", compatibility_state_name(compatibility_.report().state));
 			disable(compatibility_.report().technical_detail);
 		}
 		else if (!compatibility_.smoke_available())
 		{
-			META_CONPRINTF("[CS2FOW] smoke occlusion unavailable; wall filtering remains active\n");
+			META_CONPRINTF("[CS2GLAZ] smoke occlusion unavailable; wall filtering remains active\n");
 		}
 		else if (!he_event_available_ && !game_event_load_hooked_)
 		{
-			META_CONPRINTF("[CS2FOW] HE smoke clearing unavailable; ordinary smoke remains active\n");
+			META_CONPRINTF("[CS2GLAZ] HE smoke clearing unavailable; ordinary smoke remains active\n");
 		}
-		META_CONPRINTF("[CS2FOW] loaded; culling is fail-open until a map bake validates\n");
-		META_CONPRINTF("[CS2FOW] Free and independently maintained. Support continued updates: https://buymeacoffee.com/karola3vax\n");
+		META_CONPRINTF("[CS2GLAZ] loaded; culling is fail-open until a map bake validates\n");
+		META_CONPRINTF("[CS2GLAZ] Free and independently maintained. Support continued updates: https://buymeacoffee.com/karola3vax\n");
 		return true;
 	}
 
@@ -273,7 +273,7 @@ namespace cs2fow
 		pending_map_.clear();
 		if (settings::cancel_load())
 		{
-			META_CONPRINTF("[CS2FOW] configuration load interrupted by map shutdown; previous settings restored\n");
+			META_CONPRINTF("[CS2GLAZ] configuration load interrupted by map shutdown; previous settings restored\n");
 		}
 		if (compatibility_.valid())
 		{
@@ -289,7 +289,7 @@ namespace cs2fow
 		reset_transmit_state();
 		limited_validation_pending_ = false;
 		disabled_reason_ = std::move(reason);
-		META_CONPRINTF("[CS2FOW] protection off: %s\n", disabled_reason_.c_str());
+		META_CONPRINTF("[CS2GLAZ] protection off: %s\n", disabled_reason_.c_str());
 	}
 
 	bool plugin::resolve_map_source(const std::string& map, map_source& source, std::string& error) const
@@ -378,7 +378,7 @@ namespace cs2fow
 		{
 			if (!settings::current().limited_mode)
 			{
-				disable("CS2 server build differs from verified gamedata and cs2fow_limited_mode is 0");
+				disable("CS2 server build differs from verified gamedata and cs2glaz_limited_mode is 0");
 				return;
 			}
 		}
@@ -406,7 +406,7 @@ namespace cs2fow
 	void plugin::announce_active()
 	{
 		disabled_reason_.clear();
-		META_CONPRINTF("[CS2FOW] active for %s: crc=0x%08x, triangles=%u, nodes=%u, packets=%u\n", map_.c_str(), data_.header.source_crc32,
+		META_CONPRINTF("[CS2GLAZ] active for %s: crc=0x%08x, triangles=%u, nodes=%u, packets=%u\n", map_.c_str(), data_.header.source_crc32,
 					   data_.header.triangle_count, data_.header.node_count, data_.header.packet_count);
 	}
 
@@ -452,22 +452,22 @@ namespace cs2fow
 		}
 		if (!settings::begin_load())
 		{
-			META_CONPRINTF("[CS2FOW] warning: cs2fow.cfg could not be queued; keeping the previous settings\n");
+			META_CONPRINTF("[CS2GLAZ] warning: cs2glaz.cfg could not be queued; keeping the previous settings\n");
 			finish_config_load(false);
 			return;
 		}
-		META_CONPRINTF("[CS2FOW] loading cs2fow.cfg before activating %s\n", map.c_str());
+		META_CONPRINTF("[CS2GLAZ] loading cs2glaz.cfg before activating %s\n", map.c_str());
 	}
 
 	void plugin::finish_config_load(bool success)
 	{
 		if (success)
 		{
-			META_CONPRINTF("[CS2FOW] cs2fow.cfg loaded and committed\n");
+			META_CONPRINTF("[CS2GLAZ] cs2glaz.cfg loaded and committed\n");
 		}
 		else
 		{
-			META_CONPRINTF("[CS2FOW] cs2fow.cfg did not finish; previous settings restored\n");
+			META_CONPRINTF("[CS2GLAZ] cs2glaz.cfg did not finish; previous settings restored\n");
 		}
 		if (pending_map_.empty())
 		{
@@ -482,22 +482,22 @@ namespace cs2fow
 	{
 		if (settings::loading())
 		{
-			META_CONPRINTF("[CS2FOW] a configuration load is already in progress; wait for it to finish\n");
+			META_CONPRINTF("[CS2GLAZ] a configuration load is already in progress; wait for it to finish\n");
 			return;
 		}
 		if (!settings::begin_load())
 		{
-			META_CONPRINTF("[CS2FOW] cs2fow.cfg could not be queued because the server command service is unavailable\n");
+			META_CONPRINTF("[CS2GLAZ] cs2glaz.cfg could not be queued because the server command service is unavailable\n");
 			return;
 		}
-		META_CONPRINTF("[CS2FOW] reloading cs2fow.cfg; changes commit only after its final marker\n");
+		META_CONPRINTF("[CS2GLAZ] reloading cs2glaz.cfg; changes commit only after its final marker\n");
 	}
 
 	void plugin::config_loaded()
 	{
 		if (!settings::loading())
 		{
-			META_CONPRINTF("[CS2FOW] ignored an unexpected cs2fow_config_loaded marker\n");
+			META_CONPRINTF("[CS2GLAZ] ignored an unexpected cs2glaz_config_loaded marker\n");
 			return;
 		}
 		finish_config_load(settings::complete_load());
@@ -513,13 +513,13 @@ namespace cs2fow
 
 	void plugin::print_help() const
 	{
-		META_CONPRINTF("[CS2FOW] administrator commands:\n");
-		META_CONPRINTF("[CS2FOW] cs2fow_status - Show concise protection, map, configuration, and performance health.\n");
-		META_CONPRINTF("[CS2FOW] cs2fow_metrics - Show the complete technical runtime counters.\n");
-		META_CONPRINTF("[CS2FOW] cs2fow_reload - Transactionally reload cs2fow.cfg.\n");
-		META_CONPRINTF("[CS2FOW] cs2fow_check_config - Check settings without changing them.\n");
-		META_CONPRINTF("[CS2FOW] cs2fow_check_update - Check for an update now instead of waiting.\n");
-		META_CONPRINTF("[CS2FOW] cs2fow_entity [<edict>|clear] - Inspect actual debug-mode transmit clears.\n");
+		META_CONPRINTF("[CS2GLAZ] administrator commands:\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_status - Show concise protection, map, configuration, and performance health.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_metrics - Show the complete technical runtime counters.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_reload - Transactionally reload cs2glaz.cfg.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_check_config - Check settings without changing them.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_check_update - Check for an update now instead of waiting.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_entity [<edict>|clear] - Inspect actual debug-mode transmit clears.\n");
 	}
 
 	void plugin::check_update()
@@ -532,80 +532,80 @@ namespace cs2fow
 		const runtime_configuration& configuration = settings::current();
 		int findings = 0;
 		const uint32_t configuration_findings = validate_configuration(configuration);
-		META_CONPRINTF("[CS2FOW] checking the committed configuration; nothing will be changed\n");
+		META_CONPRINTF("[CS2GLAZ] checking the committed configuration; nothing will be changed\n");
 		if (settings::loading())
 		{
-			META_CONPRINTF("[CS2FOW] review: cs2fow.cfg is still loading; committed settings remain active meanwhile\n");
+			META_CONPRINTF("[CS2GLAZ] review: cs2glaz.cfg is still loading; committed settings remain active meanwhile\n");
 			++findings;
 		}
 		else if (settings::load_state() == configuration_load_state::failed)
 		{
-			META_CONPRINTF("[CS2FOW] review: the last cs2fow.cfg load did not reach cs2fow_config_loaded; previous settings were restored\n");
+			META_CONPRINTF("[CS2GLAZ] review: the last cs2glaz.cfg load did not reach cs2glaz_config_loaded; previous settings were restored\n");
 			++findings;
 		}
 		if ((configuration_findings & configuration_finding_disabled) != 0)
 		{
-			META_CONPRINTF("[CS2FOW] review cs2fow_enable: protection is disabled by configuration\n");
+			META_CONPRINTF("[CS2GLAZ] review cs2glaz_enable: protection is disabled by configuration\n");
 			++findings;
 		}
 		if ((configuration_findings & configuration_finding_shoulder_range) != 0)
 		{
-			META_CONPRINTF("[CS2FOW] review shoulder settings: max is below base, so the effective maximum equals the base\n");
+			META_CONPRINTF("[CS2GLAZ] review shoulder settings: max is below base, so the effective maximum equals the base\n");
 			++findings;
 		}
 		if ((configuration_findings & configuration_finding_he_pair) != 0)
 		{
-			META_CONPRINTF("[CS2FOW] review HE clearing: set both radius and duration to zero to disable it consistently\n");
+			META_CONPRINTF("[CS2GLAZ] review HE clearing: set both radius and duration to zero to disable it consistently\n");
 			++findings;
 		}
 		if (configuration.smoke_occlusion && !compatibility_.smoke_available())
 		{
-			META_CONPRINTF("[CS2FOW] review smoke occlusion: it is requested but unavailable for this CS2 build\n");
+			META_CONPRINTF("[CS2GLAZ] review smoke occlusion: it is requested but unavailable for this CS2 build\n");
 			++findings;
 		}
 		if (active_worker_threads_ != 0 && active_worker_threads_ != static_cast<uint32_t>(configuration.worker_threads))
 		{
-			META_CONPRINTF("[CS2FOW] note: worker threads are configured as %d; %u remain active until the next map\n", configuration.worker_threads,
+			META_CONPRINTF("[CS2GLAZ] note: worker threads are configured as %d; %u remain active until the next map\n", configuration.worker_threads,
 						   active_worker_threads_);
 			++findings;
 		}
 		if ((configuration_findings & configuration_finding_debug_los) != 0)
 		{
-			META_CONPRINTF("[CS2FOW] note: temporary LOS debug is enabled for player %d\n", configuration.debug_los_player);
+			META_CONPRINTF("[CS2GLAZ] note: temporary LOS debug is enabled for player %d\n", configuration.debug_los_player);
 			++findings;
 		}
 		int donttransmit = 0;
 		if (!settings::donttransmit_mode(donttransmit))
 		{
-			META_CONPRINTF("[CS2FOW] review sv_enable_donttransmit: the Valve setting could not be read\n");
+			META_CONPRINTF("[CS2GLAZ] review sv_enable_donttransmit: the Valve setting could not be read\n");
 			++findings;
 		}
 		else
 		{
-			META_CONPRINTF("[CS2FOW] sv_enable_donttransmit=%d is supported\n", donttransmit);
+			META_CONPRINTF("[CS2GLAZ] sv_enable_donttransmit=%d is supported\n", donttransmit);
 		}
 		int playerid = 0;
 		if (!settings::playerid_mode(playerid))
 		{
-			META_CONPRINTF("[CS2FOW] review mp_playerid: the target-ID setting could not be read\n");
+			META_CONPRINTF("[CS2GLAZ] review mp_playerid: the target-ID setting could not be read\n");
 			++findings;
 		}
 		else if (playerid == 0)
 		{
-			META_CONPRINTF("[CS2FOW] review mp_playerid: set it to 1 to prevent stale enemy names at hidden positions\n");
+			META_CONPRINTF("[CS2GLAZ] review mp_playerid: set it to 1 to prevent stale enemy names at hidden positions\n");
 			++findings;
 		}
 		else
 		{
-			META_CONPRINTF("[CS2FOW] mp_playerid=%d prevents hidden enemy target IDs\n", playerid);
+			META_CONPRINTF("[CS2GLAZ] mp_playerid=%d prevents hidden enemy target IDs\n", playerid);
 		}
 		if (findings == 0)
 		{
-			META_CONPRINTF("[CS2FOW] configuration check passed; everything is ready\n");
+			META_CONPRINTF("[CS2GLAZ] configuration check passed; everything is ready\n");
 		}
 		else
 		{
-			META_CONPRINTF("[CS2FOW] configuration check found %d item%s to review\n", findings, findings == 1 ? "" : "s");
+			META_CONPRINTF("[CS2GLAZ] configuration check found %d item%s to review\n", findings, findings == 1 ? "" : "s");
 		}
 	}
 
@@ -614,9 +614,9 @@ namespace cs2fow
 	{
 		const std::filesystem::path base = api_->GetBaseDir();
 #if defined(_WIN32)
-		const std::filesystem::path baker = base / "tools" / "cs2fow_baker.exe";
+		const std::filesystem::path baker = base / "tools" / "cs2glaz_baker.exe";
 #else
-		const std::filesystem::path baker = base / "tools" / "cs2fow_baker";
+		const std::filesystem::path baker = base / "tools" / "cs2glaz_baker";
 #endif
 		if (!std::filesystem::is_regular_file(baker))
 		{
@@ -646,11 +646,11 @@ namespace cs2fow
 				disable("baker missing execute permission (chmod +x " + baker.string() + ")");
 				return;
 			}
-			META_CONPRINTF("[CS2FOW] restored execute permission on %s\n", baker.string().c_str());
+			META_CONPRINTF("[CS2GLAZ] restored execute permission on %s\n", baker.string().c_str());
 		}
 #endif
 		disabled_reason_ = "automatic bake in progress";
-		META_CONPRINTF("[CS2FOW] %s for %s; starting automatic bake\n", reason.c_str(), map.c_str());
+		META_CONPRINTF("[CS2GLAZ] %s for %s; starting automatic bake\n", reason.c_str(), map.c_str());
 		if (!automatic_baker_.start({map, source, base.parent_path().parent_path(), output, baker}))
 		{
 			disable("could not start automatic baker thread");
@@ -706,7 +706,7 @@ namespace cs2fow
 		}
 		disabled_reason_ = "validating map";
 		const std::filesystem::path base = api_->GetBaseDir();
-		const std::filesystem::path bake = base / "addons" / "cs2fow" / "data" / "maps" / (map + ".bvh8");
+		const std::filesystem::path bake = base / "addons" / "cs2glaz" / "data" / "maps" / (map + ".bvh8");
 		std::string error;
 		if (!resolve_map_source(map, source_, error))
 		{
@@ -873,7 +873,7 @@ namespace cs2fow
 				{
 					destroy_los_debug_beams();
 					los_debug_failed_ = true;
-					META_CONPRINTF("[CS2FOW] temporary LOS beam creation failed; set cs2fow_debug_los_player 0 before retrying\n");
+					META_CONPRINTF("[CS2GLAZ] temporary LOS beam creation failed; set cs2glaz_debug_los_player 0 before retrying\n");
 					return;
 				}
 				continue;
@@ -883,7 +883,7 @@ namespace cs2fow
 			{
 				destroy_los_debug_beams();
 				los_debug_failed_ = true;
-				META_CONPRINTF("[CS2FOW] temporary LOS beam movement failed; set cs2fow_debug_los_player 0 before retrying\n");
+				META_CONPRINTF("[CS2GLAZ] temporary LOS beam movement failed; set cs2glaz_debug_los_player 0 before retrying\n");
 				return;
 			}
 			entity_field<Vector>(entity, compatibility_.fields().beam_end_position) = end;
@@ -952,7 +952,7 @@ namespace cs2fow
 		else if (!configuration.enable)
 		{
 			state = runtime_health_state::disabled;
-			action = "Set cs2fow_enable 1 or update cs2fow.cfg.";
+			action = "Set cs2glaz_enable 1 or update cs2glaz.cfg.";
 		}
 		else if (disabled_reason_.empty())
 		{
@@ -970,11 +970,11 @@ namespace cs2fow
 		else
 		{
 			state = runtime_health_state::error;
-			action = "Run cs2fow_metrics and check the first reported error.";
+			action = "Run cs2glaz_metrics and check the first reported error.";
 		}
 		if (action == nullptr && settings::load_state() == configuration_load_state::failed)
 		{
-			action = "Run cs2fow_check_config, fix cs2fow.cfg, then run cs2fow_reload.";
+			action = "Run cs2glaz_check_config, fix cs2glaz.cfg, then run cs2glaz_reload.";
 		}
 		int playerid = 0;
 		const bool playerid_safe = settings::playerid_mode(playerid) && playerid != 0;
@@ -988,25 +988,25 @@ namespace cs2fow
 			action = compatibility_.report().operator_action.c_str();
 		}
 
-		META_CONPRINTF("[CS2FOW] CS2FOW %s: %s\n", CS2FOW_VERSION, runtime_health_state_name(state));
-		META_CONPRINTF("[CS2FOW] Game build: %s\n",
+		META_CONPRINTF("[CS2GLAZ] CS2GLAZ %s: %s\n", CS2GLAZ_VERSION, runtime_health_state_name(state));
+		META_CONPRINTF("[CS2GLAZ] Game build: %s\n",
 					   !compatibility_.valid()	   ? compatibility_state_name(compatibility_.report().state)
 					   : compatibility_.limited() ? (configuration.limited_mode ? "unverified; limited mode (walls only, hull-shaped body, smoke off)"
-																				: "unverified; limited mode disabled by cs2fow_limited_mode 0")
+																				: "unverified; limited mode disabled by cs2glaz_limited_mode 0")
 												  : "verified gamedata (animated capsules, smoke)");
 		const char* configuration_state = settings::loading() ? "loading"
 										  : settings::load_state() == configuration_load_state::failed
 											  ? "previous settings restored after a failed load"
 										  : settings::load_state() == configuration_load_state::loaded ? "loaded"
 																									   : "compiled defaults";
-		META_CONPRINTF("[CS2FOW] Configuration: %s; worker threads configured=%d active=%u; automatic updates=%s\n", configuration_state,
+		META_CONPRINTF("[CS2GLAZ] Configuration: %s; worker threads configured=%d active=%u; automatic updates=%s\n", configuration_state,
 					   configuration.worker_threads, active_worker_threads_, configuration.automatic_updates ? "on" : "off");
-		META_CONPRINTF("[CS2FOW] Map: %s%s%s\n", pending_map_.empty() ? (map_.empty() ? "<none>" : map_.c_str()) : pending_map_.c_str(),
+		META_CONPRINTF("[CS2GLAZ] Map: %s%s%s\n", pending_map_.empty() ? (map_.empty() ? "<none>" : map_.c_str()) : pending_map_.c_str(),
 					   disabled_reason_.empty() ? "" : "; ", disabled_reason_.empty() ? "" : disabled_reason_.c_str());
 		const bool smoke_available = result != nullptr ? result->smoke_available : compatibility_.smoke_available();
 		const bool ffa = teammates_are_enemies();
 		const bool protection_active = disabled_reason_.empty() && configuration.enable;
-		META_CONPRINTF("[CS2FOW] Protection: walls=%s smoke=%s HE=%s teammates=%s target_ids=%s\n", protection_active ? "on" : "off",
+		META_CONPRINTF("[CS2GLAZ] Protection: walls=%s smoke=%s HE=%s teammates=%s target_ids=%s\n", protection_active ? "on" : "off",
 					   configuration.smoke_occlusion && smoke_available ? "on" : "off",
 					   configuration.smoke_occlusion && configuration.he_clear_radius_units > 0.0f && configuration.he_clear_seconds > 0.0f
 							   && he_event_available_
@@ -1014,23 +1014,23 @@ namespace cs2fow
 						   : "off",
 					   visibility_teammate_filter_enabled(configuration.filter_teammates, ffa) ? "filtered" : "not filtered",
 					   playerid_safe ? "safe" : "unrestricted");
-		META_CONPRINTF("[CS2FOW] Runtime: players=%u pairs=%u recent_p99=%.3fms snapshot_age=%.1fms\n", players, stats.evaluated_pairs,
+		META_CONPRINTF("[CS2GLAZ] Runtime: players=%u pairs=%u recent_p99=%.3fms snapshot_age=%.1fms\n", players, stats.evaluated_pairs,
 					   stats.recent_p99_ms, age_ms);
 		if (action != nullptr)
 		{
-			META_CONPRINTF("[CS2FOW] Next action: %s\n", action);
+			META_CONPRINTF("[CS2GLAZ] Next action: %s\n", action);
 		}
-		META_CONPRINTF("[CS2FOW] Free and independently maintained. Support continued updates: https://buymeacoffee.com/karola3vax\n");
+		META_CONPRINTF("[CS2GLAZ] Free and independently maintained. Support continued updates: https://buymeacoffee.com/karola3vax\n");
 	}
 
 	void plugin::print_metrics() const
 	{
 		const compatibility_report& compatibility = compatibility_.report();
-		META_CONPRINTF("[CS2FOW] compatibility state=%s detail=%s\n", compatibility_state_name(compatibility.state),
+		META_CONPRINTF("[CS2GLAZ] compatibility state=%s detail=%s\n", compatibility_state_name(compatibility.state),
 					   compatibility.technical_detail.c_str());
 		for (const std::string& capability : compatibility.missing_capabilities)
 		{
-			META_CONPRINTF("[CS2FOW] optional capability unavailable: %s\n", capability.c_str());
+			META_CONPRINTF("[CS2GLAZ] optional capability unavailable: %s\n", capability.c_str());
 		}
 		const worker_stats stats = worker_.stats();
 		const std::shared_ptr<const visibility_result> result = worker_.result();
@@ -1048,56 +1048,56 @@ namespace cs2fow
 			capsule_failed_players = capsule_failed_players_;
 		}
 		const double age_ms = result ? std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - result->captured).count() : -1.0;
-		META_CONPRINTF("[CS2FOW] %s; map=%s crc=0x%08x version=%u triangles=%u nodes=%u packets=%u bytes=%llu depth=%u\n",
+		META_CONPRINTF("[CS2GLAZ] %s; map=%s crc=0x%08x version=%u triangles=%u nodes=%u packets=%u bytes=%llu depth=%u\n",
 					   disabled_reason_.empty() && settings::current().enable
 						   ? "active"
 						   : (disabled_reason_.empty() ? "disabled by convar" : disabled_reason_.c_str()),
 					   map_.c_str(), data_.header.source_crc32, data_.header.version, data_.header.triangle_count, data_.header.node_count,
 					   data_.header.packet_count, static_cast<unsigned long long>(data_.header.file_size), data_.header.max_depth);
-		META_CONPRINTF("[CS2FOW] worker threads=%u wall=%.3fms active=%.3fms recent_p95=%.3fms recent_p99=%.3fms lifetime_average=%.3fms "
+		META_CONPRINTF("[CS2GLAZ] worker threads=%u wall=%.3fms active=%.3fms recent_p95=%.3fms recent_p99=%.3fms lifetime_average=%.3fms "
 					   "maximum=%.3fms snapshot_age=%.1fms\n",
 					   stats.thread_count, stats.latest_ms, stats.latest_active_ms, stats.recent_p95_ms, stats.recent_p99_ms, stats.average_ms,
 					   stats.maximum_ms, age_ms);
 		META_CONPRINTF(
-			"[CS2FOW] workload pairs=%u visible=%u hidden=%u hold=%u pixels=%u rays=%u nodes=%u triangles=%u cache=%u/%u budget=%llu cycles=%llu\n",
+			"[CS2GLAZ] workload pairs=%u visible=%u hidden=%u hold=%u pixels=%u rays=%u nodes=%u triangles=%u cache=%u/%u budget=%llu cycles=%llu\n",
 			stats.evaluated_pairs, stats.visible_pairs, stats.hidden_pairs, stats.hold_reuses, stats.sampled_pixels, stats.traced_rays,
 			stats.visited_nodes, stats.rasterized_triangles, stats.occluder_cache_hits, stats.occluder_cache_hits + stats.occluder_cache_misses,
 			static_cast<unsigned long long>(stats.budget_exhaustions), static_cast<unsigned long long>(stats.cycles));
 		const double average_proof_leaves =
 			stats.rebuilt_proofs == 0 ? 0.0 : static_cast<double>(stats.rebuilt_proof_leaves) / static_cast<double>(stats.rebuilt_proofs);
-		META_CONPRINTF("[CS2FOW] MOC draws=%u rects=%u proofs=%u proof_leaves=%.1f/%u cache_capacity=%u saturated=%u compact=%u/%u saved=%u "
+		META_CONPRINTF("[CS2GLAZ] MOC draws=%u rects=%u proofs=%u proof_leaves=%.1f/%u cache_capacity=%u saturated=%u compact=%u/%u saved=%u "
 					   "uncached_blocked=%u\n",
 					   stats.moc_render_calls, stats.moc_rect_tests, stats.rebuilt_proofs, average_proof_leaves, stats.max_rebuilt_proof_leaves,
 					   k_capsule_occluder_cache_size, stats.cache_saturations, stats.cache_compactions, stats.cache_compaction_trials,
 					   stats.cache_compaction_leaves_saved, stats.uncached_blocked);
-		META_CONPRINTF("[CS2FOW] capture latest=%.3fms average=%.3fms maximum=%.3fms calls=%llu\n", capture_timing.latest_ms,
+		META_CONPRINTF("[CS2GLAZ] capture latest=%.3fms average=%.3fms maximum=%.3fms calls=%llu\n", capture_timing.latest_ms,
 					   capture_timing.average_ms(), capture_timing.maximum_ms, static_cast<unsigned long long>(capture_timing.calls));
-		META_CONPRINTF("[CS2FOW] bones latest=%.3fms average=%.3fms maximum=%.3fms calls=%llu capsules=%u failed=%u\n", bone_timing.latest_ms,
+		META_CONPRINTF("[CS2GLAZ] bones latest=%.3fms average=%.3fms maximum=%.3fms calls=%llu capsules=%u failed=%u\n", bone_timing.latest_ms,
 					   bone_timing.average_ms(), bone_timing.maximum_ms, static_cast<unsigned long long>(bone_timing.calls), capsule_players,
 					   capsule_failed_players);
-		META_CONPRINTF("[CS2FOW] transmit latest=%.3fms average=%.3fms maximum=%.3fms calls=%llu\n", transmit_timing.latest_ms,
+		META_CONPRINTF("[CS2GLAZ] transmit latest=%.3fms average=%.3fms maximum=%.3fms calls=%llu\n", transmit_timing.latest_ms,
 					   transmit_timing.average_ms(), transmit_timing.maximum_ms, static_cast<unsigned long long>(transmit_timing.calls));
 		const bool smoke_available = result != nullptr ? result->smoke_available : compatibility_.smoke_available();
-		META_CONPRINTF("[CS2FOW] smoke enabled=%d available=%d captured=%u he_listener=%d he_active=%u\n",
+		META_CONPRINTF("[CS2GLAZ] smoke enabled=%d available=%d captured=%u he_listener=%d he_active=%u\n",
 					   settings::current().smoke_occlusion ? 1 : 0, smoke_available ? 1 : 0, result == nullptr ? 0u : result->smoke_count,
 					   he_event_available_ ? 1 : 0, result == nullptr ? 0u : result->he_clearance_count);
 		const bool ffa = teammates_are_enemies();
-		META_CONPRINTF("[CS2FOW] teammate filtering configured=%d ffa=%d effective=%d\n", settings::current().filter_teammates ? 1 : 0, ffa ? 1 : 0,
+		META_CONPRINTF("[CS2GLAZ] teammate filtering configured=%d ffa=%d effective=%d\n", settings::current().filter_teammates ? 1 : 0, ffa ? 1 : 0,
 					   visibility_teammate_filter_enabled(settings::current().filter_teammates, ffa) ? 1 : 0);
 		int playerid = 0;
 		const bool playerid_readable = settings::playerid_mode(playerid);
-		META_CONPRINTF("[CS2FOW] mp_playerid readable=%d value=%d\n", playerid_readable ? 1 : 0, playerid);
-		META_CONPRINTF("[CS2FOW] automatic updates=%d source=GitHub stable releases install=next restart\n",
+		META_CONPRINTF("[CS2GLAZ] mp_playerid readable=%d value=%d\n", playerid_readable ? 1 : 0, playerid);
+		META_CONPRINTF("[CS2GLAZ] automatic updates=%d source=GitHub stable releases install=next restart\n",
 					   settings::current().automatic_updates ? 1 : 0);
 		const uint32_t debug_beams = static_cast<uint32_t>(
 			std::count_if(los_debug_beams_.begin(), los_debug_beams_.end(), [](const los_debug_beam& beam) { return beam.handle.IsValid(); }));
-		META_CONPRINTF("[CS2FOW] temporary LOS debug player=%d available=%d beams=%u failed=%d\n", settings::current().debug_los_player,
+		META_CONPRINTF("[CS2GLAZ] temporary LOS debug player=%d available=%d beams=%u failed=%d\n", settings::current().debug_los_player,
 					   compatibility_.debug_beam_available() ? 1 : 0, debug_beams, los_debug_failed_ ? 1 : 0);
 		std::string bake_map;
 		double bake_elapsed_ms = 0;
 		if (automatic_baker_.status(bake_map, bake_elapsed_ms))
 		{
-			META_CONPRINTF("[CS2FOW] auto-bake map=%s elapsed=%.1fms\n", bake_map.c_str(), bake_elapsed_ms);
+			META_CONPRINTF("[CS2GLAZ] auto-bake map=%s elapsed=%.1fms\n", bake_map.c_str(), bake_elapsed_ms);
 		}
 	}
 
@@ -1106,7 +1106,7 @@ namespace cs2fow
 		return teammates_are_enemies_.IsValidRef() && ConVarRefAbstract(teammates_are_enemies_).GetBool();
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz
 
 CEntityIdentity* CEntitySystem::GetEntityIdentity(CEntityIndex entity_index)
 {
@@ -1143,4 +1143,4 @@ CEntityIdentity* CEntitySystem::GetEntityIdentity(const CEntityHandle& handle)
 	return identity->GetRefEHandle() == handle ? identity : nullptr;
 }
 
-PLUGIN_EXPOSE(cs2fow::plugin, cs2fow::g_plugin);
+PLUGIN_EXPOSE(cs2glaz::plugin, cs2glaz::g_plugin);

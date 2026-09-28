@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace cs2fow::kv3
+namespace cs2glaz::kv3
 {
 
 	enum class value_type : uint8_t
@@ -54,4 +54,4 @@ namespace cs2fow::kv3
 	// number of bytes written after begin.
 	bool lz4_decode_block(std::span<const uint8_t> input, std::span<uint8_t> output, size_t begin, size_t limit, size_t& produced);
 
-} // namespace cs2fow::kv3
+} // namespace cs2glaz::kv3

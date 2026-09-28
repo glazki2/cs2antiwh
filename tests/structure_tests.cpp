@@ -9,7 +9,7 @@
 #include <cassert>
 #include <chrono>
 
-using namespace cs2fow;
+using namespace cs2glaz;
 
 void run_structure_tests()
 {
@@ -106,12 +106,12 @@ void run_structure_tests()
 	uint32_t crc {};
 	assert(parse_crc32("0xa440c490", crc) && crc == 0xa440c490u);
 	assert(!parse_crc32("a440c490", crc));
-	assert(update_setting_name("  cs2fow_auto_update 0") == "cs2fow_auto_update");
+	assert(update_setting_name("  cs2glaz_auto_update 0") == "cs2glaz_auto_update");
 	assert(update_setting_name("sv_enable_donttransmit 1") == "sv_enable_donttransmit");
 	assert(update_setting_name("mp_playerid 1") == "mp_playerid");
 	assert(update_setting_name("hostname test").empty());
-	assert(safe_update_archive_path("addons/cs2fow/bin/cs2fow.dll"));
-	assert(safe_update_archive_path("addons/metamod/cs2fow.vdf"));
+	assert(safe_update_archive_path("addons/cs2glaz/bin/cs2glaz.dll"));
+	assert(safe_update_archive_path("addons/metamod/cs2glaz.vdf"));
 	assert(safe_update_archive_path("tools/vrf/win64/Source2Viewer-CLI.exe"));
 	assert(!safe_update_archive_path("../server.dll"));
 	assert(!safe_update_archive_path("addons/other/plugin.dll"));

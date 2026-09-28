@@ -2,7 +2,7 @@
 
 #include "masked_occlusion_culling/MaskedOcclusionCulling.h"
 
-// CS2FOW requests the baseline SSE4.1 implementation. These unreachable
+// CS2GLAZ requests the baseline SSE4.1 implementation. These unreachable
 // factories keep the unmodified upstream dispatch source linkable without
 // raising the plugin's existing AVX CPU requirement to AVX2 or AVX-512.
 

@@ -1,7 +1,7 @@
 // Strings whose MurmurHash2 tokens (seed 0x31415926, lowercase) resolve surface
 // property hashes in map physics. This is ValveResourceFormat 19.2's known-key
 // table (ValveResourceFormat/Utils/EntityLumpKnownKeys.cs, MIT license), the
-// table CS2FOW's VRF-exported bakes were classified with, so native bakes name
+// table CS2GLAZ's VRF-exported bakes were classified with, so native bakes name
 // every group identically. Hashes outside it stay unknown and the bake recipe
 // treats them as see-through.
 

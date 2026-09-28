@@ -11,7 +11,7 @@
 #include <limits>
 #include <numeric>
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
@@ -358,4 +358,4 @@ namespace cs2fow
 		return value.run(error);
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

@@ -1,6 +1,6 @@
-# CS2FOW code tour
+# CS2GLAZ code tour
 
-This guide follows CS2FOW in the same order that a person experiences it:
+This guide follows CS2GLAZ in the same order that a person experiences it:
 
 **Load map -> bake walls -> collect player capsules -> test silhouettes -> decide visibility -> withhold hidden entities**
 
@@ -12,7 +12,7 @@ It explains the intent of the code. The engine and file-format details are still
 
 **Target:** another player whom the recipient might or might not be able to see.
 
-**Visual group:** the explicitly known networked entities CS2FOW treats as the visible body of one target: pawn, carried weapons, wearables, and a currently carried hostage prop. Unknown gameplay entities are not inferred from generic links.
+**Visual group:** the explicitly known networked entities CS2GLAZ treats as the visible body of one target: pawn, carried weapons, wearables, and a currently carried hostage prop. Unknown gameplay entities are not inferred from generic links.
 
 **Bake:** the `.bvh8` file made from a map's static collision triangles. Baking moves expensive map preparation out of normal play.
 
@@ -32,7 +32,7 @@ It explains the intent of the code. The engine and file-format details are still
 
 **Primary and `dont_transmit` lists:** paired entity-bit lists. Hiding an entity means marking it `dont_transmit` before removing it from the primary send list.
 
-**Full update:** a refresh chosen by CS2 that sends a recipient complete entity state. CS2FOW recognizes it but never requests it.
+**Full update:** a refresh chosen by CS2 that sends a recipient complete entity state. CS2GLAZ recognizes it but never requests it.
 
 **Quarantine:** a short record of a previously hidden visual group. It prevents known old group members from escaping during an uncertain group change.
 
@@ -47,7 +47,7 @@ It explains the intent of the code. The engine and file-format details are still
 | Path | Job |
 | --- | --- |
 | `src/plugin/plugin.cpp` | Load/unload the plugin, react to maps and frames, load valid bakes, and coordinate the other parts. |
-| `src/plugin/settings.*` | Own every CS2FOW ConVar, transactional config load, committed settings snapshot, and administrator commands. |
+| `src/plugin/settings.*` | Own every CS2GLAZ ConVar, transactional config load, committed settings snapshot, and administrator commands. |
 | `src/plugin/runtime_compatibility.*` | Parse gamedata and classify strict binary, AVX/OS, schema, layout, private-function, and optional capability checks. |
 | `src/plugin/game_state.cpp` | Read live CS2 players and visual groups on the game thread, then make copied worker snapshots. |
 | `src/plugin/visibility_worker.*` | Own the background thread, replace pending work with the newest snapshot, evaluate capsule visibility, and publish results. |
@@ -63,7 +63,7 @@ It explains the intent of the code. The engine and file-format details are still
 | `src/core/map_source.*` | Find direct or nested map physics sources and validate safe map subpaths. |
 | `src/core/lifecycle_guard.h` | Fixed-size rules for player lifetimes, pair warmup, visual-group identity, and quarantine. |
 | `src/core/transmit_masks.h` | Parse gamedata numbers, read the private full-update flag, and perform the paired withhold operation. |
-| `src/core/transmit_debug.h` | Aggregate entity bits actually hidden by CS2FOW without allocating in `CheckTransmit`. |
+| `src/core/transmit_debug.h` | Aggregate entity bits actually hidden by CS2GLAZ without allocating in `CheckTransmit`. |
 | `src/core/subprocess.*` | Start external tools with argument lists, timeouts, cancellation, and captured output. |
 | `src/baker/` | Command-line bake sequence, the native binary-KV3 and map-physics reader (`kv3.*`, `physics_import.*`), the shared bake recipe (`physics_recipe.*`), and the optional GLB parity reader. |
 | `tests/` | Small assert-based tests grouped into map/BVH and visibility/transmit responsibilities. |
@@ -84,7 +84,7 @@ The version 3 header is 256 bytes and records recipe version 1. Loading rejects 
 
 ## Map-load flow
 
-After registering ConVars during plugin load, and again before every map worker starts, `settings.cpp` asks the server to execute `cfg/cs2fow.cfg`. The previous committed snapshot remains active while the file runs. Only the final `cs2fow_config_loaded` marker commits the candidate values; interruption, a missing marker, or the five-second timeout restores the previous snapshot. A second reload is rejected while one is pending.
+After registering ConVars during plugin load, and again before every map worker starts, `settings.cpp` asks the server to execute `cfg/cs2glaz.cfg`. The previous committed snapshot remains active while the file runs. Only the final `cs2glaz_config_loaded` marker commits the candidate values; interruption, a missing marker, or the five-second timeout restores the previous snapshot. A second reload is rejected while one is pending.
 
 1. The Metamod map callback or game-frame check notices a new map.
 2. `request_map_change` stops the old worker, starts the configuration transaction, and waits for commit or rollback.
@@ -98,14 +98,14 @@ This is why a Valve map update cannot silently reuse old wall geometry.
 
 ## Automatic-update flow
 
-1. After the initial configuration settles, the updater checks GitHub's latest stable release after 30 seconds and every six hours. `cs2fow_auto_update 0` cancels an active HTTP request and prevents future checks.
-2. The release must be newer, non-draft, and non-prerelease, with exact platform-package and release-manifest asset names under the CS2FOW GitHub repository.
+1. After the initial configuration settles, the updater checks GitHub's latest stable release after 30 seconds and every six hours. `cs2glaz_auto_update 0` cancels an active HTTP request and prevents future checks.
+2. The release must be newer, non-draft, and non-prerelease, with exact platform-package and release-manifest asset names under the CS2GLAZ GitHub repository.
 3. Steam's server HTTP service requires verified TLS. GitHub's declared size and SHA-256 digest are checked for both assets.
 4. The manifest version and package SHA-256 must agree. Its Windows or Linux fingerprint list must contain the exact currently loaded `server.dll` or `libserver.so` size and CRC before the large package is downloaded.
-5. The package is unpacked on a background task with path, file-count, per-file, total-size, duplicate-entry, required-file, and SHA-256 checks. Only CS2FOW's known package paths are accepted.
-6. Staging copies the verified new plugin to `cs2fow-update`, writes a pending marker, and points CS2FOW's Metamod VDF at that bootstrap name. The running plugin remains unchanged.
-7. On the next full server start, that new bootstrap binary backs up the old stable binary, merges known values from the current config into the new commented template, updates gamedata, baker, documentation/licenses, and stable binary, restores Linux executable modes, and returns the VDF to `cs2fow`.
-8. Map bakes under `addons/cs2fow/data/maps` are never copied, deleted, or replaced. Any failed request, validation, or install step keeps protection fail-open where appropriate and retries without guessing.
+5. The package is unpacked on a background task with path, file-count, per-file, total-size, duplicate-entry, required-file, and SHA-256 checks. Only CS2GLAZ's known package paths are accepted.
+6. Staging copies the verified new plugin to `cs2glaz-update`, writes a pending marker, and points CS2GLAZ's Metamod VDF at that bootstrap name. The running plugin remains unchanged.
+7. On the next full server start, that new bootstrap binary backs up the old stable binary, merges known values from the current config into the new commented template, updates gamedata, baker, documentation/licenses, and stable binary, restores Linux executable modes, and returns the VDF to `cs2glaz`.
+8. Map bakes under `addons/cs2glaz/data/maps` are never copied, deleted, or replaced. Any failed request, validation, or install step keeps protection fail-open where appropriate and retries without guessing.
 
 ## Game-state and worker flow
 
@@ -130,7 +130,7 @@ For each eligible living pair the worker:
 - lets an HE clear only smoke that already existed when the detonation was recorded on the same game clock;
 - reuses the triangle packet that blocked the same pair's earlier muzzle ray, then traverses the BVH8 if needed;
 - publishes a fully visible result if capsule capture, geometry evaluation, or the 75 ms cycle budget becomes uncertain; and
-- holds a newly open pair visible for `cs2fow_visibility_hold_ms`.
+- holds a newly open pair visible for `cs2glaz_visibility_hold_ms`.
 
 The finished immutable result contains its sequence, capture/completion times, copied player identity, visibility matrix, timing, and pair counts. Publishing swaps a shared result; it never exposes a half-written matrix.
 
@@ -138,7 +138,7 @@ The finished immutable result contains its sequence, capture/completion times, c
 
 `hook_check_transmit` is deliberately conservative:
 
-1. Return without changes if CS2FOW is disabled, the map is not active, inputs are invalid, or the latest worker result is missing/stale. On the map's first active call, read the recipient array, each recipient record, and both entity lists with guarded reads (`process_vm_readv` / `ReadProcessMemory`); unreadable memory or an implausible record stops filtering for the map.
+1. Return without changes if CS2GLAZ is disabled, the map is not active, inputs are invalid, or the latest worker result is missing/stale. On the map's first active call, read the recipient array, each recipient record, and both entity lists with guarded reads (`process_vm_readv` / `ReadProcessMemory`); unreadable memory or an implausible record stops filtering for the map.
 2. Lock `transmit_state_mutex_`. This protects lifecycle, pair-baseline, quarantined-group, and debug state shared with game-frame capture and console commands. Ray traversal and file work never run under this lock.
 3. First scan the recipients for CS2 full updates. For those recipients, clear stored hidden groups, but do not alter that full-update snapshot.
 4. Re-read live recipient/target lifecycles and visual groups. Any mismatch with the copied worker player fails open. Also walk each target pawn's scene-node children: every other networked entity attached below it joins an "attached" list that is withheld together with the group, and a hierarchy that cannot be fully accounted for (walk budget, capacity, unresolvable owner, another player attached) reveals that target.
@@ -147,12 +147,12 @@ The finished immutable result contains its sequence, capture/completion times, c
 7. Require a stable player pair and evidence that a complete current visual group was previously sent on an older worker sequence before the pair is allowed to hide.
 8. When hidden, store the exact visual group. For each member whose primary bit is set, set the matching bit through the existing second `CCheckTransmitInfo` pointer, locally treated as `dont_transmit`, and only then clear the primary bit.
 9. If either paired-list pointer is unavailable, change neither list and fail open. If a primary bit is already clear, leave both bits alone.
-10. If rays later say visible, stop withholding the current group and let ordinary snapshots handle it; CS2FOW does not wait for or request a full update.
+10. If rays later say visible, stop withholding the current group and let ordinary snapshots handle it; CS2GLAZ does not wait for or request a full update.
 11. When a current group cannot be rebuilt, a still-valid quarantined old group may be withheld briefly through the same paired operation. Invalid handles/indexes are skipped rather than guessed.
 
-Those are the only two lists CS2FOW changes. Full-update snapshots, `+16` out-of-PVS updates, and `+24` HLTV storage are untouched. Valve mode `0` uses its compatibility behavior; mode `1` consumes the explicit `dont_transmit` information maintained by the same code.
+Those are the only two lists CS2GLAZ changes. Full-update snapshots, `+16` out-of-PVS updates, and `+24` HLTV storage are untouched. Valve mode `0` uses its compatibility behavior; mode `1` consumes the explicit `dont_transmit` information maintained by the same code.
 
-The primary `IsBitSet` check always runs because only set bits may enter the paired operation. When `cs2fow_debug` is off, clearing skips classname lookup, record search, and record update. When it is on, evidence is recorded only for a primary bit that CS2FOW actually clears. The 256-record fixed array deduplicates by entity handle and source pawn; it aggregates recipients/reasons/counts without heap allocation in the hook.
+The primary `IsBitSet` check always runs because only set bits may enter the paired operation. When `cs2glaz_debug` is off, clearing skips classname lookup, record search, and record update. When it is on, evidence is recorded only for a primary bit that CS2GLAZ actually clears. The 256-record fixed array deduplicates by entity handle and source pawn; it aggregates recipients/reasons/counts without heap allocation in the hook.
 
 ## Thread and data ownership
 
@@ -195,8 +195,8 @@ The BVH8 data is loaded before the worker starts and remains unchanged until tha
 | BVH traversal math | `src/core/bvh8.cpp` | Tests cover open/blocked rays and packet caching. |
 | BVH file layout | `src/core/bvh8_format.cpp` and `bvh8.h` | Validate before allocation and keep replacement atomic. |
 | Physics filtering/build recipe | `src/baker/physics_recipe.cpp`, `src/baker/physics_import.cpp`, `src/core/builder.cpp` | Recipe changes require an intentional format/recipe decision and new bakes. |
-| Operator settings/commands | `src/plugin/settings.*`, `cfg/cs2fow.cfg`, `README.md` | Preserve the `cs2fow_*` public names and keep the transaction marker last. |
-| Binary/schema/private API compatibility | `src/plugin/runtime_compatibility.*`, `gamedata/cs2fow.games.txt` | Preserve exact fingerprint enforcement and the required/optional capability boundary. |
+| Operator settings/commands | `src/plugin/settings.*`, `cfg/cs2glaz.cfg`, `README.md` | Preserve the `cs2glaz_*` public names and keep the transaction marker last. |
+| Binary/schema/private API compatibility | `src/plugin/runtime_compatibility.*`, `gamedata/cs2glaz.games.txt` | Preserve exact fingerprint enforcement and the required/optional capability boundary. |
 | Automatic-update validation or install ownership | `src/plugin/updater.*`, release manifest, and `package.py` | Keep exact platform assets, SHA-256 checks, restart-only install, config backups, and map-bake preservation. |
 
 ## Build, test, package, and release
@@ -223,10 +223,10 @@ bash scripts/build-linux.sh
 
 Each build script fetches exact dependencies, configures and compiles, runs native and SDK-independent tests, verifies Windows imports or SteamRT3 symbol versions, and produces the corresponding ignored `packages/` ZIP.
 
-`package.py` takes the version from top-level `VERSION`. For official maps it asks `cs2fow_baker --inspect-bvh8` to validate every bake and requires matching report metadata. It also checks licenses, duplicate/unsafe ZIP entries, ZIP integrity, Linux modes, and checksums. Every stable release intended for automatic updates must attach both platform ZIPs and the matching `v<version>-manifest.json`; the updater rejects anything incomplete or incompatible.
+`package.py` takes the version from top-level `VERSION`. For official maps it asks `cs2glaz_baker --inspect-bvh8` to validate every bake and requires matching report metadata. It also checks licenses, duplicate/unsafe ZIP entries, ZIP integrity, Linux modes, and checksums. Every stable release intended for automatic updates must attach both platform ZIPs and the matching `v<version>-manifest.json`; the updater rejects anything incomplete or incompatible.
 
 Every GitHub release and GitLab mirror must include this paragraph without replacing the existing release notes:
 
-> CS2FOW is free and independently maintained. If it helps your server, even a small one-time or monthly contribution helps me keep up with CS2 updates, testing, Windows and Linux builds, report investigation, and community support: https://buymeacoffee.com/karola3vax
+> CS2GLAZ is free and independently maintained. If it helps your server, even a small one-time or monthly contribution helps me keep up with CS2 updates, testing, Windows and Linux builds, report investigation, and community support: https://buymeacoffee.com/karola3vax
 
 Creating a tag, release manifest, release notes, public release, or Bake Service deployment remains a separate explicitly approved task.

@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace cs2fow
+namespace cs2glaz
 {
 
 	enum class runtime_health_state : uint8_t
@@ -44,4 +44,4 @@ namespace cs2fow
 		return "ERROR";
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz

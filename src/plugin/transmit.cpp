@@ -11,16 +11,16 @@
 #include <cstring>
 #include <memory>
 
-namespace cs2fow
+namespace cs2glaz
 {
 	namespace
 	{
 
 		// Diagnostic only: selects how a hidden entity is withheld (see
-		// transmit_mode). Not part of cs2fow.cfg; it resets to 0 on restart.
-		CConVar<int> cs2fow_transmit_mode("cs2fow_transmit_mode", FCVAR_NONE,
+		// transmit_mode). Not part of cs2glaz.cfg; it resets to 0 on restart.
+		CConVar<int> cs2glaz_transmit_mode("cs2glaz_transmit_mode", FCVAR_NONE,
 										  "Diagnostic: 0 clear+mark second list, 1 clear only, 2 clear both lists, 3 observe only, "
-										  "4 clear both plus lists +16/+24 proven by cs2fow_probe",
+										  "4 clear both plus lists +16/+24 proven by cs2glaz_probe",
 										  0, true, 0, true, 4);
 
 		// Clears one entity bit in a list the probe proved to be an entity bit
@@ -340,22 +340,22 @@ namespace cs2fow
 		transmit_probe_ = {};
 		transmit_probe_.extended_allowed = allowed;
 		transmit_probe_.calls_left = k_transmit_probe_calls;
-		META_CONPRINTF("[CS2FOW] transmit probe started for %u snapshots (mode %d); run cs2fow_probe again in ~10 seconds\n",
-					   k_transmit_probe_calls, cs2fow_transmit_mode.Get());
+		META_CONPRINTF("[CS2GLAZ] transmit probe started for %u snapshots (mode %d); run cs2glaz_probe again in ~10 seconds\n",
+					   k_transmit_probe_calls, cs2glaz_transmit_mode.Get());
 	}
 
 	void plugin::print_transmit_probe() const
 	{
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
 		const transmit_probe_stats& probe = transmit_probe_;
-		META_CONPRINTF("[CS2FOW] transmit probe: mode=%d snapshots=%llu full_updates=%llu %s\n", cs2fow_transmit_mode.Get(),
+		META_CONPRINTF("[CS2GLAZ] transmit probe: mode=%d snapshots=%llu full_updates=%llu %s\n", cs2glaz_transmit_mode.Get(),
 					   static_cast<unsigned long long>(probe.calls), static_cast<unsigned long long>(probe.full_updates),
 					   probe.calls_left != 0 ? "(still running)" : "(finished)");
 		const char* const kinds[2] = {"behind walls", "visible"};
 		for (size_t kind = 0; kind < 2; ++kind)
 		{
 			char line[256] {};
-			int used = std::snprintf(line, sizeof(line), "[CS2FOW] enemy pawns %s: samples=%llu", kinds[kind],
+			int used = std::snprintf(line, sizeof(line), "[CS2GLAZ] enemy pawns %s: samples=%llu", kinds[kind],
 									 static_cast<unsigned long long>(probe.samples[kind]));
 			for (size_t list = 0; list < k_transmit_probe_lists && used > 0 && static_cast<size_t>(used) < sizeof(line); ++list)
 			{
@@ -364,7 +364,7 @@ namespace cs2fow
 			}
 			META_CONPRINTF("%s\n", line);
 		}
-		META_CONPRINTF("[CS2FOW] unreadable lists: +16=%llu +24=%llu; mode 4 may clear: +16=%s +24=%s\n",
+		META_CONPRINTF("[CS2GLAZ] unreadable lists: +16=%llu +24=%llu; mode 4 may clear: +16=%s +24=%s\n",
 					   static_cast<unsigned long long>(probe.unreadable[0]), static_cast<unsigned long long>(probe.unreadable[1]),
 					   probe.extended_allowed[0] ? "yes" : "no", probe.extended_allowed[1] ? "yes" : "no");
 	}
@@ -413,7 +413,7 @@ namespace cs2fow
 				}
 			}
 		}
-		const transmit_mode mode = static_cast<transmit_mode>(cs2fow_transmit_mode.Get());
+		const transmit_mode mode = static_cast<transmit_mode>(cs2glaz_transmit_mode.Get());
 		for (int i = 0; i < count; ++i)
 		{
 			CCheckTransmitInfo* info = infos[i];
@@ -590,7 +590,7 @@ namespace cs2fow
 	{
 		if (edict >= 0 && !valid_networked_edict_index(edict))
 		{
-			META_CONPRINTF("[CS2FOW] invalid edict index: %d\n", edict);
+			META_CONPRINTF("[CS2GLAZ] invalid edict index: %d\n", edict);
 			return;
 		}
 		const auto now = std::chrono::steady_clock::now();
@@ -607,7 +607,7 @@ namespace cs2fow
 		}
 		std::sort(matches.begin(), matches.begin() + count, [](const recent_hide_log::record_type* left, const recent_hide_log::record_type* right)
 				  { return left->last_seen > right->last_seen; });
-		META_CONPRINTF("[CS2FOW] entity debug recording=%s records=%zu filter=%s\n", settings::current().debug ? "on" : "off", count,
+		META_CONPRINTF("[CS2GLAZ] entity debug recording=%s records=%zu filter=%s\n", settings::current().debug ? "on" : "off", count,
 					   edict < 0 ? "all" : "edict");
 		for (size_t index = 0; index < count; ++index)
 		{
@@ -617,13 +617,13 @@ namespace cs2fow
 			const double first_age_ms = std::chrono::duration<double, std::milli>(now - record.first_seen).count();
 			const double last_age_ms = std::chrono::duration<double, std::milli>(now - record.last_seen).count();
 			META_CONPRINTF(
-				"[CS2FOW] entity %d class=%s handle=0x%x source=0x%x recipients=%s reasons=%s clears=%llu first_age=%.0fms last_age=%.0fms\n",
+				"[CS2GLAZ] entity %d class=%s handle=0x%x source=0x%x recipients=%s reasons=%s clears=%llu first_age=%.0fms last_age=%.0fms\n",
 				record.edict, record.name.data(), record.handle, record.source, recipients, transmit_reason_name(record.reasons),
 				static_cast<unsigned long long>(record.clears), first_age_ms, last_age_ms);
 		}
 		if (count == 0)
 		{
-			META_CONPRINTF("[CS2FOW] no actual transmit clears recorded%s\n", edict < 0 ? "" : " for that edict");
+			META_CONPRINTF("[CS2GLAZ] no actual transmit clears recorded%s\n", edict < 0 ? "" : " for that edict");
 		}
 	}
 
@@ -631,7 +631,7 @@ namespace cs2fow
 	{
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
 		recent_hides_.clear();
-		META_CONPRINTF("[CS2FOW] entity debug records cleared\n");
+		META_CONPRINTF("[CS2GLAZ] entity debug records cleared\n");
 	}
 
-} // namespace cs2fow
+} // namespace cs2glaz
