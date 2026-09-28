@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3
+
+- `cs2glaz_probe` also reports, for the sampled enemies, how many of their weapons, wearables and attached entities the game had set in the primary list (+0) and in the second list (+8). A clean client crashed once while only the primary bit was cleared (mode 1); if the game keeps such members in +8, mode 1 sent them without their player, which the default mode 2 prevents. The probe only reads.
+- Tests with a wallhack showed heavy stutter near enemies only on the client running the cheat; a clean client did not stutter in mode 3 or in mode 2.
+
 ## 0.5.2
 
 - Hidden enemies are now withheld with `cs2glaz_transmit_mode 2` by default: the plugin clears the entity's bit in the primary list and in the second list, and never sets a bit. On CS2 1.41.8 the second list (the SDK's `m_pTransmitAlways`) sends its entities to the client. A probe on a live server found no enemy pawn in it across 6400 samples, and a wallhack test showed that the old default (mode 0, which set the hidden entity's bit there) made the server send hidden enemies live every tick, while clearing the primary bit only (mode 1) kept enemies behind walls off the wallhack. Mode 2 also clears any member of the hidden group (weapons, wearables, attached entities) that the game had put in the second list, so no child is sent without its player.

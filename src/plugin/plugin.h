@@ -100,6 +100,10 @@ namespace cs2glaz
 		std::array<uint64_t, 2> samples {}; // [0] walls block the pair, [1] visible
 		std::array<std::array<uint64_t, k_transmit_probe_lists>, 2> set {};
 		std::array<uint64_t, 2> unreadable {}; // +16, +24
+		// The same enemies' other group members (weapons, wearables, attached
+		// entities): how many were sampled and how many were set in +0 and +8.
+		std::array<uint64_t, 2> members {};
+		std::array<std::array<uint64_t, 2>, 2> members_set {};
 		// Lists +16/+24 that a finished probe showed carrying hidden enemy pawns.
 		std::array<bool, 2> extended_allowed {};
 	};
@@ -266,8 +270,8 @@ namespace cs2glaz
 		void withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
 							const hidden_entity_group<CEntityHandle, max_count>& group, int recipient_slot, hide_reason reason,
 							std::chrono::steady_clock::time_point now, transmit_mode mode, const std::array<void*, 2>& extended_lists);
-		void sample_transmit_probe(const CCheckTransmitInfo* info, int slot, const visibility_result& result, const CBitVec<MAX_EDICTS>& union_a,
-								   const CBitVec<MAX_EDICTS>& union_b);
+		void sample_transmit_probe(CGameEntitySystem* system, const CCheckTransmitInfo* info, int slot, const visibility_result& result,
+								   const CBitVec<MAX_EDICTS>& union_a, const CBitVec<MAX_EDICTS>& union_b);
 		void dump_transmit_lists(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count, const visibility_result& result,
 								 const CBitVec<MAX_EDICTS>& union_a, const CBitVec<MAX_EDICTS>& union_b);
 		template<size_t max_count>

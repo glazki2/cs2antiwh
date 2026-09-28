@@ -291,7 +291,7 @@ namespace cs2glaz
 		return true;
 	}
 
-	void plugin::sample_transmit_probe(const CCheckTransmitInfo* info, int slot, const visibility_result& result,
+	void plugin::sample_transmit_probe(CGameEntitySystem* system, const CCheckTransmitInfo* info, int slot, const visibility_result& result,
 									   const CBitVec<MAX_EDICTS>& union_a, const CBitVec<MAX_EDICTS>& union_b)
 	{
 		const auto guarded_bit = [](const void* list_pointer, int index, bool& readable)
@@ -336,6 +336,24 @@ namespace cs2glaz
 			{
 				transmit_probe_.set[kind][list] += bits[list] ? 1u : 0u;
 			}
+			// A member the game keeps in +8 would still be sent if only +0 were
+			// cleared, arriving on the client without its player.
+			const auto sample_members = [&](const auto& group, bool valid)
+			{
+				for (size_t member = 0; valid && member < group.count; ++member)
+				{
+					const int member_index = resolve_entity_index(system, group.handles[member]);
+					if (member_index == index || !valid_networked_edict_index(member_index))
+					{
+						continue;
+					}
+					++transmit_probe_.members[kind];
+					transmit_probe_.members_set[kind][0] += info->m_pTransmitEntity->IsBitSet(member_index) ? 1u : 0u;
+					transmit_probe_.members_set[kind][1] += info->m_pTransmitAlways->IsBitSet(member_index) ? 1u : 0u;
+				}
+			};
+			sample_members(cache.group, cache.group_valid);
+			sample_members(cache.attached, cache.attached_valid);
 		}
 	}
 
@@ -473,6 +491,9 @@ namespace cs2glaz
 									  static_cast<unsigned long long>(probe.set[kind][list]));
 			}
 			META_CONPRINTF("%s\n", line);
+			META_CONPRINTF("[CS2GLAZ] their weapons/attachments %s: samples=%llu +0=%llu +8=%llu\n", kinds[kind],
+						   static_cast<unsigned long long>(probe.members[kind]), static_cast<unsigned long long>(probe.members_set[kind][0]),
+						   static_cast<unsigned long long>(probe.members_set[kind][1]));
 		}
 		META_CONPRINTF("[CS2GLAZ] unreadable lists: +16=%llu +24=%llu; mode 4 may clear: +16=%s +24=%s\n",
 					   static_cast<unsigned long long>(probe.unreadable[0]), static_cast<unsigned long long>(probe.unreadable[1]),
@@ -628,7 +649,7 @@ namespace cs2glaz
 			}
 			if (probing)
 			{
-				sample_transmit_probe(info, slot, *result, union_a, union_b);
+				sample_transmit_probe(system, info, slot, *result, union_a, union_b);
 			}
 			std::array<void*, 2> extended_lists {};
 			if (mode == transmit_mode::clear_extended)
