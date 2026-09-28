@@ -1,7 +1,7 @@
 # План: серверный анти-WH плагин для CS2
 
 > **Статус (0.4.0).** План реализован не с нуля, а на базе
-> открытого MIT-плагина karola3vax (Community Edition): там уже есть бейк карт в
+> открытого MIT-плагина (Community Edition): там уже есть бейк карт в
 > BVH8, фоновый расчёт видимости, fail-open и защита от краша при смерти скрытого игрока.
 > Что доработано в этом репозитории — в [README.md](README.md) и [CHANGELOG.md](CHANGELOG.md).
 > Ниже — исходный план, оставлен для истории.
@@ -33,8 +33,8 @@
 
 | Проект | Статус (на 2026-09) | Язык / база | Что берём |
 |---|---|---|---|
-| **Исходный плагин karola3vax** | Репозиторий отдаёт 404: автор перенёс разработку в приватные репозитории после блокировки аккаунта и перепродаж. Последний публичный релиз на CSDevs датирован 2026-08-06 | C++, Metamod | Идея и архитектура: из VPK карты извлекаются физические треугольники, строится **BVH8**, лучи пускает фоновый поток, учитываются капсулы хитбоксов, смоки и HE. Workshop-карты запекаются автоматически в фоне |
-| **Source2-AntiWallHack / S2FOW** (karola3vax) | Заброшен в пользу следующего плагина автора, репозиторий 404 | C++, Metamod | — |
+| **Исходный плагин** | Репозиторий отдаёт 404: автор перенёс разработку в приватные репозитории после блокировки аккаунта и перепродаж. Последний публичный релиз на CSDevs датирован 2026-08-06 | C++, Metamod | Идея и архитектура: из VPK карты извлекаются физические треугольники, строится **BVH8**, лучи пускает фоновый поток, учитываются капсулы хитбоксов, смоки и HE. Workshop-карты запекаются автоматически в фоне |
+| **Source2-AntiWallHack / S2FOW** | Заброшен в пользу следующего плагина автора, репозиторий 404 | C++, Metamod | — |
 | **CS2AC** (форк `lucianene/CS2AC`, последний коммит 2026-08-07) | Живой форк | C++, Metamod, AGPL-3.0 | Структура проекта: AMBuild, сабмодули `hl2sdk` (ветка `cs2`) и `metamod-source`, `gamedata/*.games.txt`, сборка Linux в Docker/Steam Runtime 3. Движковый трейс через `CNavPhysicsInterface::TraceShape` (нужен нам только для отладочной сверки) |
 | **CS2Fixes** (Source2ZE, последний коммит 2026-08-26) | Активен, работает на продакшн-серверах | C++, Metamod, GPL-3.0 | Рабочий хук `ISource2GameEntities::CheckTransmit` (post). Раскладка `CCheckTransmitInfoExtended` со `static_assert(size == 584)`. У скрытого pawn снимается бит в `m_pTransmitEntity` и ставится в `m_pTransmitNonPlayers`. Маска считается в `GameFrame`, прячутся только живые pawn, HLTV пропускается, наблюдатели видят всех |
 | **jRandomSkills** (PR #57) | Задокументированный фикс клиентского краша | C# (CSSharp) | Причина краша `FATAL ERROR: CopyExistingEntity: missing client entity`: скрытый игрок умирает рядом с клиентом. Фикс: вернуть pawn в снапшот **в тот же тик**, когда он умирает; хранить **handle**, а не голый индекс (индексы переиспользуются) |
@@ -54,7 +54,7 @@
   прослойка на C++ нужна при любом выборе языка.
 - Горячий путь (≈64 тика/с, до 64×64 пар игроков, десятки тысяч лучей за тик) не
   переносит пауз GC и интерпретатора. Lua, JS и Python через Plugify здесь не подходят.
-- Все рабочие референсы (плагин karola3vax, CS2AC, CS2Fixes, cs2kz) написаны на C++, поэтому их
+- Все рабочие референсы (исходный плагин, CS2AC, CS2Fixes, cs2kz) написаны на C++, поэтому их
   заголовки и паттерны можно использовать напрямую.
 - Возможная альтернатива: ядро (парсер карт, BVH, лучи) на Rust со статической линковкой
   через C ABI. Это даёт безопасность памяти при разборе недоверенных workshop-файлов, но
@@ -415,12 +415,11 @@ cs2antiwh/
 
 ## Источники
 
-- Source2-AntiWallHack: https://github.com/karola3vax/Source2-AntiWallHack
 - CS2AC (форк): https://github.com/lucianene/CS2AC
 - CS2Fixes: https://github.com/Source2ZE/CS2Fixes (`src/cs2fixes.cpp` — `Hook_CheckTransmit`,
   `src/cs2_sdk/cchecktransmitinfo.h`, `src/playermanager.cpp` — `CheckHideDistances`)
 - Фикс клиентского краша в jRandomSkills: https://github.com/Juzlus/jRandomSkills/pull/57
 - Valve issue #3732 (краш клиента при изменённом CheckTransmit): https://github.com/ValveSoftware/csgo-osx-linux/issues/3732
 - Список фреймворков: https://github.com/samyycX/awesome-cs2
-- CS2KAC (упоминает плагин karola3vax и CS2AC): https://github.com/speedskater1610/CS2KAC
+- CS2KAC (упоминает исходный плагин и CS2AC): https://github.com/speedskater1610/CS2KAC
 - Metamod:Source: https://github.com/alliedmodders/metamod-source, hl2sdk: https://github.com/alliedmodders/hl2sdk (ветка `cs2`)
