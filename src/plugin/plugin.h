@@ -194,7 +194,7 @@ namespace cs2glaz
 
 		const char* GetAuthor() override
 		{
-			return "karola3vax, Artemon0, glazki2";
+			return "glazki2";
 		}
 
 		const char* GetName() override
