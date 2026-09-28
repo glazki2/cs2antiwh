@@ -148,6 +148,18 @@ namespace cs2glaz
 		game_frame_hooked_ = true;
 		check_transmit_hook_.Add(game_entities_);
 		check_transmit_hooked_ = true;
+		// Optional: without it hidden enemies can still reach a cheat through the
+		// radar message, but everything else keeps working.
+		game_event_system_ = static_cast<IGameEventSystem*>(ismm->VInterfaceMatch(ismm->GetEngineFactory(), GAMEEVENTSYSTEM_INTERFACE_VERSION));
+		if (game_event_system_ != nullptr)
+		{
+			post_event_hook_.Add(game_event_system_);
+			post_event_hooked_ = true;
+		}
+		else
+		{
+			META_CONPRINTF("[CS2GLAZ] warning: %s not found; radar positions of hidden enemies are not filtered\n", GAMEEVENTSYSTEM_INTERFACE_VERSION);
+		}
 		game_events_ = static_cast<IGameEventManager2*>(ismm->VInterfaceMatch(ismm->GetEngineFactory(), k_game_event_manager_interface));
 		if (game_events_ == nullptr)
 		{
@@ -212,8 +224,13 @@ namespace cs2glaz
 		{
 			check_transmit_hook_.Remove(game_entities_);
 		}
+		if (post_event_hooked_)
+		{
+			post_event_hook_.Remove(game_event_system_);
+		}
 		game_frame_hooked_ = false;
 		check_transmit_hooked_ = false;
+		post_event_hooked_ = false;
 		settings::cancel_load();
 		settings::shutdown();
 		ConVar_Unregister();
@@ -1049,6 +1066,7 @@ namespace cs2glaz
 		runtime_timing_stats capture_timing;
 		runtime_timing_stats bone_timing;
 		runtime_timing_stats transmit_timing;
+		transmit_decision_stats transmit_decisions;
 		uint32_t capsule_players = 0;
 		uint32_t capsule_failed_players = 0;
 		{
@@ -1056,6 +1074,7 @@ namespace cs2glaz
 			capture_timing = capture_timing_;
 			bone_timing = bone_timing_;
 			transmit_timing = transmit_timing_;
+			transmit_decisions = transmit_decisions_;
 			capsule_players = capsule_players_;
 			capsule_failed_players = capsule_failed_players_;
 		}
@@ -1089,6 +1108,8 @@ namespace cs2glaz
 					   capsule_failed_players);
 		META_CONPRINTF("[CS2GLAZ] transmit latest=%.3fms average=%.3fms maximum=%.3fms calls=%llu\n", transmit_timing.latest_ms,
 					   transmit_timing.average_ms(), transmit_timing.maximum_ms, static_cast<unsigned long long>(transmit_timing.calls));
+		print_transmit_decisions("map", transmit_decisions);
+		print_radar_filter();
 		const bool smoke_available = result != nullptr ? result->smoke_available : compatibility_.smoke_available();
 		META_CONPRINTF("[CS2GLAZ] smoke enabled=%d available=%d captured=%u he_listener=%d he_active=%u\n",
 					   settings::current().smoke_occlusion ? 1 : 0, smoke_available ? 1 : 0, result == nullptr ? 0u : result->smoke_count,

@@ -52,6 +52,7 @@ It explains the intent of the code. The engine and file-format details are still
 | `src/plugin/game_state.cpp` | Read live CS2 players and visual groups on the game thread, then make copied worker snapshots. |
 | `src/plugin/visibility_worker.*` | Own the background thread, replace pending work with the newest snapshot, evaluate capsule visibility, and publish results. |
 | `src/plugin/transmit.cpp` | Apply lifecycle rules and visibility results to the primary and second lists; keep quarantine and debug evidence state. |
+| `src/plugin/radar_filter.cpp` | Hook `IGameEventSystem::PostEventAbstract` and remove, from each player's `CCSUsrMsg_ProcessSpottedEntityUpdate`, the radar positions of enemies nobody on that player's team sees (CS2 announces there exactly the enemies CheckTransmit withholds). The message object is proven from RTTI (`src/core/rtti_check.h`) before any virtual call. |
 | `src/plugin/automatic_baker.*` | Run and monitor the external baker without blocking the game thread. |
 | `src/plugin/updater.*` | Verify compatible GitHub release assets, stage complete platform packages off the game loop, and install them only during the next server start. |
 | `src/core/bvh8.cpp` | Traverse an in-memory BVH8 and answer whether a line segment hits a triangle. |
@@ -144,7 +145,7 @@ The finished immutable result contains its sequence, capture/completion times, c
 4. Re-read live recipient/target lifecycles and visual groups. Any mismatch with the copied worker player fails open. Also walk each target pawn's scene-node children: every other networked entity attached below it joins an "attached" list that is withheld together with the group, and a hierarchy that cannot be fully accounted for (walk budget, capacity, unresolvable owner, another player attached) reveals that target.
 5. Require every live recipient's own pawn to be set in its primary list. A missing own pawn means the recipient slot or list layout is wrong, so filtering stops for the map before any list is changed.
 6. Skip self, invalid players, and full-update snapshots. Skip teammates only when optional teammate filtering and `mp_teammates_are_enemies` are both disabled.
-7. Require a stable player pair and evidence that a complete current visual group was previously sent on an older worker sequence before the pair is allowed to hide.
+7. Require a stable player pair. Only the legacy mode 0 also waits for evidence that the complete current visual group was sent on an older worker sequence; the clear-only modes hide at once, because withholding is ordinary PVS culling and a new weapon or thrown grenade must not reveal the player.
 8. When hidden, store the exact visual group and clear each member's bit in the primary list and in the second list (mode 2). Mode 0, the CE behaviour that set the second list's bit, leaks on CS2 1.41.8 and is kept only for comparison.
 9. If either list pointer is unavailable, change neither list and fail open.
 10. If rays later say visible, stop withholding the current group and let ordinary snapshots handle it; CS2GLAZ does not wait for or request a full update.
@@ -171,6 +172,7 @@ The BVH8 data is loaded before the worker starts and remains unchanged until tha
 
 - Missing, invalid, changed, or stale information always fails open.
 - Full-update snapshots are never filtered.
+- The radar filter only edits a message addressed to exactly one player, after an RTTI proof of the object, and turns itself off for good when the message does not have the expected fields.
 - By default only set bits of the primary and second lists are cleared; nothing is set, and either missing pointer fails open.
 - The worker receives copied data and never dereferences engine objects.
 - CheckTransmit uses fixed-size visual groups, caches, and debug records; it performs no heap allocation.

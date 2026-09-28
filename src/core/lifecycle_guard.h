@@ -163,6 +163,15 @@ namespace cs2glaz
 		return guard.initialized && guard.baseline_opened && guard.baseline_sequence != sequence;
 	}
 
+	// Only the legacy mode that marks the second list needs the client to hold
+	// the current group first. Clearing a transmit bit is ordinary PVS culling:
+	// the client copes with an entity it never received or that changed out of
+	// view, so a new weapon or thrown grenade must not reveal the player.
+	inline bool pair_allows_hiding(const pair_guard& guard, uint64_t sequence, bool baseline_required)
+	{
+		return baseline_required ? pair_allows_hiding(guard, sequence) : guard.initialized;
+	}
+
 	template<typename handle_type, size_t max_count>
 	inline void hidden_group_clear(hidden_entity_group<handle_type, max_count>& group)
 	{

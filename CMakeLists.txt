@@ -212,6 +212,7 @@ set(CS2GLAZ_PLUGIN_SOURCES
   "${CMAKE_SOURCE_DIR}/src/plugin/automatic_baker.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/game_state.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/plugin.cpp"
+  "${CMAKE_SOURCE_DIR}/src/plugin/radar_filter.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/runtime_compatibility.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/settings.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/transmit.cpp"

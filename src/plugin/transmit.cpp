@@ -178,6 +178,7 @@ namespace cs2glaz
 		capture_timing_ = {};
 		bone_timing_ = {};
 		transmit_timing_ = {};
+		transmit_decisions_ = {};
 		capsule_players_ = 0;
 		capsule_failed_players_ = 0;
 		if (clear_debug_records)
@@ -461,6 +462,17 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] dump: no live recipient in this snapshot\n");
 	}
 
+	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats)
+	{
+		const auto value = [](uint64_t count) { return static_cast<unsigned long long>(count); };
+		META_CONPRINTF("[CS2GLAZ] %s recipient snapshots: filtered=%llu full_update=%llu recipient_spawning_or_dying=%llu\n", scope,
+					   value(stats.filtered_snapshots), value(stats.full_update_snapshots), value(stats.changing_recipient_snapshots));
+		META_CONPRINTF("[CS2GLAZ] %s enemy pairs: hidden=%llu in_view=%llu shown_because enemy_spawning_or_dying=%llu baseline=%llu "
+					   "attachment=%llu weapons_unlisted=%llu\n",
+					   scope, value(stats.hidden), value(stats.in_view), value(stats.changing_target), value(stats.baseline),
+					   value(stats.attachment), value(stats.group));
+	}
+
 	void plugin::start_transmit_probe()
 	{
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
@@ -498,6 +510,7 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] unreadable lists: +16=%llu +24=%llu; mode 4 may clear: +16=%s +24=%s\n",
 					   static_cast<unsigned long long>(probe.unreadable[0]), static_cast<unsigned long long>(probe.unreadable[1]),
 					   probe.extended_allowed[0] ? "yes" : "no", probe.extended_allowed[1] ? "yes" : "no");
+		print_transmit_decisions("probe", probe.decisions);
 	}
 
 	void plugin::hook_check_transmit(CCheckTransmitInfo** infos, int count, CBitVec<MAX_EDICTS>& union_a, CBitVec<MAX_EDICTS>& union_b,
@@ -544,6 +557,14 @@ namespace cs2glaz
 				}
 			}
 		}
+		const auto note = [&](uint64_t transmit_decision_stats::*reason)
+		{
+			++(transmit_decisions_.*reason);
+			if (probing)
+			{
+				++(transmit_probe_.decisions.*reason);
+			}
+		};
 		const transmit_mode mode = static_cast<transmit_mode>(cs2glaz_transmit_mode.Get());
 		if (mode == transmit_mode::clear_union)
 		{
@@ -636,17 +657,23 @@ namespace cs2glaz
 			}
 			int slot = -1;
 			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
-			if (slot < 0 || slot >= static_cast<int>(k_max_players)
-				|| read_checktransmit_full_update(info, compatibility_.transmit_offsets().full_update_offset) || !result->players[slot].valid
+			if (slot < 0 || slot >= static_cast<int>(k_max_players) || !result->players[slot].valid
 				|| !visibility_snapshot_fresh(result->captured, now))
 			{
+				continue;
+			}
+			if (read_checktransmit_full_update(info, compatibility_.transmit_offsets().full_update_offset))
+			{
+				note(&transmit_decision_stats::full_update_snapshots);
 				continue;
 			}
 			const player_state& recipient = result->players[slot];
 			if (transmit_target_cache_[slot].pawn == nullptr)
 			{
+				note(&transmit_decision_stats::changing_recipient_snapshots);
 				continue;
 			}
+			note(&transmit_decision_stats::filtered_snapshots);
 			if (probing)
 			{
 				sample_transmit_probe(system, info, slot, *result, union_a, union_b);
@@ -672,9 +699,13 @@ namespace cs2glaz
 				{
 					hidden_group_clear(stored_group);
 				}
-				if (!visibility_pair_enabled(static_cast<uint32_t>(slot), target, recipient, player, result->filter_teammates)
-					|| cache.pawn == nullptr)
+				if (!visibility_pair_enabled(static_cast<uint32_t>(slot), target, recipient, player, result->filter_teammates))
 				{
+					continue;
+				}
+				if (cache.pawn == nullptr)
+				{
+					note(&transmit_decision_stats::changing_target);
 					continue;
 				}
 				pair_guard& guard = pair_guards_[slot][target];
@@ -685,6 +716,7 @@ namespace cs2glaz
 				}
 				if (result->visible[slot][target])
 				{
+					note(&transmit_decision_stats::in_view);
 					if (full_group_marked)
 					{
 						pair_note_open(guard, result->sequence);
@@ -692,8 +724,9 @@ namespace cs2glaz
 					}
 					continue;
 				}
-				if (!pair_allows_hiding(guard, result->sequence))
+				if (!pair_allows_hiding(guard, result->sequence, mode == transmit_mode::clear_and_mark))
 				{
+					note(&transmit_decision_stats::baseline);
 					if (full_group_marked)
 					{
 						pair_note_open(guard, result->sequence);
@@ -705,11 +738,13 @@ namespace cs2glaz
 				{
 					// Something is attached that cannot be hidden with the player;
 					// withholding the player alone would orphan it on the client.
+					note(&transmit_decision_stats::attachment);
 					hidden_group_clear(stored_group);
 					continue;
 				}
 				if (!cache.group_valid)
 				{
+					note(&transmit_decision_stats::group);
 					if (hidden_group_quarantined(stored_group, now))
 					{
 						withhold_group(system, info->m_pTransmitEntity, second_list, stored_group, slot, hide_reason::quarantine, now, mode,
@@ -719,6 +754,7 @@ namespace cs2glaz
 					}
 					continue;
 				}
+				note(&transmit_decision_stats::hidden);
 				hidden_group_store(stored_group, cache.group, now, k_hidden_entity_quarantine);
 				withhold_group(system, info->m_pTransmitEntity, second_list, cache.group, slot, hide_reason::current, now, mode, extended_lists);
 				withhold_group(system, info->m_pTransmitEntity, second_list, cache.attached, slot, hide_reason::current, now, mode,

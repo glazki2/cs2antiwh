@@ -16,6 +16,7 @@
 
 #include <ISmmPlugin.h>
 #include <eiface.h>
+#include <engine/igameeventsystem.h>
 #include <entity2/entitysystem.h>
 #include <filesystem.h>
 #include <igameevents.h>
@@ -92,6 +93,36 @@ namespace cs2glaz
 	inline constexpr size_t k_transmit_probe_lists = 6;
 	inline constexpr uint32_t k_transmit_probe_calls = 640;
 
+	// Why CheckTransmit withheld an enemy or let it through, so a wallhack that
+	// flickers can be traced to a reason. Recipient snapshots and enemy pairs are
+	// counted separately.
+	struct transmit_decision_stats
+	{
+		uint64_t filtered_snapshots {};
+		uint64_t full_update_snapshots {};		 // CS2 sends everything; never filtered
+		uint64_t changing_recipient_snapshots {}; // recipient spawned, died or changed team <1 s ago
+		uint64_t hidden {};						 // walls block the pair; enemy withheld
+		uint64_t in_view {};					 // rays or the reveal hold say visible
+		uint64_t changing_target {};			 // enemy spawned, died or changed team <1 s ago
+		uint64_t baseline {};					 // legacy mode 0 waiting for a sent baseline
+		uint64_t attachment {};					 // something attached cannot be hidden with the enemy
+		uint64_t group {};						 // the enemy's weapons/wearables could not be listed
+	};
+
+	// Radar messages (CCSUsrMsg_ProcessSpottedEntityUpdate) carry the position and
+	// yaw of spotted enemies that are outside a recipient's snapshot, so hiding a
+	// player makes the server announce him there instead; these count what the
+	// filter kept and dropped.
+	struct radar_filter_stats
+	{
+		std::atomic<uint64_t> messages {};
+		std::atomic<uint64_t> filtered_messages {};
+		std::atomic<uint64_t> skipped_messages {}; // several recipients, stale visibility, or filtering off
+		std::atomic<uint64_t> kept_entries {};
+		std::atomic<uint64_t> dropped_entries {};
+		std::atomic<uint64_t> unmatched_entries {}; // kept: not a live player's pawn index
+	};
+
 	struct transmit_probe_stats
 	{
 		uint32_t calls_left {};
@@ -104,6 +135,7 @@ namespace cs2glaz
 		// entities): how many were sampled and how many were set in +0 and +8.
 		std::array<uint64_t, 2> members {};
 		std::array<std::array<uint64_t, 2>, 2> members_set {};
+		transmit_decision_stats decisions;
 		// Lists +16/+24 that a finished probe showed carrying hidden enemy pawns.
 		std::array<bool, 2> extended_allowed {};
 	};
@@ -158,6 +190,7 @@ namespace cs2glaz
 	void copy_entity_name(CEntityInstance* entity, char (&name)[k_max_entity_name]);
 	bool valid_networked_edict_index(int index);
 	int resolve_entity_index(CGameEntitySystem* system, CEntityHandle handle);
+	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats);
 
 	class plugin final : public ISmmPlugin, public IMetamodListener, public IGameEventListener2
 	{
@@ -177,9 +210,13 @@ namespace cs2glaz
 												 CBitVec<MAX_EDICTS>& union_transmit, CBitVec<MAX_EDICTS>& union_transmit_always,
 												 const Entity2Networkable_t** networkables, const uint16* entity_indices, int entity_index_count);
 		KHook::Return<int> khook_load_events_from_file(IGameEventManager2* manager, const char* filename, bool search_all);
+		KHook::Return<void> khook_post_event(IGameEventSystem* system, CSplitScreenSlot slot, bool local_only, int client_count, const uint64* clients,
+											 INetworkMessageInternal* event, const CNetMessage* data, unsigned long size, NetChannelBufType_t buffer);
 		void FireGameEvent(IGameEvent* event) override;
 		void print_status() const;
 		void print_metrics() const;
+		void print_radar_filter() const;
+		void filter_radar_message(const uint64* clients, const CNetMessage* data);
 		void print_help() const;
 		void reload_config();
 		void check_config() const;
@@ -303,6 +340,16 @@ namespace cs2glaz
 			check_transmit_hook_ {&ISource2GameEntities::CheckTransmit, this, nullptr, &plugin::khook_check_transmit};
 		KHook::Virtual<IGameEventManager2, int, const char*, bool> game_event_load_hook_ {&IGameEventManager2::LoadEventsFromFile, this, nullptr,
 																						 &plugin::khook_load_events_from_file};
+		KHook::Virtual<IGameEventSystem, void, CSplitScreenSlot, bool, int, const uint64*, INetworkMessageInternal*, const CNetMessage*, unsigned long,
+					   NetChannelBufType_t>
+			post_event_hook_ {&IGameEventSystem::PostEventAbstract, this, &plugin::khook_post_event, nullptr};
+		IGameEventSystem* game_event_system_ {};
+		bool post_event_hooked_ {};
+		// Set once the radar message is recognised by its protobuf name; null until then.
+		std::atomic<INetworkMessageInternal*> radar_message_ {};
+		std::atomic<const void*> radar_verified_vtable_ {};
+		std::atomic_bool radar_filter_broken_ {};
+		radar_filter_stats radar_stats_;
 		// AddGlobal reads the vtable through its argument, so this holds the gamedata vtable address.
 		void* game_event_manager_vtable_ {};
 		bool game_frame_hooked_ {};
@@ -339,6 +386,7 @@ namespace cs2glaz
 		// The recipient lists were proven readable with guarded reads this map.
 		bool transmit_lists_verified_ {};
 		transmit_probe_stats transmit_probe_;
+		transmit_decision_stats transmit_decisions_;
 		// Entities withheld from at least one recipient in the current CheckTransmit.
 		CBitVec<MAX_EDICTS> transmit_withheld_;
 		// cs2glaz_probe dump: print one recipient record's entity lists on the next call.

@@ -124,6 +124,53 @@ namespace cs2glaz
 		return now - captured <= std::chrono::milliseconds(100);
 	}
 
+	// The player slot whose pawn has this entity index, or -1 (the bomb, a
+	// hostage, or an index that is not a live player's pawn).
+	inline int radar_entry_target(const visibility_result& result, int entity_index)
+	{
+		for (uint32_t target = 0; entity_index >= 0 && target < k_max_players; ++target)
+		{
+			if (result.players[target].valid && result.players[target].pawn_entity == entity_index)
+			{
+				return static_cast<int>(target);
+			}
+		}
+		return -1;
+	}
+
+	// A radar update about an enemy is legitimate team information only while a
+	// living member of the recipient's team sees that enemy (the reveal hold
+	// included). Anything that is not an enemy of a living recipient is kept:
+	// teammates, the bomb, hostages, dead or spectating recipients.
+	inline bool radar_entry_allowed(const visibility_result& result, uint32_t recipient, int target_slot, bool own_sight_only = false)
+	{
+		if (recipient >= k_max_players || !result.players[recipient].valid || target_slot < 0 || target_slot >= static_cast<int>(k_max_players))
+		{
+			return true;
+		}
+		const uint32_t target = static_cast<uint32_t>(target_slot);
+		const player_state& enemy = result.players[target];
+		const uint8_t team = result.players[recipient].team;
+		if (target == recipient || (enemy.team == team && !result.filter_teammates))
+		{
+			return true;
+		}
+		for (uint32_t spotter = 0; spotter < k_max_players; ++spotter)
+		{
+			// With teammates filtered (free for all), or when asked, nobody shares sight.
+			const player_state& ally = result.players[spotter];
+			if (!ally.valid || ally.team != team || ((result.filter_teammates || own_sight_only) && spotter != recipient))
+			{
+				continue;
+			}
+			if (visibility_pair_enabled(spotter, target, ally, enemy, result.filter_teammates) && result.visible[spotter][target])
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	struct worker_stats
 	{
 		double latest_ms {};

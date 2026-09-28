@@ -7,6 +7,7 @@
 #include "builder.h"
 #include "capsule_visibility.h"
 #include "lifecycle_guard.h"
+#include "rtti_check.h"
 #include "smoke_occlusion.h"
 #include "transmit_debug.h"
 #include "transmit_masks.h"
@@ -113,6 +114,94 @@ namespace
 		numbers.rtt_seconds = 0;
 		numbers.mins.x = 17;
 		assert(!valid_player_numbers(numbers));
+	}
+
+	void test_radar_entry_filter()
+	{
+		// Slots 0-1 are T (2), slots 2-3 are CT (3); pawn index = 100 + slot.
+		auto result = std::make_unique<visibility_result>();
+		for (uint32_t slot = 0; slot < 4; ++slot)
+		{
+			result->players[slot].valid = true;
+			result->players[slot].team = slot < 2 ? 2 : 3;
+			result->players[slot].pawn_entity = 100 + static_cast<int>(slot);
+		}
+		assert(radar_entry_target(*result, 102) == 2);
+		assert(radar_entry_target(*result, 999) == -1);
+		assert(radar_entry_target(*result, -1) == -1);
+		// Nobody on T sees CT slot 2: its radar position is withheld from T.
+		assert(!radar_entry_allowed(*result, 0, 2));
+		// A teammate (slot 1) sees it: legitimate team radar, kept for slot 0.
+		result->visible[1][2] = true;
+		assert(radar_entry_allowed(*result, 0, 2));
+		// The strict setting ignores what teammates see.
+		assert(!radar_entry_allowed(*result, 0, 2, true));
+		result->visible[0][2] = true;
+		assert(radar_entry_allowed(*result, 0, 2, true));
+		result->visible[0][2] = false;
+		result->visible[1][2] = false;
+		// Teammates, the bomb/hostages (no target) and oneself are always kept.
+		assert(radar_entry_allowed(*result, 0, 1));
+		assert(radar_entry_allowed(*result, 0, -1));
+		assert(radar_entry_allowed(*result, 0, 0));
+		// A dead or spectating recipient keeps everything.
+		result->players[0].valid = false;
+		assert(radar_entry_allowed(*result, 0, 2));
+		result->players[0].valid = true;
+		// Free for all: only the recipient's own sight counts.
+		result->filter_teammates = true;
+		assert(!radar_entry_allowed(*result, 0, 1));
+		result->visible[1][2] = true;
+		assert(!radar_entry_allowed(*result, 0, 2));
+		result->visible[0][2] = true;
+		assert(radar_entry_allowed(*result, 0, 2));
+	}
+
+	struct rtti_test_header
+	{
+		virtual ~rtti_test_header() = default;
+		char padding[40] {};
+	};
+
+	struct rtti_test_payload
+	{
+		virtual ~rtti_test_payload() = default;
+		int value {};
+	};
+
+	struct rtti_test_other
+	{
+		virtual ~rtti_test_other() = default;
+	};
+
+	// Mirrors CNetMessagePB<T>: a polymorphic header first, the payload second.
+	template<typename payload>
+	struct rtti_test_message : rtti_test_header, payload
+	{
+	};
+
+	void test_rtti_check()
+	{
+		const auto read = [](const void* address, void* output, size_t size)
+		{
+			std::memcpy(output, address, size);
+			return true;
+		};
+		const rtti_test_message<rtti_test_payload> message;
+		const rtti_test_header* owner = &message;
+		const rtti_test_payload* payload = &message;
+		assert(rtti_names_class_at_offset(owner, payload, "rtti_test_payload", read));
+		// Wrong class name, wrong offset, or no offset at all.
+		assert(!rtti_names_class_at_offset(owner, payload, "rtti_test_other", read));
+		const auto* shifted = reinterpret_cast<const char*>(payload) - sizeof(void*);
+		assert(!rtti_names_class_at_offset(owner, shifted, "rtti_test_payload", read));
+		assert(!rtti_names_class_at_offset(owner, owner, "rtti_test_payload", read));
+		const rtti_test_message<rtti_test_other> other;
+		const rtti_test_other* other_base = &other;
+		assert(!rtti_names_class_at_offset(static_cast<const rtti_test_header*>(&other), other_base, "rtti_test_payload", read));
+		// An unreadable address stops the check instead of faulting.
+		const auto refuse = [](const void*, void*, size_t) { return false; };
+		assert(!rtti_names_class_at_offset(owner, payload, "rtti_test_payload", refuse));
 	}
 
 	void test_smoke_occlusion()
@@ -754,9 +843,16 @@ namespace
 		assert(pair_allows_hiding(visual_guard, 3));
 		update_pair_visual_group(visual_guard, changed_group);
 		assert(!pair_allows_hiding(visual_guard, 4));
+		// Clear-only modes hide at once after a group change (thrown grenade,
+		// pickup); only the legacy mode waits for a sent baseline.
+		assert(pair_allows_hiding(visual_guard, 4, false));
+		assert(!pair_allows_hiding(visual_guard, 4, true));
 		pair_note_open(visual_guard, 4);
 		assert(!pair_allows_hiding(visual_guard, 4));
 		assert(pair_allows_hiding(visual_guard, 5));
+		assert(pair_allows_hiding(visual_guard, 5, true));
+		pair_guard uninitialized;
+		assert(!pair_allows_hiding(uninitialized, 1, false));
 
 		lifecycle_key changed = target;
 		changed.team = 2;
@@ -1325,6 +1421,8 @@ void run_visibility_and_transmit_tests()
 {
 	test_scene_descendant_walk();
 	test_visibility_pair_eligibility();
+	test_radar_entry_filter();
+	test_rtti_check();
 	test_smoke_occlusion();
 	test_visibility_sampling();
 	test_capsule_visibility();

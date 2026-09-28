@@ -33,6 +33,10 @@ def configure(compiler, plugin=False):
         # Metamod relies on to unload plugins cleanly.
         compiler.cxxflags += ['-fno-gnu-unique']
       compiler.linkflags += ['-ldl']
+      # Keep the SDK's static protobuf private so its symbols can never bind to
+      # or shadow the server's copy. interfaces.a must stay exported: it
+      # provides the CreateInterface entry point Metamod loads the plugin by.
+      compiler.linkflags += ['-Wl,--exclude-libs,libprotobuf.a']
   if builder.options.debug:
     compiler.defines += ['DEBUG', '_DEBUG']
     compiler.cflags += ['/Od'] if compiler.behavior == 'msvc' else ['-O0', '-g3']
@@ -119,6 +123,7 @@ plugin.sources += [
   os.path.join(root, 'src', 'plugin', 'automatic_baker.cpp'),
   os.path.join(root, 'src', 'plugin', 'game_state.cpp'),
   os.path.join(root, 'src', 'plugin', 'plugin.cpp'),
+  os.path.join(root, 'src', 'plugin', 'radar_filter.cpp'),
   os.path.join(root, 'src', 'plugin', 'runtime_compatibility.cpp'),
   os.path.join(root, 'src', 'plugin', 'settings.cpp'),
   os.path.join(root, 'src', 'plugin', 'transmit.cpp'),
