@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.5.1
+## 0.5.2
+
+- Hidden enemies are now withheld with `cs2glaz_transmit_mode 2` by default: the plugin clears the entity's bit in the primary list and in the second list, and never sets a bit. On CS2 1.41.8 the second list (the SDK's `m_pTransmitAlways`) sends its entities to the client. A probe on a live server found no enemy pawn in it across 6400 samples, and a wallhack test showed that the old default (mode 0, which set the hidden entity's bit there) made the server send hidden enemies live every tick, while clearing the primary bit only (mode 1) kept enemies behind walls off the wallhack. Mode 2 also clears any member of the hidden group (weapons, wearables, attached entities) that the game had put in the second list, so no child is sent without its player.
+- Mode 0 is kept for comparison and marked as leaking on CS2 1.41.8.
+- README: describes the fix and what is still being checked.
 
 - `cs2glaz_probe dump` scans every pointer-sized field of one live recipient's CheckTransmit record (and both union lists) for a readable 16384-bit entity list and reports, per list, how many bits are set, whether the recipient's own pawn is set, and how many enemy pawns behind walls and in view it holds; short lists also name their entities. Reads only, through guarded memory access. This can find a don't-transmit list that CS2 1.41.8 may have moved.
 - `cs2glaz_transmit_mode 5` clears both recipient lists and then removes every withheld entity that no recipient keeps (full updates and SourceTV keep theirs) from both union lists, in case the new build re-adds union members after CheckTransmit.

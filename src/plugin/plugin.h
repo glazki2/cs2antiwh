@@ -263,7 +263,7 @@ namespace cs2glaz
 									   attached_entity_group& attached) const;
 		bool group_fully_marked(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* bits, const visual_entity_group& group) const;
 		template<size_t max_count>
-		void withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* dont_transmit,
+		void withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
 							const hidden_entity_group<CEntityHandle, max_count>& group, int recipient_slot, hide_reason reason,
 							std::chrono::steady_clock::time_point now, transmit_mode mode, const std::array<void*, 2>& extended_lists);
 		void sample_transmit_probe(const CCheckTransmitInfo* info, int slot, const visibility_result& result, const CBitVec<MAX_EDICTS>& union_a,

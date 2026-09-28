@@ -30,7 +30,7 @@ It explains the intent of the code. The engine and file-format details are still
 
 **CheckTransmit:** the CS2 server step that decides which entity bits are present in one recipient's outgoing snapshot.
 
-**Primary and `dont_transmit` lists:** paired entity-bit lists. Hiding an entity means marking it `dont_transmit` before removing it from the primary send list.
+**Primary and second lists:** the first two entity-bit lists of a recipient's `CCheckTransmitInfo`. The primary list is what the recipient is sent. On CS2 1.41.8 the second list (the SDK's `m_pTransmitAlways`) also sends its entities, so hiding an entity clears its bit in both lists and sets nothing (`cs2glaz_transmit_mode 2`, the default).
 
 **Full update:** a refresh chosen by CS2 that sends a recipient complete entity state. CS2GLAZ recognizes it but never requests it.
 
@@ -51,7 +51,7 @@ It explains the intent of the code. The engine and file-format details are still
 | `src/plugin/runtime_compatibility.*` | Parse gamedata and classify strict binary, AVX/OS, schema, layout, private-function, and optional capability checks. |
 | `src/plugin/game_state.cpp` | Read live CS2 players and visual groups on the game thread, then make copied worker snapshots. |
 | `src/plugin/visibility_worker.*` | Own the background thread, replace pending work with the newest snapshot, evaluate capsule visibility, and publish results. |
-| `src/plugin/transmit.cpp` | Apply lifecycle rules and visibility results to the paired primary/`dont_transmit` lists; keep quarantine and debug evidence state. |
+| `src/plugin/transmit.cpp` | Apply lifecycle rules and visibility results to the primary and second lists; keep quarantine and debug evidence state. |
 | `src/plugin/automatic_baker.*` | Run and monitor the external baker without blocking the game thread. |
 | `src/plugin/updater.*` | Verify compatible GitHub release assets, stage complete platform packages off the game loop, and install them only during the next server start. |
 | `src/core/bvh8.cpp` | Traverse an in-memory BVH8 and answer whether a line segment hits a triangle. |
@@ -62,7 +62,7 @@ It explains the intent of the code. The engine and file-format details are still
 | `src/core/vpk.*` | Parse VPK versions 1/2, list entries, extract them, and verify their CRCs. |
 | `src/core/map_source.*` | Find direct or nested map physics sources and validate safe map subpaths. |
 | `src/core/lifecycle_guard.h` | Fixed-size rules for player lifetimes, pair warmup, visual-group identity, and quarantine. |
-| `src/core/transmit_masks.h` | Parse gamedata numbers, read the private full-update flag, and perform the paired withhold operation. |
+| `src/core/transmit_masks.h` | Parse gamedata numbers, read the private full-update flag, and apply the selected withhold mode to one entity bit. |
 | `src/core/transmit_debug.h` | Aggregate entity bits actually hidden by CS2GLAZ without allocating in `CheckTransmit`. |
 | `src/core/subprocess.*` | Start external tools with argument lists, timeouts, cancellation, and captured output. |
 | `src/baker/` | Command-line bake sequence, the native binary-KV3 and map-physics reader (`kv3.*`, `physics_import.*`), the shared bake recipe (`physics_recipe.*`), and the optional GLB parity reader. |
@@ -145,14 +145,14 @@ The finished immutable result contains its sequence, capture/completion times, c
 5. Require every live recipient's own pawn to be set in its primary list. A missing own pawn means the recipient slot or list layout is wrong, so filtering stops for the map before any list is changed.
 6. Skip self, invalid players, and full-update snapshots. Skip teammates only when optional teammate filtering and `mp_teammates_are_enemies` are both disabled.
 7. Require a stable player pair and evidence that a complete current visual group was previously sent on an older worker sequence before the pair is allowed to hide.
-8. When hidden, store the exact visual group. For each member whose primary bit is set, set the matching bit through the existing second `CCheckTransmitInfo` pointer, locally treated as `dont_transmit`, and only then clear the primary bit.
-9. If either paired-list pointer is unavailable, change neither list and fail open. If a primary bit is already clear, leave both bits alone.
+8. When hidden, store the exact visual group and clear each member's bit in the primary list and in the second list (mode 2). Mode 0, the CE behaviour that set the second list's bit, leaks on CS2 1.41.8 and is kept only for comparison.
+9. If either list pointer is unavailable, change neither list and fail open.
 10. If rays later say visible, stop withholding the current group and let ordinary snapshots handle it; CS2GLAZ does not wait for or request a full update.
-11. When a current group cannot be rebuilt, a still-valid quarantined old group may be withheld briefly through the same paired operation. Invalid handles/indexes are skipped rather than guessed.
+11. When a current group cannot be rebuilt, a still-valid quarantined old group may be withheld briefly through the same operation. Invalid handles/indexes are skipped rather than guessed.
 
-Those are the only two lists CS2GLAZ changes. Full-update snapshots, `+16` out-of-PVS updates, and `+24` HLTV storage are untouched. Valve mode `0` uses its compatibility behavior; mode `1` consumes the explicit `dont_transmit` information maintained by the same code.
+Those are the only two lists CS2GLAZ changes by default. Full-update snapshots are untouched; `+16`/`+24` and the union lists change only in the diagnostic modes 4 and 5.
 
-The primary `IsBitSet` check always runs because only set bits may enter the paired operation. When `cs2glaz_debug` is off, clearing skips classname lookup, record search, and record update. When it is on, evidence is recorded only for a primary bit that CS2GLAZ actually clears. The 256-record fixed array deduplicates by entity handle and source pawn; it aggregates recipients/reasons/counts without heap allocation in the hook.
+The `IsBitSet` checks always run because only set bits are cleared. When `cs2glaz_debug` is off, clearing skips classname lookup, record search, and record update. When it is on, evidence is recorded only for a bit that CS2GLAZ actually clears. The 256-record fixed array deduplicates by entity handle and source pawn; it aggregates recipients/reasons/counts without heap allocation in the hook.
 
 ## Thread and data ownership
 
@@ -160,7 +160,7 @@ The primary `IsBitSet` check always runs because only set bits may enter the pai
 | --- | --- | --- | --- |
 | Game thread | Yes | Map state, schema reads, copied player snapshots, visual-group lifecycle state | Uses `transmit_state_mutex_` when capture touches transmit lifecycle state. |
 | Visibility worker | No | One taken snapshot, muzzle-ray caches, reveal holds, worker statistics, next result | `mutex_` protects pending work; `stats_mutex_` protects statistics; published result is shared immutably. |
-| CheckTransmit hook | Yes, only for validation/group resolution | Paired primary/`dont_transmit` bits and transmit lifecycle/quarantine/debug state | Holds `transmit_state_mutex_`; does no BVH traversal, file I/O, process work, or heap allocation. |
+| CheckTransmit hook | Yes, only for validation/group resolution | Primary/second-list bits and transmit lifecycle/quarantine/debug state | Holds `transmit_state_mutex_`; does no BVH traversal, file I/O, process work, or heap allocation. |
 | Automatic-baker thread | No live engine objects | External process and one completion record | Receives copied paths/map-source metadata; its own mutex protects status/completion. |
 | Automatic-update staging task | No live engine objects | One already downloaded package and ignored staging directory | Receives copied paths/version/digest; archive hashing and extraction stay off the game loop. |
 | Console commands | No direct player traversal | Read status or read/clear debug records | Debug commands use `transmit_state_mutex_`. |
@@ -171,7 +171,7 @@ The BVH8 data is loaded before the worker starts and remains unchanged until tha
 
 - Missing, invalid, changed, or stale information always fails open.
 - Full-update snapshots are never filtered.
-- Only set primary bits and their matching verified `dont_transmit` bits are changed; either missing pointer fails open.
+- By default only set bits of the primary and second lists are cleared; nothing is set, and either missing pointer fails open.
 - The worker receives copied data and never dereferences engine objects.
 - CheckTransmit uses fixed-size visual groups, caches, and debug records; it performs no heap allocation.
 - Player/visual-group lifetime changes reset pair baselines instead of hiding immediately.
@@ -190,7 +190,7 @@ The BVH8 data is loaded before the worker starts and remains unchanged until tha
 | Player/schema field capture | `src/plugin/game_state.cpp` | Live engine reads remain on the game thread and uncertainty fails open. |
 | Visibility scheduling, muzzle cache, or reveal hold | `src/plugin/visibility_worker.cpp` | Worker input must stay pointer-free copied data. |
 | Which target entities form a visual group | `collect_player_visual_group` in `game_state.cpp` | Fixed capacity, full-group validation, handles, and lifecycle identity protect transmit safety. |
-| Withholding rules or evidence | `src/plugin/transmit.cpp` | Set `dont_transmit` before clearing a set primary bit; no filtering on full updates; no allocation in the hook. |
+| Withholding rules or evidence | `src/plugin/transmit.cpp` | Clear, never set, in the default mode; no filtering on full updates; no allocation in the hook. |
 | VPK compatibility | `src/core/vpk.cpp` and `map_source.cpp` | Check every range/CRC and preserve direct-over-nested precedence. |
 | BVH traversal math | `src/core/bvh8.cpp` | Tests cover open/blocked rays and packet caching. |
 | BVH file layout | `src/core/bvh8_format.cpp` and `bvh8.h` | Validate before allocation and keep replacement atomic. |

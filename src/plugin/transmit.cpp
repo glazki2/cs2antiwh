@@ -1,8 +1,8 @@
 #include "plugin.h"
 
-// Turns a fresh visibility result into paired primary/don't-transmit updates
-// for verified enemy visual groups. CheckTransmit holds the plugin transmit-state
-// lock, skips full updates, allocates nothing, and fails open on uncertain state.
+// Turns a fresh visibility result into primary/second-list clears for verified
+// enemy visual groups. CheckTransmit holds the plugin transmit-state lock, skips
+// full updates, allocates nothing, and fails open on uncertain state.
 
 #include <algorithm>
 #include <bit>
@@ -17,12 +17,13 @@ namespace cs2glaz
 	namespace
 	{
 
-		// Diagnostic only: selects how a hidden entity is withheld (see
-		// transmit_mode). Not part of cs2glaz.cfg; it resets to 0 on restart.
+		// Selects how a hidden entity is withheld (see transmit_mode). Not part of
+		// cs2glaz.cfg; it resets to 2 on restart. On CS2 1.41.8 the second list
+		// sends its entities to the client, so mode 0 (the CE behaviour) leaks.
 		CConVar<int> cs2glaz_transmit_mode("cs2glaz_transmit_mode", FCVAR_NONE,
-										  "Diagnostic: 0 clear+mark second list, 1 clear only, 2 clear both lists, 3 observe only, "
-										  "4 clear both plus lists +16/+24 proven by cs2glaz_probe, 5 clear both plus union lists",
-										  0, true, 0, true, 5);
+										  "0 clear+mark second list (leaks on CS2 1.41.8), 1 clear only, 2 clear both lists (default), "
+										  "3 observe only, 4 clear both plus lists +16/+24 proven by cs2glaz_probe, 5 clear both plus union lists",
+										  2, true, 0, true, 5);
 
 		// Clears one entity bit in a list the probe proved to be an entity bit
 		// list, through guarded memory access so a wrong guess cannot fault.
@@ -116,11 +117,11 @@ namespace cs2glaz
 	}
 
 	template<size_t max_count>
-	void plugin::withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* dont_transmit,
+	void plugin::withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
 								const hidden_entity_group<CEntityHandle, max_count>& group, int recipient_slot, hide_reason reason,
 								std::chrono::steady_clock::time_point now, transmit_mode mode, const std::array<void*, 2>& extended_lists)
 	{
-		if (primary == nullptr || dont_transmit == nullptr)
+		if (primary == nullptr || second_list == nullptr)
 		{
 			return;
 		}
@@ -133,7 +134,7 @@ namespace cs2glaz
 			{
 				continue;
 			}
-			if (apply_transmit_mode(primary, dont_transmit, index, mode) && debug)
+			if (apply_transmit_mode(primary, second_list, index, mode) && debug)
 			{
 				record_hidden_entity(system, entity, index, group, recipient_slot, reason, now);
 			}
@@ -604,9 +605,11 @@ namespace cs2glaz
 			{
 				continue;
 			}
-			// The SDK keeps its old name; current CS2 uses this as the explicit don't-transmit list.
-			CBitVec<MAX_EDICTS>* const dont_transmit = info->m_pTransmitAlways;
-			if (info->m_pTransmitEntity == nullptr || dont_transmit == nullptr)
+			// CS2 1.41.8 sends what is set here (a probe never saw an enemy pawn in
+			// it, and setting hidden pawns there leaked them live), so it is cleared
+			// with the primary list, never set, except in the legacy mode 0.
+			CBitVec<MAX_EDICTS>* const second_list = info->m_pTransmitAlways;
+			if (info->m_pTransmitEntity == nullptr || second_list == nullptr)
 			{
 				continue;
 			}
@@ -688,16 +691,16 @@ namespace cs2glaz
 				{
 					if (hidden_group_quarantined(stored_group, now))
 					{
-						withhold_group(system, info->m_pTransmitEntity, dont_transmit, stored_group, slot, hide_reason::quarantine, now, mode,
+						withhold_group(system, info->m_pTransmitEntity, second_list, stored_group, slot, hide_reason::quarantine, now, mode,
 									   extended_lists);
-						withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.attached, slot, hide_reason::quarantine, now, mode,
+						withhold_group(system, info->m_pTransmitEntity, second_list, cache.attached, slot, hide_reason::quarantine, now, mode,
 									   extended_lists);
 					}
 					continue;
 				}
 				hidden_group_store(stored_group, cache.group, now, k_hidden_entity_quarantine);
-				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.group, slot, hide_reason::current, now, mode, extended_lists);
-				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.attached, slot, hide_reason::current, now, mode,
+				withhold_group(system, info->m_pTransmitEntity, second_list, cache.group, slot, hide_reason::current, now, mode, extended_lists);
+				withhold_group(system, info->m_pTransmitEntity, second_list, cache.attached, slot, hide_reason::current, now, mode,
 							   extended_lists);
 			}
 		}

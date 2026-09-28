@@ -2,7 +2,7 @@
 
 // Tiny verified CheckTransmit helpers: parse unsigned gamedata values, read
 // CS2's private full-update flag, and pair primary-list removals with the
-// explicit don't-transmit list. They never discover private list addresses.
+// second list according to the selected mode. They never discover private list addresses.
 
 #include <charconv>
 #include <cstdint>
@@ -64,14 +64,14 @@ namespace cs2glaz
 		return true;
 	}
 
-	// How a hidden entity is withheld from one recipient. Mode 0 is the original
-	// paired update; the others exist to find what a CS2 build actually honours
-	// when hiding does not reach the client, and are switched with a convar.
+	// How a hidden entity is withheld from one recipient, switched with a convar.
+	// Mode 0 is the CE paired update; on CS2 1.41.8 the second list sends its
+	// entities, so marking it leaked hidden enemies live and the default is 2.
 	enum class transmit_mode : int
 	{
-		clear_and_mark = 0, // clear the primary bit, set the second list's bit
+		clear_and_mark = 0, // clear the primary bit, set the second list's bit (legacy)
 		clear_primary = 1,	// clear the primary bit only
-		clear_both = 2,		// clear the primary bit and the second list's bit
+		clear_both = 2,		// clear the primary bit and the second list's bit (default)
 		observe = 3,		// change nothing (for the read-only probe)
 		clear_extended = 4, // clear_both, plus lists +16/+24 once the probe showed they carry pawns
 		clear_union = 5,	// clear_both, then drop entities no recipient keeps from both union lists
