@@ -74,6 +74,7 @@ namespace cs2glaz
 		clear_both = 2,		// clear the primary bit and the second list's bit
 		observe = 3,		// change nothing (for the read-only probe)
 		clear_extended = 4, // clear_both, plus lists +16/+24 once the probe showed they carry pawns
+		clear_union = 5,	// clear_both, then drop entities no recipient keeps from both union lists
 	};
 
 	template<typename mask_type>
@@ -96,6 +97,7 @@ namespace cs2glaz
 				return true;
 			case transmit_mode::clear_both:
 			case transmit_mode::clear_extended:
+			case transmit_mode::clear_union:
 			{
 				const bool primary_set = primary->IsBitSet(index);
 				const bool second_set = second->IsBitSet(index);

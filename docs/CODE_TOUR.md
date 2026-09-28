@@ -225,8 +225,4 @@ Each build script fetches exact dependencies, configures and compiles, runs nati
 
 `package.py` takes the version from top-level `VERSION`. For official maps it asks `cs2glaz_baker --inspect-bvh8` to validate every bake and requires matching report metadata. It also checks licenses, duplicate/unsafe ZIP entries, ZIP integrity, Linux modes, and checksums. Every stable release intended for automatic updates must attach both platform ZIPs and the matching `v<version>-manifest.json`; the updater rejects anything incomplete or incompatible.
 
-Every GitHub release and GitLab mirror must include this paragraph without replacing the existing release notes:
-
-> CS2GLAZ is free and independently maintained. If it helps your server, even a small one-time or monthly contribution helps me keep up with CS2 updates, testing, Windows and Linux builds, report investigation, and community support: https://buymeacoffee.com/karola3vax
-
 Creating a tag, release manifest, release notes, public release, or Bake Service deployment remains a separate explicitly approved task.

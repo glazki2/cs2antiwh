@@ -890,6 +890,10 @@ namespace
 		test_transmit_mask extended_second {true};
 		assert(apply_transmit_mode(&extended_primary, &extended_second, 10, transmit_mode::clear_extended));
 		assert(!extended_primary.set && !extended_second.set);
+		test_transmit_mask union_primary {true};
+		test_transmit_mask union_second {true};
+		assert(apply_transmit_mode(&union_primary, &union_second, 10, transmit_mode::clear_union));
+		assert(!union_primary.set && !union_second.set);
 	}
 
 	void test_transmit_debug()

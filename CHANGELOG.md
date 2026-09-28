@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+- `cs2glaz_probe dump` scans every pointer-sized field of one live recipient's CheckTransmit record (and both union lists) for a readable 16384-bit entity list and reports, per list, how many bits are set, whether the recipient's own pawn is set, and how many enemy pawns behind walls and in view it holds; short lists also name their entities. Reads only, through guarded memory access. This can find a don't-transmit list that CS2 1.41.8 may have moved.
+- `cs2glaz_transmit_mode 5` clears both recipient lists and then removes every withheld entity that no recipient keeps (full updates and SourceTV keep theirs) from both union lists, in case the new build re-adds union members after CheckTransmit.
+- `cs2glaz_status` and `cs2glaz_metrics` finish a completed automatic bake and the pending limited-mode check themselves, so a hibernating empty server no longer shows `BAKING` or `validating map` until a player joins.
+- `cfg/cs2glaz.cfg` no longer sets `sv_enable_donttransmit`, which CS2 1.41.8 removed (it only printed `Unknown command`); `cs2glaz_check_config` reports its absence as a note instead of a problem.
+- Removed the upstream author's donation message from the load and status output and from the release notes guidance; attribution stays in `LICENSE`, `THIRD_PARTY_NOTICES` and the README.
+- README: states the open CS2 1.41.8 leak plainly, explains server hibernation, and documents the diagnostics.
+
 ## 0.5.0
 
 - The plugin is now called cs2glaz. Every name changed with it: the Metamod plugin and alias (`cs2glaz`), the folder `addons/cs2glaz`, `cfg/cs2glaz.cfg`, `tools/cs2glaz_baker`, all console variables and commands (`cs2glaz_status`, `cs2glaz_probe`, `cs2glaz_transmit_mode`, ...), the log prefix `[CS2GLAZ]`, and the package and CI artifact names (`cs2glaz-<version>-<platform>.zip`, `cs2glaz-linux-x86_64`).

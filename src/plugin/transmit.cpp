@@ -5,6 +5,7 @@
 // lock, skips full updates, allocates nothing, and fails open on uncertain state.
 
 #include <algorithm>
+#include <bit>
 #include <array>
 #include <cstddef>
 #include <cstdio>
@@ -20,8 +21,8 @@ namespace cs2glaz
 		// transmit_mode). Not part of cs2glaz.cfg; it resets to 0 on restart.
 		CConVar<int> cs2glaz_transmit_mode("cs2glaz_transmit_mode", FCVAR_NONE,
 										  "Diagnostic: 0 clear+mark second list, 1 clear only, 2 clear both lists, 3 observe only, "
-										  "4 clear both plus lists +16/+24 proven by cs2glaz_probe",
-										  0, true, 0, true, 4);
+										  "4 clear both plus lists +16/+24 proven by cs2glaz_probe, 5 clear both plus union lists",
+										  0, true, 0, true, 5);
 
 		// Clears one entity bit in a list the probe proved to be an entity bit
 		// list, through guarded memory access so a wrong guess cannot fault.
@@ -135,6 +136,10 @@ namespace cs2glaz
 			if (apply_transmit_mode(primary, dont_transmit, index, mode) && debug)
 			{
 				record_hidden_entity(system, entity, index, group, recipient_slot, reason, now);
+			}
+			if (mode == transmit_mode::clear_union)
+			{
+				transmit_withheld_.Set(index);
 			}
 			if (mode == transmit_mode::clear_extended)
 			{
@@ -333,6 +338,110 @@ namespace cs2glaz
 		}
 	}
 
+	void plugin::request_transmit_dump()
+	{
+		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+		transmit_dump_pending_ = true;
+		META_CONPRINTF("[CS2GLAZ] the next snapshot with a live player will be scanned (mode %d)\n", cs2glaz_transmit_mode.Get());
+	}
+
+	void plugin::dump_transmit_lists(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count, const visibility_result& result,
+									 const CBitVec<MAX_EDICTS>& union_a, const CBitVec<MAX_EDICTS>& union_b)
+	{
+		// Scans every pointer-sized field of one live recipient's record for a
+		// readable 16384-bit list and reports which pawns each list holds. It only
+		// reads, through guarded memory access, and runs once per request.
+		for (int i = 0; i < count; ++i)
+		{
+			const CCheckTransmitInfo* info = infos[i];
+			if (info == nullptr || read_checktransmit_full_update(info, compatibility_.transmit_offsets().full_update_offset))
+			{
+				continue;
+			}
+			int slot = -1;
+			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
+			if (slot < 0 || slot >= static_cast<int>(k_max_players) || transmit_target_cache_[slot].pawn == nullptr)
+			{
+				continue;
+			}
+			std::array<int, k_max_players> hidden {};
+			std::array<int, k_max_players> visible {};
+			size_t hidden_count = 0;
+			size_t visible_count = 0;
+			for (uint32_t target = 0; target < k_max_players; ++target)
+			{
+				const target_transmit_cache& cache = transmit_target_cache_[target];
+				const int index = entity_index(cache.pawn);
+				if (cache.pawn == nullptr || !valid_networked_edict_index(index)
+					|| !visibility_pair_enabled(static_cast<uint32_t>(slot), target, result.players[slot], result.players[target],
+												result.filter_teammates))
+				{
+					continue;
+				}
+				(result.visible[slot][target] ? visible[visible_count++] : hidden[hidden_count++]) = index;
+			}
+			const int own = entity_index(transmit_target_cache_[slot].pawn);
+			META_CONPRINTF("[CS2GLAZ] dump: records=%d slot=%d own_pawn=%d enemies behind walls=%zu visible=%zu\n", count, slot, own,
+						   hidden_count, visible_count);
+			std::array<uint32_t, MAX_EDICTS / 32> words {};
+			const auto describe = [&](const char* label, const uint32_t* list)
+			{
+				const auto bit = [&](int index)
+				{ return valid_networked_edict_index(index) && (list[index >> 5] & (uint32_t {1} << (index & 31))) != 0; };
+				uint32_t total = 0;
+				for (size_t word = 0; word < words.size(); ++word)
+				{
+					total += static_cast<uint32_t>(std::popcount(list[word]));
+				}
+				size_t hidden_set = 0;
+				size_t visible_set = 0;
+				for (size_t index = 0; index < hidden_count; ++index)
+				{
+					hidden_set += bit(hidden[index]) ? 1u : 0u;
+				}
+				for (size_t index = 0; index < visible_count; ++index)
+				{
+					visible_set += bit(visible[index]) ? 1u : 0u;
+				}
+				char sample[160] {};
+				size_t used = 0;
+				if (total <= 16)
+				{
+					for (int index = 0; index < MAX_EDICTS && used + 40 < sizeof(sample); ++index)
+					{
+						if (!bit(index))
+						{
+							continue;
+						}
+						char name[k_max_entity_name] {};
+						copy_entity_name(system->GetEntityInstance(CEntityIndex(index)), name);
+						const int written = std::snprintf(sample + used, sizeof(sample) - used, " %d:%.24s", index, name);
+						used += written > 0 ? static_cast<size_t>(written) : 0u;
+					}
+				}
+				META_CONPRINTF("[CS2GLAZ]   %s bits=%u own=%d behind_walls=%zu/%zu visible=%zu/%zu%s\n", label, total, bit(own) ? 1 : 0,
+							   hidden_set, hidden_count, visible_set, visible_count, sample);
+			};
+			for (uint32_t offset = 0; offset + sizeof(void*) <= compatibility_.recipient_slot_offset(); offset += sizeof(void*))
+			{
+				uintptr_t value = 0;
+				std::memcpy(&value, reinterpret_cast<const char*>(info) + offset, sizeof(value));
+				if (value < 0x10000u || value % alignof(uint32_t) != 0
+					|| !runtime_compatibility::safe_read(reinterpret_cast<const void*>(value), words.data(), sizeof(words)))
+				{
+					continue;
+				}
+				char label[32] {};
+				std::snprintf(label, sizeof(label), "+%u", offset);
+				describe(label, words.data());
+			}
+			describe("unionA", union_a.Base());
+			describe("unionB", union_b.Base());
+			return;
+		}
+		META_CONPRINTF("[CS2GLAZ] dump: no live recipient in this snapshot\n");
+	}
+
 	void plugin::start_transmit_probe()
 	{
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
@@ -414,6 +523,10 @@ namespace cs2glaz
 			}
 		}
 		const transmit_mode mode = static_cast<transmit_mode>(cs2glaz_transmit_mode.Get());
+		if (mode == transmit_mode::clear_union)
+		{
+			transmit_withheld_.ClearAll();
+		}
 		for (int i = 0; i < count; ++i)
 		{
 			CCheckTransmitInfo* info = infos[i];
@@ -478,6 +591,11 @@ namespace cs2glaz
 			transmit_layout_invalid_.store(true);
 			record_timing();
 			return;
+		}
+		if (transmit_dump_pending_)
+		{
+			transmit_dump_pending_ = false;
+			dump_transmit_lists(system, infos, count, *result, union_a, union_b);
 		}
 		for (int i = 0; i < count; ++i)
 		{
@@ -581,6 +699,31 @@ namespace cs2glaz
 				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.group, slot, hide_reason::current, now, mode, extended_lists);
 				withhold_group(system, info->m_pTransmitEntity, dont_transmit, cache.attached, slot, hide_reason::current, now, mode,
 							   extended_lists);
+			}
+		}
+		if (mode == transmit_mode::clear_union)
+		{
+			// An entity no recipient keeps after filtering (full updates and
+			// SourceTV keep theirs) leaves both union lists too, in case this CS2
+			// build re-adds union members to every recipient after CheckTransmit.
+			const uint32_t* words = transmit_withheld_.Base();
+			for (int word = 0; word < transmit_withheld_.GetNumDWords(); ++word)
+			{
+				for (uint32_t bits = words[word]; bits != 0; bits &= bits - 1u)
+				{
+					const int index = word * 32 + std::countr_zero(bits);
+					bool kept = false;
+					for (int i = 0; i < count && !kept; ++i)
+					{
+						const CCheckTransmitInfo* info = infos[i];
+						kept = info != nullptr && info->m_pTransmitEntity != nullptr && info->m_pTransmitEntity->IsBitSet(index);
+					}
+					if (!kept)
+					{
+						union_a.Clear(index);
+						union_b.Clear(index);
+					}
+				}
 			}
 		}
 		record_timing();

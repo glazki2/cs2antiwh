@@ -257,11 +257,13 @@ namespace cs2glaz
 
 	CON_COMMAND_F(cs2glaz_status, "Show concise CS2GLAZ health and protection state", FCVAR_NONE)
 	{
+		g_plugin.refresh_state();
 		g_plugin.print_status();
 	}
 
 	CON_COMMAND_F(cs2glaz_metrics, "Show detailed CS2GLAZ runtime metrics", FCVAR_NONE)
 	{
+		g_plugin.refresh_state();
 		g_plugin.print_metrics();
 	}
 

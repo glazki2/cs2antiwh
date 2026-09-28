@@ -103,11 +103,19 @@ namespace cs2glaz
 		g_plugin.print_entities(edict);
 	}
 
-	CON_COMMAND_F(cs2glaz_probe, "Diagnostic: 'cs2glaz_probe start' samples CheckTransmit lists; 'cs2glaz_probe' prints the result", FCVAR_NONE)
+	CON_COMMAND_F(cs2glaz_probe,
+				  "Diagnostic: 'cs2glaz_probe start' samples CheckTransmit lists, 'cs2glaz_probe dump' scans one recipient record, "
+				  "'cs2glaz_probe' prints the sample",
+				  FCVAR_NONE)
 	{
 		if (args.ArgC() == 2 && std::strcmp(args.Arg(1), "start") == 0)
 		{
 			g_plugin.start_transmit_probe();
+			return;
+		}
+		if (args.ArgC() == 2 && std::strcmp(args.Arg(1), "dump") == 0)
+		{
+			g_plugin.request_transmit_dump();
 			return;
 		}
 		g_plugin.print_transmit_probe();
@@ -176,7 +184,6 @@ namespace cs2glaz
 			META_CONPRINTF("[CS2GLAZ] HE smoke clearing unavailable; ordinary smoke remains active\n");
 		}
 		META_CONPRINTF("[CS2GLAZ] loaded; culling is fail-open until a map bake validates\n");
-		META_CONPRINTF("[CS2GLAZ] Free and independently maintained. Support continued updates: https://buymeacoffee.com/karola3vax\n");
 		return true;
 	}
 
@@ -410,6 +417,12 @@ namespace cs2glaz
 					   data_.header.triangle_count, data_.header.node_count, data_.header.packet_count);
 	}
 
+	void plugin::refresh_state()
+	{
+		poll_automatic_bake();
+		finish_limited_validation(true);
+	}
+
 	void plugin::finish_limited_validation(bool simulating)
 	{
 		if (!limited_validation_pending_ || !simulating)
@@ -577,8 +590,8 @@ namespace cs2glaz
 		int donttransmit = 0;
 		if (!settings::donttransmit_mode(donttransmit))
 		{
-			META_CONPRINTF("[CS2GLAZ] review sv_enable_donttransmit: the Valve setting could not be read\n");
-			++findings;
+			// CS2 1.41.8 (September 2026) removed this Valve setting.
+			META_CONPRINTF("[CS2GLAZ] note: sv_enable_donttransmit does not exist in this CS2 build\n");
 		}
 		else
 		{
@@ -1020,7 +1033,6 @@ namespace cs2glaz
 		{
 			META_CONPRINTF("[CS2GLAZ] Next action: %s\n", action);
 		}
-		META_CONPRINTF("[CS2GLAZ] Free and independently maintained. Support continued updates: https://buymeacoffee.com/karola3vax\n");
 	}
 
 	void plugin::print_metrics() const

@@ -186,6 +186,10 @@ namespace cs2glaz
 		void clear_entity_records();
 		void start_transmit_probe();
 		void print_transmit_probe() const;
+		void request_transmit_dump();
+		// Status commands call this so a hibernating server (no game frames) still
+		// finishes a completed bake and the pending limited-mode check.
+		void refresh_state();
 		void reset_transmit_state(bool clear_debug_records = true);
 
 		const char* GetAuthor() override
@@ -264,6 +268,8 @@ namespace cs2glaz
 							std::chrono::steady_clock::time_point now, transmit_mode mode, const std::array<void*, 2>& extended_lists);
 		void sample_transmit_probe(const CCheckTransmitInfo* info, int slot, const visibility_result& result, const CBitVec<MAX_EDICTS>& union_a,
 								   const CBitVec<MAX_EDICTS>& union_b);
+		void dump_transmit_lists(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count, const visibility_result& result,
+								 const CBitVec<MAX_EDICTS>& union_a, const CBitVec<MAX_EDICTS>& union_b);
 		template<size_t max_count>
 		void record_hidden_entity(CGameEntitySystem* system, size_t member_index, int edict, const hidden_entity_group<CEntityHandle, max_count>& group,
 								  int recipient_slot, hide_reason reason, std::chrono::steady_clock::time_point now);
@@ -329,6 +335,10 @@ namespace cs2glaz
 		// The recipient lists were proven readable with guarded reads this map.
 		bool transmit_lists_verified_ {};
 		transmit_probe_stats transmit_probe_;
+		// Entities withheld from at least one recipient in the current CheckTransmit.
+		CBitVec<MAX_EDICTS> transmit_withheld_;
+		// cs2glaz_probe dump: print one recipient record's entity lists on the next call.
+		bool transmit_dump_pending_ {};
 		// Limited mode validates the entity system on the first simulated frame.
 		bool limited_validation_pending_ {};
 		uint32_t limited_validation_attempts_ {};
