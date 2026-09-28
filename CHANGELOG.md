@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.5
+
+- An enemy is no longer left visible through walls after he threw a grenade or dropped a weapon. The plugin lists an enemy's pawn, weapons and wearables before hiding them, and any handle that no longer resolved made the whole list unusable, so the enemy was sent to everyone (after the 3-second quarantine of his last good list, or at once if the recipient had just seen him). The previous weapon handle (`m_hLastWeapon`) stays pointed at a thrown grenade or a dropped weapon, so this happened constantly: a live test counted 7541 such pair decisions (`weapons_unlisted`) against 130497 hidden ones, and it matched the report that an enemy stayed on a wallhack after being seen. Handles whose entity is gone are now skipped (there is nothing to withhold), and the previous weapon is no longer collected (while still owned it is in the weapons list; once dropped it may belong to another player, who must not lose it when this one is hidden). The pawn itself must still resolve.
+- A live test confirmed the radar filter: the message was recognised and verified, and 1520 radar entries about hidden enemies were removed.
+
 ## 0.5.4
 
 - Hidden enemies no longer reach a wallhack through the radar. CS2 sends each player the position and yaw of spotted enemies that are not in that player's snapshot (`CCSUsrMsg_ProcessSpottedEntityUpdate`), and withholding an enemy put him exactly there, so a cheat kept drawing an enemy for as long as he stayed spotted (about 30 seconds in a live test). The plugin now hooks `IGameEventSystem::PostEventAbstract` and removes from each player's copy the entries of enemies that nobody on that player's team currently sees; teammates, the bomb, hostages, and enemies a teammate sees stay on the radar. It proves the message object from its RTTI through guarded reads before touching it, only edits messages addressed to exactly one player, and turns itself off for good if the message does not look as expected. `cs2glaz_radar_filter 0` turns it off and `2` counts only the player's own sight (teammates then no longer share hidden enemies on the radar); `cs2glaz_metrics` reports what it kept and dropped.

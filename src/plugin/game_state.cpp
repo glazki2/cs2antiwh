@@ -321,15 +321,14 @@ namespace cs2glaz
 		{
 			return false;
 		}
+		// A handle whose entity is gone (a thrown grenade, a removed weapon) or was
+		// never networked has nothing to withhold, so it is skipped. Treating it as
+		// uncertain used to reveal the player for as long as it stayed stale.
 		const auto collect_handle = [&](CEntityHandle handle)
 		{
-			if (!handle.IsValid())
+			if (!handle.IsValid() || !valid_networked_edict_index(resolve_entity_index(system, handle)))
 			{
 				return true;
-			}
-			if (!valid_networked_edict_index(resolve_entity_index(system, handle)))
-			{
-				return false;
 			}
 			return hidden_group_append_unique(group, handle);
 		};
@@ -350,10 +349,13 @@ namespace cs2glaz
 			}
 			return true;
 		};
+		// The pawn itself must resolve. The previous weapon (m_hLastWeapon) is not
+		// collected: while it is still owned it is in the weapons list, and once
+		// dropped it lies in the world or belongs to another player, who must not
+		// lose it whenever this player is hidden.
 		group.source = entity_handle(pawn_entity);
-		if (!group.source.IsValid() || !collect_handle(group.source)
-			|| !collect_handle(field<CEntityHandle>(services, compatibility_.fields().active_weapon))
-			|| !collect_handle(field<CEntityHandle>(services, compatibility_.fields().last_weapon))
+		if (!group.source.IsValid() || !valid_networked_edict_index(resolve_entity_index(system, group.source))
+			|| !collect_handle(group.source) || !collect_handle(field<CEntityHandle>(services, compatibility_.fields().active_weapon))
 			|| !collect_vector(services, compatibility_.fields().weapons, static_cast<int>(k_max_weapons))
 			|| !collect_vector(pawn_entity, compatibility_.fields().wearables, static_cast<int>(k_max_wearables)))
 		{
