@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.8
+
+- Test HUD `cs2glaz_wallcheck 1` for checking walls with a second player: four times a second every living human gets a centre-screen message listing, for each enemy, what CheckTransmit last decided in both directions (`тебя ему` — does the enemy receive you, `его тебе` — do you receive the enemy) and, when an enemy is sent for another reason than sight, which one (spawn/death window, full update, attachment, weapons not listed, mode 0). It shows the real transmit decisions recorded per pair, not a separate estimate. It sends `CUserMessageTextMsg` through `IGameEventSystem`, proves the allocated message from its RTTI before filling it, and turns itself off if the message is missing or looks different. Off by default and not saved in `cs2glaz.cfg`.
+
 ## 0.5.7
 
 - Smoke occlusion can now work in limited mode. A wallhack otherwise sees every enemy in or behind a smoke there, because the private smoke layout was dropped with the rest of the unverified gamedata. The gamedata smoke layout is now kept as a candidate and proven on the map's first live smokes through guarded reads: the voxel grid's centre must match the public `m_vSmokeDetonationPos`, its start time and frame must be plausible, and its occupancy mask and densities must look like a spread smoke (finite, bounded, a plausible share of dense cells, and a mask that mostly marks dense cells). If the volume moved inside the entity, offsets up to 1 KiB either side are tried and one is accepted only if it is the only match. Until then, and if three smokes fail, smoke occlusion stays off (retried on the next map). Every smoke is re-checked through guarded reads before its voxels are copied.

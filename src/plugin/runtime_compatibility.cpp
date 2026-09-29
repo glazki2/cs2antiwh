@@ -513,6 +513,7 @@ namespace cs2glaz
 											&& optional(fields_.scene_node_next_sibling, "CGameSceneNode", "m_pNextSibling");
 		smoke_schema_available_ = optional(fields_.did_smoke_effect, "CSmokeGrenadeProjectile", "m_bDidSmokeEffect");
 		smoke_detonation_schema_available_ = optional(fields_.smoke_detonation_pos, "CSmokeGrenadeProjectile", "m_vSmokeDetonationPos");
+		player_name_schema_available_ = optional(fields_.player_name, "CBasePlayerController", "m_iszPlayerName");
 		debug_beam_schema_available_ =
 			optional(fields_.beam_end_position, "CBeam", "m_vecEndPos") && optional(fields_.beam_width, "CBeam", "m_fWidth")
 			&& optional(fields_.beam_end_width, "CBeam", "m_fEndWidth") && optional(fields_.render_color, "CBaseModelEntity", "m_clrRender");

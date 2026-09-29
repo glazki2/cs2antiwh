@@ -151,6 +151,8 @@ namespace cs2glaz
 		// Optional: without it hidden enemies can still reach a cheat through the
 		// radar message, but everything else keeps working.
 		game_event_system_ = static_cast<IGameEventSystem*>(ismm->VInterfaceMatch(ismm->GetEngineFactory(), GAMEEVENTSYSTEM_INTERFACE_VERSION));
+		// Optional too: only the cs2glaz_wallcheck test HUD sends messages.
+		network_messages_ = static_cast<INetworkMessages*>(ismm->VInterfaceMatch(ismm->GetEngineFactory(), NETWORKMESSAGES_INTERFACE_VERSION));
 		if (game_event_system_ != nullptr)
 		{
 			post_event_hook_.Add(game_event_system_);
@@ -792,6 +794,7 @@ namespace cs2glaz
 			disable("game entity system is unavailable");
 			return;
 		}
+		update_wallcheck_hud(system);
 		const auto now = std::chrono::steady_clock::now();
 		if (now - last_snapshot_ < std::chrono::milliseconds(configuration.update_interval_ms))
 		{

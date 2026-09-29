@@ -195,6 +195,11 @@ namespace cs2glaz
 		bone_timing_ = {};
 		transmit_timing_ = {};
 		transmit_decisions_ = {};
+		for (auto& row : pair_decisions_)
+		{
+			row.fill(pair_decision::none);
+		}
+		recipient_decided_at_.fill({});
 		capsule_players_ = 0;
 		capsule_failed_players_ = 0;
 		if (clear_debug_records)
@@ -687,15 +692,22 @@ namespace cs2glaz
 			if (read_checktransmit_full_update(info, compatibility_.transmit_offsets().full_update_offset))
 			{
 				note(&transmit_decision_stats::full_update_snapshots);
+				recipient_decided_at_[slot] = now;
+				pair_decisions_[slot].fill(pair_decision::full_update);
 				continue;
 			}
 			const player_state& recipient = result->players[slot];
 			if (transmit_target_cache_[slot].pawn == nullptr)
 			{
 				note(&transmit_decision_stats::changing_recipient_snapshots);
+				recipient_decided_at_[slot] = now;
+				pair_decisions_[slot].fill(pair_decision::recipient_changing);
 				continue;
 			}
 			note(&transmit_decision_stats::filtered_snapshots);
+			recipient_decided_at_[slot] = now;
+			std::array<pair_decision, k_max_players>& decisions = pair_decisions_[slot];
+			decisions.fill(pair_decision::none);
 			if (probing)
 			{
 				sample_transmit_probe(system, info, slot, *result, union_a, union_b);
@@ -728,6 +740,7 @@ namespace cs2glaz
 				if (cache.pawn == nullptr)
 				{
 					note(&transmit_decision_stats::changing_target);
+					decisions[target] = pair_decision::changing;
 					continue;
 				}
 				pair_guard& guard = pair_guards_[slot][target];
@@ -739,6 +752,7 @@ namespace cs2glaz
 				if (result->visible[slot][target] && !hide_all)
 				{
 					note(&transmit_decision_stats::in_view);
+					decisions[target] = pair_decision::in_view;
 					if (full_group_marked)
 					{
 						pair_note_open(guard, result->sequence);
@@ -749,6 +763,7 @@ namespace cs2glaz
 				if (!pair_allows_hiding(guard, result->sequence, mode == transmit_mode::clear_and_mark))
 				{
 					note(&transmit_decision_stats::baseline);
+					decisions[target] = pair_decision::baseline;
 					if (full_group_marked)
 					{
 						pair_note_open(guard, result->sequence);
@@ -761,14 +776,17 @@ namespace cs2glaz
 					// Something is attached that cannot be hidden with the player;
 					// withholding the player alone would orphan it on the client.
 					note(&transmit_decision_stats::attachment);
+					decisions[target] = pair_decision::attachment;
 					hidden_group_clear(stored_group);
 					continue;
 				}
 				if (!cache.group_valid)
 				{
 					note(&transmit_decision_stats::group);
+					decisions[target] = pair_decision::group;
 					if (hidden_group_quarantined(stored_group, now))
 					{
+						decisions[target] = pair_decision::hidden;
 						withhold_group(system, info->m_pTransmitEntity, second_list, stored_group, slot, hide_reason::quarantine, now, mode,
 									   extended_lists);
 						withhold_group(system, info->m_pTransmitEntity, second_list, cache.attached, slot, hide_reason::quarantine, now, mode,
@@ -777,6 +795,7 @@ namespace cs2glaz
 					continue;
 				}
 				note(&transmit_decision_stats::hidden);
+					decisions[target] = pair_decision::hidden;
 				hidden_group_store(stored_group, cache.group, now, k_hidden_entity_quarantine);
 				withhold_group(system, info->m_pTransmitEntity, second_list, cache.group, slot, hide_reason::current, now, mode, extended_lists);
 				withhold_group(system, info->m_pTransmitEntity, second_list, cache.attached, slot, hide_reason::current, now, mode,

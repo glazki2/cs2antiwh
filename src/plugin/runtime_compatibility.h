@@ -52,6 +52,7 @@ namespace cs2glaz
 		uint32_t carried_hostage_prop {};
 		uint32_t did_smoke_effect {};
 		uint32_t smoke_detonation_pos {};
+		uint32_t player_name {};
 		uint32_t beam_end_position {};
 		uint32_t beam_width {};
 		uint32_t beam_end_width {};
@@ -180,6 +181,11 @@ namespace cs2glaz
 			return limited() && smoke_layout_candidate_ && smoke_schema_available_ && smoke_detonation_schema_available_;
 		}
 
+		bool player_name_available() const
+		{
+			return player_name_schema_available_;
+		}
+
 		bool smoke_runtime_verified() const
 		{
 			return smoke_runtime_verified_;
@@ -236,6 +242,7 @@ namespace cs2glaz
 		bool weapon_item_schema_available_ {};
 		bool smoke_schema_available_ {};
 		bool smoke_detonation_schema_available_ {};
+		bool player_name_schema_available_ {};
 		bool smoke_layout_candidate_ {};
 		bool smoke_runtime_verified_ {};
 		bool debug_beam_schema_available_ {};

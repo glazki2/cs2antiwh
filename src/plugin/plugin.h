@@ -17,6 +17,7 @@
 #include <ISmmPlugin.h>
 #include <eiface.h>
 #include <engine/igameeventsystem.h>
+#include <networksystem/inetworkmessages.h>
 #include <entity2/entitysystem.h>
 #include <filesystem.h>
 #include <igameevents.h>
@@ -123,6 +124,21 @@ namespace cs2glaz
 		std::atomic<uint64_t> unmatched_entries {}; // kept: not a live player's pawn index
 	};
 
+	// What CheckTransmit last decided for one recipient/enemy pair; shown by the
+	// cs2glaz_wallcheck test HUD.
+	enum class pair_decision : uint8_t
+	{
+		none,
+		hidden,
+		in_view,
+		changing,
+		attachment,
+		group,
+		baseline,
+		full_update,
+		recipient_changing,
+	};
+
 	struct transmit_probe_stats
 	{
 		uint32_t calls_left {};
@@ -218,6 +234,8 @@ namespace cs2glaz
 		void print_status() const;
 		void print_metrics() const;
 		void print_radar_filter() const;
+		void update_wallcheck_hud(CGameEntitySystem* system);
+		bool send_center_text(uint32_t slot, const std::string& text);
 		void filter_radar_message(const uint64* clients, const CNetMessage* data);
 		void print_help() const;
 		void reload_config();
@@ -422,6 +440,12 @@ namespace cs2glaz
 		bool transmit_lists_verified_ {};
 		transmit_probe_stats transmit_probe_;
 		transmit_decision_stats transmit_decisions_;
+		std::array<std::array<pair_decision, k_max_players>, k_max_players> pair_decisions_ {};
+		std::array<std::chrono::steady_clock::time_point, k_max_players> recipient_decided_at_ {};
+		std::chrono::steady_clock::time_point wallcheck_next_ {};
+		INetworkMessages* network_messages_ {};
+		INetworkMessageInternal* text_message_ {};
+		bool text_message_broken_ {};
 		// Entities withheld from at least one recipient in the current CheckTransmit.
 		CBitVec<MAX_EDICTS> transmit_withheld_;
 		// cs2glaz_probe dump: print one recipient record's entity lists on the next call.
