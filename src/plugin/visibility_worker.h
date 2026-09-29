@@ -138,11 +138,19 @@ namespace cs2glaz
 		return -1;
 	}
 
+	// Whose sight keeps an enemy on a player's radar.
+	enum class radar_sight
+	{
+		team, // any living teammate's, the default
+		own,  // the player's own only
+		none, // nobody's: every enemy is dropped (diagnostic hide-all test)
+	};
+
 	// A radar update about an enemy is legitimate team information only while a
 	// living member of the recipient's team sees that enemy (the reveal hold
 	// included). Anything that is not an enemy of a living recipient is kept:
 	// teammates, the bomb, hostages, dead or spectating recipients.
-	inline bool radar_entry_allowed(const visibility_result& result, uint32_t recipient, int target_slot, bool own_sight_only = false)
+	inline bool radar_entry_allowed(const visibility_result& result, uint32_t recipient, int target_slot, radar_sight sight = radar_sight::team)
 	{
 		if (recipient >= k_max_players || !result.players[recipient].valid || target_slot < 0 || target_slot >= static_cast<int>(k_max_players))
 		{
@@ -155,11 +163,15 @@ namespace cs2glaz
 		{
 			return true;
 		}
+		if (sight == radar_sight::none)
+		{
+			return false;
+		}
 		for (uint32_t spotter = 0; spotter < k_max_players; ++spotter)
 		{
 			// With teammates filtered (free for all), or when asked, nobody shares sight.
 			const player_state& ally = result.players[spotter];
-			if (!ally.valid || ally.team != team || ((result.filter_teammates || own_sight_only) && spotter != recipient))
+			if (!ally.valid || ally.team != team || ((result.filter_teammates || sight == radar_sight::own) && spotter != recipient))
 			{
 				continue;
 			}

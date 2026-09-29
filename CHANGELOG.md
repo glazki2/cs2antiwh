@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.6
+
+- Diagnostic `cs2glaz_hide_all_enemies 1` withholds every enemy even in plain view and drops every enemy from the radar, to show what still reaches a wallhack by other channels (sounds, grenades, the spawn/death safety window). It breaks normal play, is not saved in `cs2glaz.cfg` and resets to 0 on restart; the spawn/death safety window, full updates and the attachment checks still apply.
+
 ## 0.5.5
 
 - An enemy is no longer left visible through walls after he threw a grenade or dropped a weapon. The plugin lists an enemy's pawn, weapons and wearables before hiding them, and any handle that no longer resolved made the whole list unusable, so the enemy was sent to everyone (after the 3-second quarantine of his last good list, or at once if the recipient had just seen him). The previous weapon handle (`m_hLastWeapon`) stays pointed at a thrown grenade or a dropped weapon, so this happened constantly: a live test counted 7541 such pair decisions (`weapons_unlisted`) against 130497 hidden ones, and it matched the report that an enemy stayed on a wallhack after being seen. Handles whose entity is gone are now skipped (there is nothing to withhold), and the previous weapon is no longer collected (while still owned it is in the weapons list; once dropped it may belong to another player, who must not lose it when this one is hidden). The pawn itself must still resolve.

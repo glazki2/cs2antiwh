@@ -191,6 +191,8 @@ namespace cs2glaz
 	bool valid_networked_edict_index(int index);
 	int resolve_entity_index(CGameEntitySystem* system, CEntityHandle handle);
 	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats);
+	// Diagnostic cs2glaz_hide_all_enemies: every enemy withheld and off the radar.
+	bool hide_all_enemies_requested();
 
 	class plugin final : public ISmmPlugin, public IMetamodListener, public IGameEventListener2
 	{

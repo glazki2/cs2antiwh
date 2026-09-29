@@ -135,9 +135,13 @@ namespace
 		result->visible[1][2] = true;
 		assert(radar_entry_allowed(*result, 0, 2));
 		// The strict setting ignores what teammates see.
-		assert(!radar_entry_allowed(*result, 0, 2, true));
+		assert(!radar_entry_allowed(*result, 0, 2, radar_sight::own));
 		result->visible[0][2] = true;
-		assert(radar_entry_allowed(*result, 0, 2, true));
+		assert(radar_entry_allowed(*result, 0, 2, radar_sight::own));
+		// The hide-all test drops even an enemy in plain view, never a teammate.
+		assert(!radar_entry_allowed(*result, 0, 2, radar_sight::none));
+		assert(radar_entry_allowed(*result, 0, 1, radar_sight::none));
+		assert(radar_entry_allowed(*result, 0, -1, radar_sight::none));
 		result->visible[0][2] = false;
 		result->visible[1][2] = false;
 		// Teammates, the bomb/hostages (no target) and oneself are always kept.

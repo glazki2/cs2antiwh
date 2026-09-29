@@ -25,6 +25,13 @@ namespace cs2glaz
 										  "3 observe only, 4 clear both plus lists +16/+24 proven by cs2glaz_probe, 5 clear both plus union lists",
 										  2, true, 0, true, 5);
 
+		// Diagnostic only: withholds every enemy even in plain view, and drops every
+		// enemy from the radar, to show what still reaches a cheat through other
+		// channels. It breaks normal play, is not saved in cs2glaz.cfg, and resets
+		// to 0 on restart. Spawn/death safety windows and full updates still apply.
+		CConVar<bool> cs2glaz_hide_all_enemies("cs2glaz_hide_all_enemies", FCVAR_NONE,
+											   "Diagnostic: hide every enemy even in plain view (breaks normal play; resets on restart)", false);
+
 		// Clears one entity bit in a list the probe proved to be an entity bit
 		// list, through guarded memory access so a wrong guess cannot fault.
 		void clear_extended_bit(void* list_pointer, int index)
@@ -462,6 +469,11 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] dump: no live recipient in this snapshot\n");
 	}
 
+	bool hide_all_enemies_requested()
+	{
+		return cs2glaz_hide_all_enemies.Get();
+	}
+
 	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats)
 	{
 		const auto value = [](uint64_t count) { return static_cast<unsigned long long>(count); };
@@ -566,6 +578,7 @@ namespace cs2glaz
 			}
 		};
 		const transmit_mode mode = static_cast<transmit_mode>(cs2glaz_transmit_mode.Get());
+		const bool hide_all = hide_all_enemies_requested();
 		if (mode == transmit_mode::clear_union)
 		{
 			transmit_withheld_.ClearAll();
@@ -714,7 +727,7 @@ namespace cs2glaz
 				{
 					update_pair_visual_group(guard, cache.group_key);
 				}
-				if (result->visible[slot][target])
+				if (result->visible[slot][target] && !hide_all)
 				{
 					note(&transmit_decision_stats::in_view);
 					if (full_group_marked)
