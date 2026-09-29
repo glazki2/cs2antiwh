@@ -235,7 +235,8 @@ namespace cs2glaz
 		void print_metrics() const;
 		void print_radar_filter() const;
 		void update_wallcheck_hud(CGameEntitySystem* system);
-		bool send_center_text(uint32_t slot, const std::string& text);
+		bool send_text(uint32_t slot, uint32_t destination, const std::string& text);
+		void print_wallcheck_status() const;
 		void filter_radar_message(const uint64* clients, const CNetMessage* data);
 		void print_help() const;
 		void reload_config();
@@ -446,6 +447,12 @@ namespace cs2glaz
 		INetworkMessages* network_messages_ {};
 		INetworkMessageInternal* text_message_ {};
 		bool text_message_broken_ {};
+		// Chat mode sends a player's lines only when they change, at most once a second.
+		std::array<std::string, k_max_players> wallcheck_chat_last_ {};
+		std::array<std::chrono::steady_clock::time_point, k_max_players> wallcheck_chat_next_ {};
+		uint64_t wallcheck_sent_ {};
+		uint32_t wallcheck_last_recipients_ {};
+		const char* wallcheck_state_ = "not run yet";
 		// Entities withheld from at least one recipient in the current CheckTransmit.
 		CBitVec<MAX_EDICTS> transmit_withheld_;
 		// cs2glaz_probe dump: print one recipient record's entity lists on the next call.

@@ -1,30 +1,35 @@
 #include "plugin.h"
 #include "rtti_check.h"
 
-// Test HUD for checking walls with a second player: every living human sees,
-// four times a second, what CheckTransmit last decided for each enemy in both
-// directions (does the enemy receive you, do you receive the enemy). It shows
-// real transmit decisions, not a separate estimate, and is off by default.
+// Test HUD for checking walls with a second player: every human sees, four times
+// a second in the centre (or in chat when it changes), whether each enemy is
+// behind a wall by the worker's line of sight and what CheckTransmit last
+// decided in both directions (do you receive the enemy, does the enemy receive
+// you). The transmit part is the real decision, not a separate estimate. Off by
+// default.
 
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>
 
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace cs2glaz
 {
 	namespace
 	{
 
-		CConVar<bool> cs2glaz_wallcheck("cs2glaz_wallcheck", FCVAR_NONE,
-										"Test HUD: show each living player whether every enemy receives them and whether they receive every enemy "
-										"(resets on restart)",
-										false);
+		CConVar<int> cs2glaz_wallcheck("cs2glaz_wallcheck", FCVAR_NONE,
+									   "Test HUD: 0 off, 1 centre of the screen, 2 chat (only when something changes); shows each living player "
+									   "whether every enemy is behind a wall and whether each side receives the other (resets on restart)",
+									   0, true, 0, true, 2);
 
 		constexpr auto k_wallcheck_interval = std::chrono::milliseconds(250);
+		constexpr auto k_wallcheck_chat_interval = std::chrono::seconds(1);
 		constexpr auto k_decision_fresh = std::chrono::milliseconds(500);
 		constexpr uint32_t k_wallcheck_max_lines = 6;
+		constexpr uint32_t k_hud_print_talk = 3;
 		constexpr uint32_t k_hud_print_center = 4;
 		constexpr std::string_view k_text_message_name = "CUserMessageTextMsg";
 
@@ -57,8 +62,15 @@ namespace cs2glaz
 
 	void plugin::update_wallcheck_hud(CGameEntitySystem* system)
 	{
-		if (!cs2glaz_wallcheck.Get() || system == nullptr || engine_ == nullptr)
+		const int mode = cs2glaz_wallcheck.Get();
+		if (mode <= 0)
 		{
+			wallcheck_state_ = "off (cs2glaz_wallcheck 0)";
+			return;
+		}
+		if (system == nullptr || engine_ == nullptr)
+		{
+			wallcheck_state_ = "no entity system or engine";
 			return;
 		}
 		const auto now = std::chrono::steady_clock::now();
@@ -67,9 +79,15 @@ namespace cs2glaz
 			return;
 		}
 		wallcheck_next_ = now + k_wallcheck_interval;
+		if (text_message_broken_)
+		{
+			wallcheck_state_ = "off: the TextMsg user message is missing or looks different";
+			return;
+		}
 		const std::shared_ptr<const visibility_result> result = worker_.result();
 		if (!result)
 		{
+			wallcheck_state_ = "waiting for the first visibility result";
 			return;
 		}
 		std::array<std::array<pair_decision, k_max_players>, k_max_players> decisions {};
@@ -101,41 +119,111 @@ namespace cs2glaz
 			}
 			return text[0] == '\0' ? name : std::string(text);
 		};
+		const bool hide_all = hide_all_enemies_requested();
+		uint32_t recipients = 0;
 		for (uint32_t me = 0; me < k_max_players; ++me)
 		{
 			// Bots have no network channel and never see a HUD.
-			if (!result->players[me].valid || engine_->GetPlayerNetInfo(CPlayerSlot(static_cast<int>(me))) == nullptr)
+			if (engine_->GetPlayerNetInfo(CPlayerSlot(static_cast<int>(me))) == nullptr)
 			{
 				continue;
 			}
-			std::string text = "cs2glaz wallcheck";
-			uint32_t lines = 0;
-			for (uint32_t enemy = 0; enemy < k_max_players && lines < k_wallcheck_max_lines; ++enemy)
+			std::vector<std::string> lines;
+			lines.emplace_back(hide_all ? "cs2glaz wallcheck [скрыть всех: все враги СКРЫТ]" : "cs2glaz wallcheck");
+			if (!result->players[me].valid)
+			{
+				lines.emplace_back("ты не в игре (мёртв или наблюдаешь)");
+			}
+			for (uint32_t enemy = 0; enemy < k_max_players && lines.size() <= k_wallcheck_max_lines && result->players[me].valid; ++enemy)
 			{
 				if (!visibility_pair_enabled(me, enemy, result->players[me], result->players[enemy], result->filter_teammates))
 				{
 					continue;
 				}
-				text += "\n" + player_name(enemy) + ": ";
+				// Line of sight from the worker (walls and smoke) is shown on its
+				// own, so it stays readable when hide-all withholds everyone.
+				std::string line = player_name(enemy) + ": ";
+				line += result->visible[me][enemy] ? "НА ВИДУ" : "ЗА СТЕНОЙ";
+				line += " | тебе ";
+				line += fresh[me] ? decision_text(decisions[me][enemy]) : "нет данных";
 				if (fresh[enemy])
 				{
-					text += "тебя ему ";
-					text += decision_text(decisions[enemy][me]);
-					text += " | ";
+					line += " | ему ";
+					line += decision_text(decisions[enemy][me]);
 				}
-				text += "его тебе ";
-				text += fresh[me] ? decision_text(decisions[me][enemy]) : "нет данных";
-				++lines;
+				lines.push_back(std::move(line));
 			}
-			if (lines == 0)
+			if (lines.size() == 1)
 			{
-				text += "\nживых врагов нет";
+				lines.emplace_back("живых врагов нет");
 			}
-			send_center_text(me, text);
+			bool sent = false;
+			if (mode == 1)
+			{
+				std::string text;
+				for (const std::string& line : lines)
+				{
+					text += text.empty() ? line : "\n" + line;
+				}
+				sent = send_text(me, k_hud_print_center, text);
+			}
+			else
+			{
+				// Chat scrolls, so it gets only what changed, at most once a second.
+				std::string joined;
+				for (const std::string& line : lines)
+				{
+					joined += line + "\n";
+				}
+				if (joined == wallcheck_chat_last_[me] || now < wallcheck_chat_next_[me])
+				{
+					++recipients;
+					continue;
+				}
+				wallcheck_chat_last_[me] = joined;
+				wallcheck_chat_next_[me] = now + k_wallcheck_chat_interval;
+				sent = true;
+				for (const std::string& line : lines)
+				{
+					sent = send_text(me, k_hud_print_talk, " " + line) && sent;
+				}
+			}
+			if (sent)
+			{
+				++recipients;
+			}
+		}
+		if (recipients != 0 && wallcheck_last_recipients_ == 0)
+		{
+			META_CONPRINTF("[CS2GLAZ] wallcheck HUD is being sent to %u player(s)\n", recipients);
+		}
+		wallcheck_last_recipients_ = recipients;
+		wallcheck_state_ = text_message_broken_ ? "off: the TextMsg user message is missing or looks different"
+						   : recipients != 0	? "sending"
+												: "no human players connected";
+	}
+
+	void plugin::print_wallcheck_status() const
+	{
+		META_CONPRINTF("[CS2GLAZ] wallcheck mode=%d state=%s players=%u messages_sent=%llu text_message=%s\n", cs2glaz_wallcheck.Get(),
+					   wallcheck_state_, wallcheck_last_recipients_, static_cast<unsigned long long>(wallcheck_sent_),
+					   text_message_broken_ ? "broken" : text_message_ != nullptr ? "found" : "not looked up yet");
+		if (!disabled_reason_.empty())
+		{
+			META_CONPRINTF("[CS2GLAZ] wallcheck does not run while CS2GLAZ is disabled: %s\n", disabled_reason_.c_str());
+		}
+		else if (!settings::current().enable)
+		{
+			META_CONPRINTF("[CS2GLAZ] wallcheck does not run while cs2glaz_enable is 0\n");
 		}
 	}
 
-	bool plugin::send_center_text(uint32_t slot, const std::string& text)
+	CON_COMMAND_F(cs2glaz_wallcheck_status, "Show why the cs2glaz_wallcheck test HUD is or is not shown", FCVAR_NONE)
+	{
+		g_plugin.print_wallcheck_status();
+	}
+
+	bool plugin::send_text(uint32_t slot, uint32_t hud_destination, const std::string& text)
 	{
 		if (text_message_broken_ || game_event_system_ == nullptr || network_messages_ == nullptr || slot >= 64)
 		{
@@ -143,7 +231,11 @@ namespace cs2glaz
 		}
 		if (text_message_ == nullptr)
 		{
-			text_message_ = network_messages_->FindNetworkMessagePartial("TextMsg");
+			text_message_ = network_messages_->FindNetworkMessage(k_text_message_name.data());
+			if (text_message_ == nullptr)
+			{
+				text_message_ = network_messages_->FindNetworkMessagePartial("TextMsg");
+			}
 			if (text_message_ == nullptr)
 			{
 				text_message_broken_ = true;
@@ -172,11 +264,12 @@ namespace cs2glaz
 			delete data;
 			return false;
 		}
-		reflection->SetUInt32(proto, destination, k_hud_print_center);
+		reflection->SetUInt32(proto, destination, hud_destination);
 		reflection->AddString(proto, parameters, text);
 		const uint64 recipients = uint64 {1} << slot;
 		game_event_system_->PostEventAbstract(CSplitScreenSlot(-1), false, 1, &recipients, text_message_, data, 0, BUF_RELIABLE);
 		delete data;
+		++wallcheck_sent_;
 		return true;
 	}
 

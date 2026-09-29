@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.9
+
+- The wall-check HUD now shows line of sight on its own: each enemy line starts with `НА ВИДУ` or `ЗА СТЕНОЙ` (walls and smoke, from the visibility worker), followed by the transmit decision in both directions. With `cs2glaz_hide_all_enemies 1` every transmit decision reads `СКРЫТ` by design, which made the HUD look broken; the header now says hide-all is on and the line-of-sight part still changes.
+- `cs2glaz_wallcheck 2` sends the same lines to chat instead of the centre of the screen, only when they change and at most once a second, in case the centre text is not shown.
+- Dead and spectating humans get a HUD line saying so instead of nothing, so it is clear the HUD reaches them.
+- New `cs2glaz_wallcheck_status` prints why the HUD is or is not shown (mode, state, players reached, messages sent, whether the TextMsg message was found, and whether CS2GLAZ is disabled). The server console also logs when the HUD starts reaching players.
+- The TextMsg message is looked up by its exact name `CUserMessageTextMsg` first, and by partial name only as a fallback.
+
 ## 0.5.8
 
 - Test HUD `cs2glaz_wallcheck 1` for checking walls with a second player: four times a second every living human gets a centre-screen message listing, for each enemy, what CheckTransmit last decided in both directions (`тебя ему` — does the enemy receive you, `его тебе` — do you receive the enemy) and, when an enemy is sent for another reason than sight, which one (spawn/death window, full update, attachment, weapons not listed, mode 0). It shows the real transmit decisions recorded per pair, not a separate estimate. It sends `CUserMessageTextMsg` through `IGameEventSystem`, proves the allocated message from its RTTI before filling it, and turns itself off if the message is missing or looks different. Off by default and not saved in `cs2glaz.cfg`.
