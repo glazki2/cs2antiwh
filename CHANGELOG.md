@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.14
+
+- Doors and box-shaped props now block sight. The baked map holds only the static world, so a closed door or a crate that is an entity was transparent to the visibility check and a wallhack saw anyone behind it (reported on Dust II doors and boxes). Doors (`prop_door*`, `func_door*`) and props whose model name contains `crate`, `box`, `container` or `dumpster` (`prop_dynamic*`, `prop_physics*`) are found once a second by index through the verified entity table; every snapshot copies each one's collision box, current rotation and solidity. Doors keep their thickness and lose a unit at the edges, props shrink to 90%, so the box stays inside the real shape; non-solid, trigger and oddly shaped ones, and models with glass, windows, fences, gates, grates, mesh, vehicles and similar in their name are left out. The boxes block the exact rays that decide visibility, the shoulder, feet, above-head and movement origins, and the target's corner and muzzle points. A segment that starts or ends inside a box is never blocked by it. Model names are read once per entity through guarded reads. `cs2glaz_dynamic_occluders 0` turns this off (resets on restart).
+- New `cs2glaz_props [radius]` lists the solid entities near each living human with class, model, solidity and size, marking those used as occluders, to find what a wallhack still sees through.
+- New `cs2glaz_bounds_padding_units`, default 16 (was a fixed 32): the sideways padding of an enemy's bounds corners, which reveal him just before he steps out from a corner. With 32 an enemy was sent while 32 units behind a corner edge. Existing `cs2glaz.cfg` files do not have the line; add it or the default applies.
+
 ## 0.5.13
 
 - New `cs2glaz_why [name or slot]` for the server console: for every living human (or the named player) it prints position, latency, shoulder sizes and body mode, then for each enemy the distance, whether the line of sight is open and what opened it (body, bounds corner, muzzle, hold or unproven, and from which viewing origin), and what CheckTransmit last decided in both directions. It turns a screenshot of a leak into the exact reason.

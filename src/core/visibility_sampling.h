@@ -4,9 +4,11 @@
 // Valve hitbox capsules are captured on the game thread and consumed as values.
 
 #include "bvh8.h"
+#include "dynamic_occluders.h"
 
 #include <array>
 #include <cstdint>
+#include <span>
 
 namespace cs2glaz
 {
@@ -77,6 +79,8 @@ namespace cs2glaz
 		float shoulder_base_units {64.0f};
 		float shoulder_rtt_scale {0.64f};
 		float max_shoulder_units {};
+		// Sideways padding of the target's bounds corners.
+		float bounds_padding_units {32.0f};
 	};
 
 	// Extra target points beyond the body: padded bounds corners and the weapon
@@ -108,7 +112,7 @@ namespace cs2glaz
 	};
 
 	float visibility_shoulder_offset_units(float rtt_seconds, const visibility_tuning& tuning, bool movement_intent);
-	vec3 visibility_clip_destination(const bvh8_data& data, vec3 origin, vec3 destination);
+	vec3 visibility_clip_destination(const bvh8_data& data, vec3 origin, vec3 destination, std::span<const visibility_occluder> occluders = {});
 	weapon_muzzle_class weapon_muzzle_class_from_item_definition(uint16_t item_definition);
 	float weapon_muzzle_length(weapon_muzzle_class value);
 	bool visibility_transform_point(const visibility_bone_transform& transform, vec3 local, vec3& world);
@@ -118,14 +122,16 @@ namespace cs2glaz
 	// and never reaches below the feet. Returns 0 when the bounds are unusable,
 	// which leaves the target visible.
 	uint32_t visibility_hull_capsules(vec3 origin, vec3 mins, vec3 maxs, std::array<visibility_capsule, k_visibility_capsule_count>& capsules);
-	visibility_origin_points visibility_origins(const bvh8_data& data, const visibility_player& player, const visibility_tuning& tuning);
+	visibility_origin_points visibility_origins(const bvh8_data& data, const visibility_player& player, const visibility_tuning& tuning,
+												std::span<const visibility_occluder> occluders = {});
 	bool visibility_muzzle_point(const visibility_player& player, vec3& point);
-	std::array<vec3, k_visibility_aabb_point_count> visibility_aabb_points(const visibility_player& player);
-	// The padded corners reach 48 units from the centre and the muzzle up to 52
+	std::array<vec3, k_visibility_aabb_point_count> visibility_aabb_points(const visibility_player& player, float horizontal_padding = 32.0f);
+	// The padded corners reach 16 + padding units from the centre and the muzzle up to 52
 	// units ahead, so near a thin wall they end on its far side, where any
 	// viewer there sees them and the target is sent through the wall. Each point
 	// is clipped on the segment from the body centre (corners) or the eye
 	// (muzzle), so only space the target could actually reach counts.
-	visibility_target_points visibility_clipped_target_points(const bvh8_data& data, const visibility_player& player);
+	visibility_target_points visibility_clipped_target_points(const bvh8_data& data, const visibility_player& player,
+															  std::span<const visibility_occluder> occluders = {}, float horizontal_padding = 32.0f);
 
 } // namespace cs2glaz

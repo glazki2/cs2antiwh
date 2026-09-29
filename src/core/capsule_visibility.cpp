@@ -23,6 +23,7 @@ namespace cs2glaz
 		// capsules are cut into pieces of at most this length, and a piece that
 		// still does not fit is halved down to the minimum.
 		constexpr float k_close_piece_length = 16.0f;
+		constexpr size_t k_nearby_occluders_max = 16;
 		constexpr float k_close_piece_length_min = 2.0f;
 		constexpr uint32_t k_close_pieces_max = 32;
 		constexpr float k_depth_epsilon = 1.0e-5f;
@@ -715,7 +716,8 @@ namespace cs2glaz
 		capsule_query_result capsules_visible_in_view(const bvh8_data& geometry, vec3 origin, std::span<const visibility_capsule> capsules,
 													  const camera_view& view, const smoke_snapshot* smokes, float smoke_age_advance,
 													  std::chrono::steady_clock::time_point deadline, const std::atomic_bool* stopping,
-													  capsule_query_stats* stats, capsule_occluder_cache* occluder_cache)
+													  capsule_query_stats* stats, capsule_occluder_cache* occluder_cache,
+													  std::span<const visibility_occluder> dynamic_occluders)
 		{
 			std::array<projected_bounds, k_visibility_capsule_count> projected {};
 			for (size_t index = 0; index < capsules.size(); ++index)
@@ -862,7 +864,7 @@ namespace cs2glaz
 					}
 					const ray_hit hit = segment_blocked(geometry, origin, target, exact_cache);
 					exact_cache = hit.packet_index;
-					if (hit.blocked)
+					if (hit.blocked || occluders_block_segment(dynamic_occluders, origin, target))
 					{
 						continue;
 					}
@@ -949,7 +951,8 @@ namespace cs2glaz
 						}
 						const ray_hit hit = segment_blocked(geometry, origin, target, exact_cache);
 						exact_cache = hit.packet_index;
-						if (!hit.blocked && (smokes == nullptr || !smoke_line_blocked(*smokes, origin, target, smoke_age_advance, &geometry)))
+						if (!hit.blocked && !occluders_block_segment(dynamic_occluders, origin, target)
+							&& (smokes == nullptr || !smoke_line_blocked(*smokes, origin, target, smoke_age_advance, &geometry)))
 						{
 							return capsule_query_result::visible;
 						}
@@ -972,7 +975,8 @@ namespace cs2glaz
 	capsule_query_result capsule_visible_from_origin(const bvh8_data& geometry, vec3 origin, std::span<const visibility_capsule> capsules,
 													 const smoke_snapshot* smokes, float smoke_age_advance,
 													 std::chrono::steady_clock::time_point deadline, const std::atomic_bool* stopping,
-													 capsule_query_stats* stats, capsule_occluder_cache* occluder_cache)
+													 capsule_query_stats* stats, capsule_occluder_cache* occluder_cache,
+													 std::span<const visibility_occluder> dynamic_occluders)
 	{
 		if (capsules.empty() || capsules.size() > k_visibility_capsule_count)
 		{
@@ -1001,10 +1005,19 @@ namespace cs2glaz
 			}
 		}
 
+		// Only the few dynamic occluders near the sightlines are tested per ray.
+		std::array<visibility_occluder, k_nearby_occluders_max> nearby_storage;
+		const vec3 body_center = scale(add(body.min, body.max), 0.5f);
+		const float body_radius = 0.5f * std::sqrt(length_sq(subtract(body.max, body.min)));
+		const uint32_t nearby_count = occluders_between(dynamic_occluders, origin, body_center, body_radius, nearby_storage);
+		const std::span<const visibility_occluder> occluders =
+			nearby_count > nearby_storage.size() ? dynamic_occluders : std::span<const visibility_occluder>(nearby_storage.data(), nearby_count);
+
 		camera_view view;
 		if (build_view(origin, body, view))
 		{
-			return capsules_visible_in_view(geometry, origin, capsules, view, smokes, smoke_age_advance, deadline, stopping, stats, occluder_cache);
+			return capsules_visible_in_view(geometry, origin, capsules, view, smokes, smoke_age_advance, deadline, stopping, stats, occluder_cache,
+											occluders);
 		}
 
 		// Close range: the whole body does not fit in front of one camera (a body
@@ -1060,7 +1073,8 @@ namespace cs2glaz
 				}
 				// The per-pair occluder cache belongs to the whole-body camera.
 				const capsule_query_result piece_result = capsules_visible_in_view(geometry, origin, std::span<const visibility_capsule>(&piece, 1u),
-																				   piece_view, smokes, smoke_age_advance, deadline, stopping, stats, nullptr);
+																				   piece_view, smokes, smoke_age_advance, deadline, stopping, stats, nullptr,
+																				   occluders);
 				if (piece_result != capsule_query_result::blocked)
 				{
 					return piece_result;

@@ -45,6 +45,10 @@ namespace cs2glaz
 										 0, true, static_cast<int>(k_max_players), on_convar_changed<int>);
 	CConVar<bool> cs2glaz_auto_update("cs2glaz_auto_update", FCVAR_NONE, "Automatically download verified compatible stable updates", false,
 									 on_convar_changed<bool>);
+	CConVar<float> cs2glaz_bounds_padding_units("cs2glaz_bounds_padding_units", FCVAR_NONE,
+											   "Sideways padding of an enemy's bounds corners, which reveal him just before he steps out; larger reveals "
+											   "enemies behind corners earlier",
+											   16.0f, true, 0.0f, true, 64.0f, on_convar_changed<float>);
 	CConVar<bool> cs2glaz_limited_mode("cs2glaz_limited_mode", FCVAR_NONE,
 									  "Allow walls-only filtering when the CS2 server build is not the one gamedata was verified for (applies on map "
 									  "activation)",
@@ -71,7 +75,7 @@ namespace cs2glaz
 				{cs2glaz_enable.Get(), cs2glaz_smoke_occlusion.Get(), cs2glaz_he_clear_radius_units.Get(), cs2glaz_he_clear_seconds.Get(),
 				 cs2glaz_filter_teammates.Get(), cs2glaz_update_interval_ms.Get(), cs2glaz_worker_threads.Get(), cs2glaz_shoulder_base_units.Get(),
 				 cs2glaz_shoulder_rtt_scale.Get(), cs2glaz_max_shoulder_units.Get(), cs2glaz_visibility_hold_ms.Get(), cs2glaz_debug.Get(),
-				 cs2glaz_debug_los_player.Get(), cs2glaz_auto_update.Get(), cs2glaz_limited_mode.Get()});
+				 cs2glaz_debug_los_player.Get(), cs2glaz_auto_update.Get(), cs2glaz_limited_mode.Get(), cs2glaz_bounds_padding_units.Get()});
 			if (changes != setting_change_none && config_change_callback != nullptr)
 			{
 				config_change_callback(changes);
@@ -103,7 +107,8 @@ namespace cs2glaz
 					cs2glaz_debug.Get(),
 					cs2glaz_debug_los_player.Get(),
 					cs2glaz_auto_update.Get(),
-					cs2glaz_limited_mode.Get()};
+					cs2glaz_limited_mode.Get(),
+					cs2glaz_bounds_padding_units.Get()};
 		}
 
 		void write_convars(const runtime_configuration& value)
@@ -124,6 +129,7 @@ namespace cs2glaz
 			cs2glaz_debug_los_player.Set(value.debug_los_player);
 			cs2glaz_auto_update.Set(value.automatic_updates);
 			cs2glaz_limited_mode.Set(value.limited_mode);
+			cs2glaz_bounds_padding_units.Set(value.bounds_padding_units);
 			restoring_configuration = false;
 		}
 

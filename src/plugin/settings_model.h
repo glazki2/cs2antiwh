@@ -23,6 +23,7 @@ namespace cs2glaz
 		int debug_los_player {};
 		bool automatic_updates {false};
 		bool limited_mode {true};
+		float bounds_padding_units {16.0f};
 
 		bool operator==(const runtime_configuration&) const = default;
 	};
@@ -59,7 +60,8 @@ namespace cs2glaz
 			|| before.he_clear_radius_units != after.he_clear_radius_units || before.he_clear_seconds != after.he_clear_seconds
 			|| before.filter_teammates != after.filter_teammates || before.update_interval_ms != after.update_interval_ms
 			|| before.shoulder_base_units != after.shoulder_base_units || before.shoulder_rtt_scale != after.shoulder_rtt_scale
-			|| before.max_shoulder_units != after.max_shoulder_units || before.visibility_hold_ms != after.visibility_hold_ms)
+			|| before.max_shoulder_units != after.max_shoulder_units || before.visibility_hold_ms != after.visibility_hold_ms
+			|| before.bounds_padding_units != after.bounds_padding_units)
 		{
 			changes |= setting_change_visibility;
 		}

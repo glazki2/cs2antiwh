@@ -256,8 +256,9 @@ namespace cs2glaz
 				if (current->snapshot.players[recipient].valid)
 				{
 					const visibility_player sample = visibility_sample(current->snapshot.players[recipient]);
-					current->recipient_origins[recipient] = visibility_origins(*data_, sample, tuning);
-					current->target_points[recipient] = visibility_clipped_target_points(*data_, sample);
+					current->recipient_origins[recipient] = visibility_origins(*data_, sample, tuning, current->snapshot.occluders);
+					current->target_points[recipient] =
+						visibility_clipped_target_points(*data_, sample, current->snapshot.occluders, tuning.bounds_padding_units);
 				}
 			}
 
@@ -383,7 +384,8 @@ namespace cs2glaz
 					capsule_query_stats query_stats;
 					const capsule_query_result capsule_result =
 						capsule_visible_from_origin(*data_, origin, std::span<const visibility_capsule>(to.capsules.data(), to.capsule_count), active_smokes,
-													current.smoke_age_advance, current.deadline, &stopping_, &query_stats, &cached_occluders);
+													current.smoke_age_advance, current.deadline, &stopping_, &query_stats, &cached_occluders,
+													current.snapshot.occluders);
 					totals.sampled_pixels += query_stats.sampled_pixels;
 					totals.traced_rays += query_stats.traced_rays;
 					totals.visited_nodes += query_stats.visited_nodes;
@@ -420,7 +422,7 @@ namespace cs2glaz
 						const ray_hit hit = segment_blocked(*data_, origin, point, cached_packet);
 						cached_packet = hit.packet_index;
 						++totals.traced_rays;
-						if (!hit.blocked
+						if (!hit.blocked && !occluders_block_segment(current.snapshot.occluders, origin, point)
 							&& (active_smokes == nullptr || !smoke_line_blocked(*active_smokes, origin, point, current.smoke_age_advance, data_)))
 						{
 							blocked = false;
@@ -438,7 +440,7 @@ namespace cs2glaz
 						const ray_hit hit = segment_blocked(*data_, origin, muzzle, cached_packet);
 						cached_packet = hit.packet_index;
 						++totals.traced_rays;
-						if (!hit.blocked
+						if (!hit.blocked && !occluders_block_segment(current.snapshot.occluders, origin, muzzle)
 							&& (active_smokes == nullptr || !smoke_line_blocked(*active_smokes, origin, muzzle, current.smoke_age_advance, data_)))
 						{
 							blocked = false;

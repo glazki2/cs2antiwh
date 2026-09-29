@@ -648,6 +648,63 @@ namespace
 			   == capsule_query_result::indeterminate);
 	}
 
+	void test_dynamic_occluders()
+	{
+		// A closed door (64 wide, 4 thick, 100 tall) turned 90 degrees so its
+		// thin axis lies along world x, standing between a viewer and a target.
+		visibility_occluder door {};
+		assert(make_occluder({100.0f, 0.0f, 0.0f}, {0.0f, 90.0f, 0.0f}, {-32.0f, -2.0f, 0.0f}, {32.0f, 2.0f, 100.0f}, occluder_kind::door, door));
+		assert(std::fabs(door.center.x - 100.0f) < 0.01f && std::fabs(door.center.z - 50.0f) < 0.01f);
+		// Local x (the 64-unit width) now runs along world y; the edges lost a unit.
+		assert(std::fabs(std::fabs(door.axes[0].y) - 1.0f) < 1.0e-4f && std::fabs(door.half.x - 31.0f) < 0.01f && std::fabs(door.half.y - 2.0f) < 0.01f);
+		assert(occluder_blocks_segment(door, {0.0f, 0.0f, 50.0f}, {200.0f, 0.0f, 50.0f}));
+		assert(!occluder_blocks_segment(door, {0.0f, 40.0f, 50.0f}, {200.0f, 40.0f, 50.0f}));
+		assert(!occluder_blocks_segment(door, {0.0f, 0.0f, 150.0f}, {200.0f, 0.0f, 150.0f}));
+		// A segment that starts or ends inside never counts as blocked.
+		assert(!occluder_blocks_segment(door, {100.0f, 0.0f, 50.0f}, {200.0f, 0.0f, 50.0f}));
+		assert(!occluder_blocks_segment(door, {0.0f, 0.0f, 50.0f}, {100.0f, 0.0f, 50.0f}));
+		visibility_occluder bad {};
+		assert(!make_occluder({}, {}, {0.0f, 0.0f, 0.0f}, {0.0f, 10.0f, 10.0f}, occluder_kind::prop, bad));
+		assert(!make_occluder({}, {}, {-1000.0f, -1.0f, -1.0f}, {1000.0f, 1.0f, 1.0f}, occluder_kind::prop, bad));
+		assert(!make_occluder({}, {std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f}, {-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}, occluder_kind::prop, bad));
+
+		// The body behind the door is blocked with it and visible without it.
+		std::array<visibility_capsule, k_visibility_capsule_count> capsules {};
+		const uint32_t count = visibility_hull_capsules({160.0f, 0.0f, 0.0f}, {-16.0f, -16.0f, 0.0f}, {16.0f, 16.0f, 72.0f}, capsules);
+		const std::span<const visibility_capsule> body(capsules.data(), count);
+		const bvh8_data open = test_world({{{10000, 10000, 10000}, {10001, 10000, 10000}, {10000, 10001, 10000}}});
+		const auto deadline = std::chrono::steady_clock::time_point::max();
+		const vec3 viewer {0.0f, 0.0f, 64.0f};
+		const std::array<visibility_occluder, 1> doors {door};
+		assert(capsule_visible_from_origin(open, viewer, body, nullptr, 0.0f, deadline) == capsule_query_result::visible);
+		assert(capsule_visible_from_origin(open, viewer, body, nullptr, 0.0f, deadline, nullptr, nullptr, nullptr, doors) == capsule_query_result::blocked);
+		// An open door (turned to lie along the sightline) no longer blocks.
+		visibility_occluder open_door {};
+		assert(make_occluder({100.0f, 40.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {-32.0f, -2.0f, 0.0f}, {32.0f, 2.0f, 100.0f}, occluder_kind::door, open_door));
+		const std::array<visibility_occluder, 1> open_doors {open_door};
+		assert(capsule_visible_from_origin(open, viewer, body, nullptr, 0.0f, deadline, nullptr, nullptr, nullptr, open_doors)
+			   == capsule_query_result::visible);
+
+		// Shoulder origins do not pass through the door either.
+		visibility_player player {};
+		player.eye = {96.0f, 0.0f, 64.0f};
+		player.origin = {96.0f, 0.0f, 0.0f};
+		player.mins = {-16.0f, -16.0f, 0.0f};
+		player.maxs = {16.0f, 16.0f, 72.0f};
+		player.eye_yaw_degrees = 90.0f; // shoulders along world x, through the door
+		const visibility_origin_points origins = visibility_origins(open, player, {64.0f, 0.0f, 0.0f}, doors);
+		for (uint32_t index = 0; index < origins.count; ++index)
+		{
+			assert(origins.points[index].x < 98.0f);
+		}
+
+		// Only occluders near the sightline are kept per query.
+		std::array<visibility_occluder, 4> nearby {};
+		const std::array<visibility_occluder, 2> both {door, open_door};
+		assert(occluders_between(both, viewer, {160.0f, 0.0f, 36.0f}, 40.0f, nearby) == 2);
+		assert(occluders_between(both, {0.0f, 1000.0f, 64.0f}, {160.0f, 1000.0f, 36.0f}, 40.0f, nearby) == 0);
+	}
+
 	void test_hull_capsules()
 	{
 		std::array<visibility_capsule, k_visibility_capsule_count> capsules {};
@@ -1593,6 +1650,7 @@ void run_visibility_and_transmit_tests()
 	test_visibility_sampling();
 	test_capsule_visibility();
 	test_hull_capsules();
+	test_dynamic_occluders();
 	test_visibility_worker();
 	test_lifecycle_guard();
 	test_visual_group_key();

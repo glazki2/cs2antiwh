@@ -720,6 +720,7 @@ namespace cs2glaz
 		std::array<bool, k_max_players> stable_slots {};
 		std::array<CEntityInstance*, k_max_players> animated_pawns {};
 		value.filter_teammates = visibility_teammate_filter_enabled(settings::current().filter_teammates, teammates_are_enemies());
+		capture_occluders(system, value, now);
 		value.smoke_enabled = settings::current().smoke_occlusion;
 		const bool smoke_check_pending = !compatibility_.smoke_available() && compatibility_.smoke_layout_candidate()
 										 && smoke_layout_state_ == smoke_layout_state::unchecked;

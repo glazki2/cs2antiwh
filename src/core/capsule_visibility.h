@@ -47,9 +47,12 @@ namespace cs2glaz
 		uint32_t count {};
 	};
 
+	// dynamic_occluders (doors, box props) block the exact rays that decide
+	// visibility; the depth buffer holds the baked map only.
 	capsule_query_result capsule_visible_from_origin(const bvh8_data& geometry, vec3 origin, std::span<const visibility_capsule> capsules,
 													 const smoke_snapshot* smokes, float smoke_age_advance,
 													 std::chrono::steady_clock::time_point deadline, const std::atomic_bool* stopping = nullptr,
-													 capsule_query_stats* stats = nullptr, capsule_occluder_cache* occluder_cache = nullptr);
+													 capsule_query_stats* stats = nullptr, capsule_occluder_cache* occluder_cache = nullptr,
+													 std::span<const visibility_occluder> dynamic_occluders = {});
 
 } // namespace cs2glaz

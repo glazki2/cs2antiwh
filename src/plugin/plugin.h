@@ -26,6 +26,7 @@
 
 #include <array>
 #include <bitset>
+#include <unordered_map>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -241,6 +242,11 @@ namespace cs2glaz
 		bool send_text(uint32_t slot, uint32_t destination, const std::string& text);
 		void print_wallcheck_status() const;
 		void print_why(const std::string& filter);
+		std::string entity_model_name(CEntityInstance* entity) const;
+		void scan_occluder_candidates(CGameEntitySystem* system);
+		bool read_occluder(CEntityInstance* entity, occluder_kind kind, visibility_occluder& output) const;
+		void capture_occluders(CGameEntitySystem* system, visibility_snapshot& value, std::chrono::steady_clock::time_point now);
+		void print_props(float radius);
 		std::string slot_name(CGameEntitySystem* system, uint32_t slot) const;
 		void filter_radar_message(const uint64* clients, const CNetMessage* data);
 		void print_help() const;
@@ -458,6 +464,17 @@ namespace cs2glaz
 		uint64_t wallcheck_sent_ {};
 		uint32_t wallcheck_last_recipients_ {};
 		const char* wallcheck_state_ = "not run yet";
+		// Doors and box props found by the last entity-list walk (once a second).
+		struct occluder_candidate
+		{
+			CEntityHandle handle;
+			occluder_kind kind {};
+		};
+		std::vector<occluder_candidate> occluder_candidates_;
+		std::chrono::steady_clock::time_point occluder_scan_next_ {};
+		uint32_t occluders_active_ {};
+		std::unordered_map<uint32_t, bool> occluder_class_cache_;
+		std::string occluder_class_cache_map_;
 		// Pairs the wall-check log last saw visible, to log only new sightings.
 		std::array<std::bitset<k_max_players>, k_max_players> wallcheck_seen_ {};
 		// Entities withheld from at least one recipient in the current CheckTransmit.

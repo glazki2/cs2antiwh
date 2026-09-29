@@ -128,6 +128,7 @@ For each eligible living pair the worker:
 - reuses an active reveal hold, then projects the complete nineteen-capsule body into a target-fitted 32 by 32 CPU depth view; a body too close to fit in front of one camera is cut into short capsule pieces, each proven with its own camera;
 - only when that silhouette is fully blocked, tries eight AABB corners padded 32 units sideways and 8 units upward, then the held-weapon muzzle, each clipped at walls on the segment from the target's centre or eye;
 - proves fully covered capsule regions hidden in batches; where the depth buffer's per-tile depth cannot, traces one exact ray per pixel to the nearest body point against the baked walls (and copied live smoke) and stops at the first open one; capsules the conservative mesh test still cannot prove are traced at four points per pixel;
+- treats doors and box-shaped props (oriented boxes copied from their live collision bounds, shrunk to stay inside the real shape) as blockers for the exact rays, the viewing origins and the target's corner and muzzle points; the depth buffer holds the baked map only;
 - lets an HE clear only smoke that already existed when the detonation was recorded on the same game clock;
 - reuses the triangle packet that blocked the same pair's earlier muzzle ray, then traverses the BVH8 if needed;
 - publishes a fully visible result if capsule capture, geometry evaluation, or the 75 ms cycle budget becomes uncertain; and

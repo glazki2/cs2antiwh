@@ -20,7 +20,6 @@ namespace cs2glaz
 		constexpr float k_standing_player_height = 72.0f;
 		constexpr float k_pelvis_height = 38.0f;
 		constexpr float k_muzzle_z = 60.0f;
-		constexpr float k_horizontal_bounds_padding = 32.0f;
 		constexpr float k_top_bounds_padding = 8.0f;
 		// Bounds corners and the hull body's lowest point stay this far above the
 		// feet, so a point never lies on the floor surface, which a ray from below
@@ -63,9 +62,10 @@ namespace cs2glaz
 			return {std::cos(yaw), std::sin(yaw), 0.0f};
 		}
 
-		vec3 safe_origin(const bvh8_data& data, vec3 eye, vec3 candidate)
+		vec3 safe_origin(const bvh8_data& data, vec3 eye, vec3 candidate, std::span<const visibility_occluder> occluders)
 		{
-			if (distance_sq(eye, candidate) <= k_same_point_epsilon_sq || segment_blocked(data, eye, candidate).blocked)
+			if (distance_sq(eye, candidate) <= k_same_point_epsilon_sq || segment_blocked(data, eye, candidate).blocked
+				|| occluders_block_segment(occluders, eye, candidate))
 			{
 				return eye;
 			}
@@ -223,9 +223,10 @@ namespace cs2glaz
 		return std::clamp(wanted, base, std::max(base, tuning.max_shoulder_units));
 	}
 
-	vec3 visibility_clip_destination(const bvh8_data& data, vec3 origin, vec3 destination)
+	vec3 visibility_clip_destination(const bvh8_data& data, vec3 origin, vec3 destination, std::span<const visibility_occluder> occluders)
 	{
-		if (distance_sq(origin, destination) <= k_same_point_epsilon_sq || !segment_blocked(data, origin, destination).blocked)
+		const auto blocked_to = [&](vec3 point) { return segment_blocked(data, origin, point).blocked || occluders_block_segment(occluders, origin, point); };
+		if (distance_sq(origin, destination) <= k_same_point_epsilon_sq || !blocked_to(destination))
 		{
 			return destination;
 		}
@@ -234,7 +235,7 @@ namespace cs2glaz
 		for (uint32_t step = 0; step < k_wall_clip_steps; ++step)
 		{
 			const vec3 middle = scale(add(clear, blocked), 0.5f);
-			if (segment_blocked(data, origin, middle).blocked)
+			if (blocked_to(middle))
 			{
 				blocked = middle;
 			}
@@ -310,7 +311,8 @@ namespace cs2glaz
 		}
 	}
 
-	visibility_origin_points visibility_origins(const bvh8_data& data, const visibility_player& player, const visibility_tuning& tuning)
+	visibility_origin_points visibility_origins(const bvh8_data& data, const visibility_player& player, const visibility_tuning& tuning,
+												std::span<const visibility_occluder> occluders)
 	{
 		visibility_origin_points origins;
 		const vec3 forward = eye_forward(player.eye_yaw_degrees);
@@ -327,13 +329,13 @@ namespace cs2glaz
 		const vec3 right = add(player.eye, scale(right_axis, right_offset));
 		const vec3 vertical {0.0f, 0.0f, k_vertical_origin_offset};
 		add_origin(origins, player.eye, visibility_origin_role::eye);
-		add_origin(origins, safe_origin(data, player.eye, left), visibility_origin_role::left_shoulder);
-		add_origin(origins, safe_origin(data, player.eye, right), visibility_origin_role::right_shoulder);
-		add_origin(origins, safe_origin(data, player.eye, add(player.eye, vertical)), visibility_origin_role::above);
+		add_origin(origins, safe_origin(data, player.eye, left, occluders), visibility_origin_role::left_shoulder);
+		add_origin(origins, safe_origin(data, player.eye, right, occluders), visibility_origin_role::right_shoulder);
+		add_origin(origins, safe_origin(data, player.eye, add(player.eye, vertical), occluders), visibility_origin_role::above);
 		// The origin sits on the floor surface and can round to just under it, where
 		// rays pass below a thin floor to the level beneath; lift it and require a
 		// clear line from the eye like the other origins.
-		add_origin(origins, safe_origin(data, player.eye, add(player.origin, {0.0f, 0.0f, k_feet_origin_lift})), visibility_origin_role::feet);
+		add_origin(origins, safe_origin(data, player.eye, add(player.origin, {0.0f, 0.0f, k_feet_origin_lift}), occluders), visibility_origin_role::feet);
 
 		// Pure A/D already has the matching ping-scaled shoulder origin.
 		if (forward_input != 0.0f)
@@ -342,7 +344,7 @@ namespace cs2glaz
 			const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
 			const float movement_offset = visibility_shoulder_offset_units(player.rtt_seconds, tuning, true);
 			direction = scale(direction, movement_offset / length);
-			add_origin(origins, visibility_clip_destination(data, player.eye, add(player.eye, direction)), visibility_origin_role::movement);
+			add_origin(origins, visibility_clip_destination(data, player.eye, add(player.eye, direction), occluders), visibility_origin_role::movement);
 		}
 		return origins;
 	}
@@ -358,12 +360,13 @@ namespace cs2glaz
 		return true;
 	}
 
-	std::array<vec3, k_visibility_aabb_point_count> visibility_aabb_points(const visibility_player& player)
+	std::array<vec3, k_visibility_aabb_point_count> visibility_aabb_points(const visibility_player& player, float horizontal_padding)
 	{
-		const vec3 minimum {player.origin.x + player.mins.x - k_horizontal_bounds_padding,
-							player.origin.y + player.mins.y - k_horizontal_bounds_padding, player.origin.z + player.mins.z + k_bottom_bounds_lift};
-		const vec3 maximum {player.origin.x + player.maxs.x + k_horizontal_bounds_padding,
-							player.origin.y + player.maxs.y + k_horizontal_bounds_padding, player.origin.z + player.maxs.z + k_top_bounds_padding};
+		const float padding = std::isfinite(horizontal_padding) ? std::clamp(horizontal_padding, 0.0f, 64.0f) : 32.0f;
+		const vec3 minimum {player.origin.x + player.mins.x - padding,
+							player.origin.y + player.mins.y - padding, player.origin.z + player.mins.z + k_bottom_bounds_lift};
+		const vec3 maximum {player.origin.x + player.maxs.x + padding,
+							player.origin.y + player.maxs.y + padding, player.origin.z + player.maxs.z + k_top_bounds_padding};
 		return {{{minimum.x, minimum.y, minimum.z},
 				 {maximum.x, minimum.y, minimum.z},
 				 {minimum.x, maximum.y, minimum.z},
@@ -374,20 +377,21 @@ namespace cs2glaz
 				 {maximum.x, maximum.y, maximum.z}}};
 	}
 
-	visibility_target_points visibility_clipped_target_points(const bvh8_data& data, const visibility_player& player)
+	visibility_target_points visibility_clipped_target_points(const bvh8_data& data, const visibility_player& player,
+															  std::span<const visibility_occluder> occluders, float horizontal_padding)
 	{
 		visibility_target_points points;
 		const vec3 centre {player.origin.x, player.origin.y, player.origin.z + 0.5f * (player.mins.z + player.maxs.z)};
-		const std::array<vec3, k_visibility_aabb_point_count> corners = visibility_aabb_points(player);
+		const std::array<vec3, k_visibility_aabb_point_count> corners = visibility_aabb_points(player, horizontal_padding);
 		for (uint32_t index = 0; index < corners.size(); ++index)
 		{
-			points.aabb[index] = visibility_clip_destination(data, centre, corners[index]);
+			points.aabb[index] = visibility_clip_destination(data, centre, corners[index], occluders);
 		}
 		vec3 muzzle;
 		points.has_muzzle = visibility_muzzle_point(player, muzzle);
 		if (points.has_muzzle)
 		{
-			points.muzzle = visibility_clip_destination(data, player.eye, muzzle);
+			points.muzzle = visibility_clip_destination(data, player.eye, muzzle, occluders);
 		}
 		return points;
 	}

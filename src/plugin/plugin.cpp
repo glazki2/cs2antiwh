@@ -817,7 +817,8 @@ namespace cs2glaz
 		draw_los_debug(value);
 		last_snapshot_ = now;
 		worker_.submit(std::move(value), static_cast<uint32_t>(configuration.visibility_hold_ms),
-					   {configuration.shoulder_base_units, configuration.shoulder_rtt_scale, configuration.max_shoulder_units});
+					   {configuration.shoulder_base_units, configuration.shoulder_rtt_scale, configuration.max_shoulder_units,
+						configuration.bounds_padding_units});
 	}
 
 	void plugin::draw_los_debug(const visibility_snapshot& value)
@@ -852,11 +853,11 @@ namespace cs2glaz
 		if (data_.nodes.empty())
 		{
 			target_points.has_muzzle = visibility_muzzle_point(visibility_sample(player), target_points.muzzle);
-			target_points.aabb = visibility_aabb_points(visibility_sample(player));
+			target_points.aabb = visibility_aabb_points(visibility_sample(player), settings::current().bounds_padding_units);
 		}
 		else
 		{
-			target_points = visibility_clipped_target_points(data_, visibility_sample(player));
+			target_points = visibility_clipped_target_points(data_, visibility_sample(player), value.occluders, settings::current().bounds_padding_units);
 		}
 		const vec3 muzzle = target_points.muzzle;
 		const bool has_muzzle = target_points.has_muzzle;

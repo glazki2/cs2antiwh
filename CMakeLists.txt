@@ -201,6 +201,7 @@ set(CS2GLAZ_PLUGIN_SOURCES
   "${CMAKE_SOURCE_DIR}/src/core/bvh8.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/bvh8_format.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/capsule_visibility.cpp"
+  "${CMAKE_SOURCE_DIR}/src/core/dynamic_occluders.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/masked_occlusion_stubs.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/map_source.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/subprocess.cpp"
@@ -211,6 +212,7 @@ set(CS2GLAZ_PLUGIN_SOURCES
   # src/plugin
   "${CMAKE_SOURCE_DIR}/src/plugin/automatic_baker.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/game_state.cpp"
+  "${CMAKE_SOURCE_DIR}/src/plugin/occluders.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/plugin.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/radar_filter.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/runtime_compatibility.cpp"

@@ -80,6 +80,8 @@ namespace cs2glaz
 		bool smoke_available {};
 		std::shared_ptr<const smoke_snapshot> smokes;
 		player_state players[k_max_players];
+		// Doors and box props at their current place; they block sight like walls.
+		std::vector<visibility_occluder> occluders;
 	};
 
 	// What made a pair visible, for diagnostics (the wall-check HUD and metrics).
