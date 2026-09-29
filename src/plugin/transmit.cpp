@@ -32,6 +32,13 @@ namespace cs2glaz
 		CConVar<bool> cs2glaz_hide_all_enemies("cs2glaz_hide_all_enemies", FCVAR_NONE,
 											   "Diagnostic: hide every enemy even in plain view (breaks normal play; resets on restart)", false);
 
+		// Dead players who may only watch their own team (mp_forcecamera 1 or 2)
+		// get only the enemies a living teammate sees and whoever they watch; a
+		// dead cheater used to receive every enemy and could call them out.
+		CConVar<bool> cs2glaz_filter_dead("cs2glaz_filter_dead", FCVAR_NONE,
+										  "Dead players get only the enemies their living team sees (needs mp_forcecamera 1 or 2; resets on restart)",
+										  true);
+
 		// A full update is a snapshot the client rebuilds its entities from; what it
 		// lacks the client simply does not create, as with ordinary PVS culling.
 		// A client can force one (starting a demo recording, or a forged message
@@ -496,6 +503,11 @@ namespace cs2glaz
 		return cs2glaz_filter_full_updates.Get();
 	}
 
+	bool filter_dead_players_requested()
+	{
+		return cs2glaz_filter_dead.Get();
+	}
+
 	bool hide_all_enemies_requested()
 	{
 		return cs2glaz_hide_all_enemies.Get();
@@ -504,9 +516,10 @@ namespace cs2glaz
 	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats)
 	{
 		const auto value = [](uint64_t count) { return static_cast<unsigned long long>(count); };
-		META_CONPRINTF("[CS2GLAZ] %s recipient snapshots: filtered=%llu full_update=%llu (filtered %llu) recipient_spawning_or_dying=%llu\n", scope,
-					   value(stats.filtered_snapshots), value(stats.full_update_snapshots), value(stats.full_update_filtered),
-					   value(stats.changing_recipient_snapshots));
+		META_CONPRINTF("[CS2GLAZ] %s recipient snapshots: filtered=%llu dead_viewers=%llu full_update=%llu (filtered %llu) "
+					   "recipient_spawning_or_dying=%llu\n",
+					   scope, value(stats.filtered_snapshots), value(stats.dead_viewer_snapshots), value(stats.full_update_snapshots),
+					   value(stats.full_update_filtered), value(stats.changing_recipient_snapshots));
 		META_CONPRINTF("[CS2GLAZ] %s enemy pairs: hidden=%llu in_view=%llu shown_because enemy_spawning_or_dying=%llu baseline=%llu "
 					   "attachment=%llu weapons_unlisted=%llu\n",
 					   scope, value(stats.hidden), value(stats.in_view), value(stats.changing_target), value(stats.baseline),
@@ -705,8 +718,16 @@ namespace cs2glaz
 			}
 			int slot = -1;
 			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
-			if (slot < 0 || slot >= static_cast<int>(k_max_players) || !result->players[slot].valid
-				|| !visibility_snapshot_fresh(result->captured, now))
+			if (slot < 0 || slot >= static_cast<int>(k_max_players) || !visibility_snapshot_fresh(result->captured, now))
+			{
+				continue;
+			}
+			// A living recipient uses his own sight; a dead one watching his team
+			// uses the team's sight.
+			const bool alive_viewer = result->players[slot].valid;
+			std::array<bool, k_max_players> team_sight {};
+			const bool dead_viewer = !alive_viewer && dead_viewer_sight(*result, static_cast<uint32_t>(slot), team_sight);
+			if (!alive_viewer && !dead_viewer)
 			{
 				continue;
 			}
@@ -722,14 +743,14 @@ namespace cs2glaz
 				note(&transmit_decision_stats::full_update_filtered);
 			}
 			const player_state& recipient = result->players[slot];
-			if (transmit_target_cache_[slot].pawn == nullptr)
+			if (alive_viewer && transmit_target_cache_[slot].pawn == nullptr)
 			{
 				note(&transmit_decision_stats::changing_recipient_snapshots);
 				recipient_decided_at_[slot] = now;
 				pair_decisions_[slot].fill(pair_decision::recipient_changing);
 				continue;
 			}
-			note(&transmit_decision_stats::filtered_snapshots);
+			note(dead_viewer ? &transmit_decision_stats::dead_viewer_snapshots : &transmit_decision_stats::filtered_snapshots);
 			recipient_decided_at_[slot] = now;
 			std::array<pair_decision, k_max_players>& decisions = pair_decisions_[slot];
 			decisions.fill(pair_decision::none);
@@ -758,7 +779,9 @@ namespace cs2glaz
 				{
 					hidden_group_clear(stored_group);
 				}
-				if (!visibility_pair_enabled(static_cast<uint32_t>(slot), target, recipient, player, result->filter_teammates))
+				const bool enemy = dead_viewer ? player.valid && player.team != result->dead_viewer_team[slot]
+											   : visibility_pair_enabled(static_cast<uint32_t>(slot), target, recipient, player, result->filter_teammates);
+				if (!enemy)
 				{
 					continue;
 				}
@@ -774,7 +797,7 @@ namespace cs2glaz
 				{
 					update_pair_visual_group(guard, cache.group_key);
 				}
-				if (result->visible[slot][target] && !hide_all)
+				if ((dead_viewer ? team_sight[target] : result->visible[slot][target]) && !hide_all)
 				{
 					note(&transmit_decision_stats::in_view);
 					decisions[target] = pair_decision::in_view;

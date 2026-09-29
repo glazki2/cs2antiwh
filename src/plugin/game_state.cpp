@@ -22,6 +22,11 @@ namespace cs2glaz
 	{
 
 		constexpr float k_max_rtt_seconds = 0.5f;
+		// How long after death a dead player still gets every enemy: the death
+		// and freeze cameras watch the killer. With the observer target known the
+		// watched player is always sent, so a short margin is enough.
+		constexpr float k_dead_viewer_delay_seconds = 2.0f;
+		constexpr float k_dead_viewer_blind_delay_seconds = 6.0f;
 
 		template<typename type>
 		type& field(void* object, uint32_t offset)
@@ -202,6 +207,47 @@ namespace cs2glaz
 			live->team = key.team;
 		}
 		return key;
+	}
+
+	void plugin::capture_dead_viewers(CGameEntitySystem* system, const std::array<lifecycle_key, k_max_players>& keys, float game_time,
+									  visibility_snapshot& value) const
+	{
+		value.dead_viewer_target.fill(-1);
+		// With mp_forcecamera 0 a dead player may watch enemies, who then need
+		// their own teammates sent; only team-restricted spectating is filtered.
+		if (!filter_dead_players_requested() || forcecamera_mode() == 0 || !std::isfinite(game_time))
+		{
+			return;
+		}
+		const bool observer = compatibility_.observer_available();
+		const float delay = observer ? k_dead_viewer_delay_seconds : k_dead_viewer_blind_delay_seconds;
+		for (uint32_t slot = 0; slot < k_max_players; ++slot)
+		{
+			const lifecycle_key& key = keys[slot];
+			if (!key.has_controller || key.hltv || key.alive || (key.team != k_team_t && key.team != k_team_ct) || value.players[slot].valid)
+			{
+				continue;
+			}
+			// The first seconds after death show the killer (death and freeze
+			// cameras); without the observer target they stay unfiltered.
+			const float since_death = game_time - key.death_time;
+			if (!std::isfinite(since_death) || since_death < delay)
+			{
+				continue;
+			}
+			int watched = -1;
+			if (observer)
+			{
+				CEntityInstance* controller = system->GetEntityInstance(CEntityIndex(static_cast<int>(slot + 1u)));
+				const CEntityHandle observer_handle = controller == nullptr ? CEntityHandle {} : field<CEntityHandle>(controller, compatibility_.fields().observer_pawn);
+				CEntityInstance* observer_pawn = observer_handle.IsValid() ? system->GetEntityInstance(observer_handle) : nullptr;
+				void* services = observer_pawn == nullptr ? nullptr : field<void*>(observer_pawn, compatibility_.fields().observer_services);
+				const CEntityHandle target = services == nullptr ? CEntityHandle {} : field<CEntityHandle>(services, compatibility_.fields().observer_target);
+				watched = target.IsValid() ? entity_index(system->GetEntityInstance(target)) : -1;
+			}
+			value.dead_viewer_team[slot] = key.team;
+			value.dead_viewer_target[slot] = watched;
+		}
 	}
 
 	weapon_muzzle_class plugin::active_weapon_muzzle_class(CGameEntitySystem* system, CEntityInstance* pawn_entity) const
@@ -804,6 +850,7 @@ namespace cs2glaz
 			value.players[slot] = player;
 			animated_pawns[slot] = pawn_entity;
 		}
+		capture_dead_viewers(system, keys, game_time, value);
 		const auto bones_started = std::chrono::steady_clock::now();
 		uint32_t capsule_players = 0;
 		uint32_t capsule_failed_players = 0;

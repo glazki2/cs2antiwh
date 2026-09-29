@@ -169,6 +169,7 @@ namespace cs2glaz
 		}
 		META_CONVAR_REGISTER(FCVAR_RELEASE | FCVAR_GAMEDLL);
 		teammates_are_enemies_ = cvar_->FindConVar("mp_teammates_are_enemies");
+		forcecamera_ = cvar_->FindConVar("mp_forcecamera");
 		settings::initialize(engine_, cvar_, [](uint32_t changes) { g_plugin.settings_changed(changes); });
 		if (!settings::begin_load())
 		{
@@ -1164,6 +1165,12 @@ namespace cs2glaz
 		{
 			META_CONPRINTF("[CS2GLAZ] auto-bake map=%s elapsed=%.1fms\n", bake_map.c_str(), bake_elapsed_ms);
 		}
+	}
+
+	int plugin::forcecamera_mode() const
+	{
+		// Unknown counts as 0 (free spectating), which leaves dead players unfiltered.
+		return forcecamera_.IsValidRef() ? ConVarRefAbstract(forcecamera_).GetInt() : 0;
 	}
 
 	bool plugin::teammates_are_enemies() const

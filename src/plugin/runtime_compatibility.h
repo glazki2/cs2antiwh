@@ -66,6 +66,9 @@ namespace cs2glaz
 		uint32_t model_state {};
 		uint32_t model_name {};
 		uint32_t abs_velocity {};
+		uint32_t observer_pawn {};
+		uint32_t observer_services {};
+		uint32_t observer_target {};
 	};
 
 	struct smoke_private_layout
@@ -192,6 +195,12 @@ namespace cs2glaz
 			return player_name_schema_available_;
 		}
 
+		// Whom a dead player watches (controller observer pawn -> observer target).
+		bool observer_available() const
+		{
+			return observer_schema_available_;
+		}
+
 		// A player's world velocity, which steers the bounds padding.
 		bool velocity_available() const
 		{
@@ -263,6 +272,7 @@ namespace cs2glaz
 		bool player_name_schema_available_ {};
 		bool dynamic_occluder_schema_available_ {};
 		bool velocity_schema_available_ {};
+		bool observer_schema_available_ {};
 		bool smoke_layout_candidate_ {};
 		bool smoke_runtime_verified_ {};
 		bool debug_beam_schema_available_ {};

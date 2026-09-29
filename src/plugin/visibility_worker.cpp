@@ -243,6 +243,8 @@ namespace cs2glaz
 			result.he_clearance_count = current->snapshot.smokes == nullptr ? 0u : current->snapshot.smokes->he_clearance_count;
 			std::copy(std::begin(current->snapshot.players), std::end(current->snapshot.players), std::begin(result.players));
 			result.occluders = current->snapshot.occluders;
+			result.dead_viewer_team = current->snapshot.dead_viewer_team;
+			result.dead_viewer_target = current->snapshot.dead_viewer_target;
 			for (auto& row : result.visible)
 			{
 				std::fill(std::begin(row), std::end(row), true);

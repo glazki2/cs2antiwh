@@ -85,6 +85,10 @@ namespace cs2glaz
 		player_state players[k_max_players];
 		// Doors and box props at their current place; they block sight like walls.
 		std::vector<visibility_occluder> occluders;
+		// Dead players who may only watch their own team: their team (0 = not
+		// filtered) and the pawn entity they watch (-1 = none or unknown).
+		std::array<uint8_t, k_max_players> dead_viewer_team {};
+		std::array<int, k_max_players> dead_viewer_target {};
 	};
 
 	// What made a pair visible, for diagnostics (the wall-check HUD and metrics).
@@ -133,6 +137,8 @@ namespace cs2glaz
 		uint8_t reveal[k_max_players][k_max_players] {};
 		// The live occluders this result was computed with (for diagnostics).
 		std::vector<visibility_occluder> occluders;
+		std::array<uint8_t, k_max_players> dead_viewer_team {};
+		std::array<int, k_max_players> dead_viewer_target {};
 		// For pairs visible by the hold: the test and origin that started it.
 		uint8_t held_reveal[k_max_players][k_max_players] {};
 		std::array<uint32_t, static_cast<size_t>(visibility_reveal::count)> reveal_counts {};
@@ -193,13 +199,57 @@ namespace cs2glaz
 	// living member of the recipient's team sees that enemy (the reveal hold
 	// included). Anything that is not an enemy of a living recipient is kept:
 	// teammates, the bomb, hostages, dead or spectating recipients.
+	// What a dead player who may only watch his own team can legitimately see:
+	// every enemy a living teammate sees, and whoever he is watching (the killer
+	// on the death camera). Returns false when he is not such a viewer or no
+	// teammate is alive (then nothing is withheld from him).
+	inline bool dead_viewer_sight(const visibility_result& result, uint32_t viewer, std::array<bool, k_max_players>& sight)
+	{
+		if (viewer >= k_max_players || result.players[viewer].valid || result.dead_viewer_team[viewer] == 0 || result.filter_teammates)
+		{
+			return false;
+		}
+		const uint8_t team = result.dead_viewer_team[viewer];
+		bool ally_alive = false;
+		sight.fill(false);
+		for (uint32_t ally = 0; ally < k_max_players; ++ally)
+		{
+			if (!result.players[ally].valid || result.players[ally].team != team)
+			{
+				continue;
+			}
+			ally_alive = true;
+			for (uint32_t target = 0; target < k_max_players; ++target)
+			{
+				sight[target] = sight[target] || (result.players[target].valid && result.players[target].team != team && result.visible[ally][target]);
+			}
+		}
+		const int watched = result.dead_viewer_target[viewer];
+		for (uint32_t target = 0; watched >= 0 && target < k_max_players; ++target)
+		{
+			sight[target] = sight[target] || (result.players[target].valid && result.players[target].pawn_entity == watched);
+		}
+		return ally_alive;
+	}
+
 	inline bool radar_entry_allowed(const visibility_result& result, uint32_t recipient, int target_slot, radar_sight sight = radar_sight::team)
 	{
-		if (recipient >= k_max_players || !result.players[recipient].valid || target_slot < 0 || target_slot >= static_cast<int>(k_max_players))
+		if (recipient >= k_max_players || target_slot < 0 || target_slot >= static_cast<int>(k_max_players))
 		{
 			return true;
 		}
 		const uint32_t target = static_cast<uint32_t>(target_slot);
+		if (!result.players[recipient].valid)
+		{
+			// A dead player watching his team gets his team's radar.
+			std::array<bool, k_max_players> team_sight {};
+			if (!dead_viewer_sight(result, recipient, team_sight) || !result.players[target].valid
+				|| result.players[target].team == result.dead_viewer_team[recipient])
+			{
+				return true;
+			}
+			return sight != radar_sight::none && team_sight[target];
+		}
 		const player_state& enemy = result.players[target];
 		const uint8_t team = result.players[recipient].team;
 		if (target == recipient || (enemy.team == team && !result.filter_teammates))

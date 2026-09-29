@@ -152,6 +152,31 @@ namespace
 		// A dead or spectating recipient keeps everything.
 		result->players[0].valid = false;
 		assert(radar_entry_allowed(*result, 0, 2));
+		// Dead and watching his own team: only what a living teammate sees, plus
+		// whoever he watches.
+		result->dead_viewer_team.fill(0);
+		result->dead_viewer_target.fill(-1);
+		result->dead_viewer_team[0] = 2;
+		std::array<bool, k_max_players> team_sight {};
+		assert(dead_viewer_sight(*result, 0, team_sight) && !team_sight[2] && !team_sight[3] && !team_sight[1]);
+		assert(!radar_entry_allowed(*result, 0, 2) && radar_entry_allowed(*result, 0, 1));
+		result->visible[1][2] = true;
+		assert(dead_viewer_sight(*result, 0, team_sight) && team_sight[2] && !team_sight[3]);
+		assert(radar_entry_allowed(*result, 0, 2) && !radar_entry_allowed(*result, 0, 3));
+		result->dead_viewer_target[0] = 103;
+		assert(dead_viewer_sight(*result, 0, team_sight) && team_sight[3]);
+		result->visible[1][2] = false;
+		result->dead_viewer_target[0] = -1;
+		// No living teammate: nothing is withheld (he may watch anyone then).
+		result->players[1].valid = false;
+		assert(!dead_viewer_sight(*result, 0, team_sight) && radar_entry_allowed(*result, 0, 2));
+		result->players[1].valid = true;
+		// Free for all or not a filtered dead viewer: nothing is withheld.
+		result->filter_teammates = true;
+		assert(!dead_viewer_sight(*result, 0, team_sight));
+		result->filter_teammates = false;
+		result->dead_viewer_team[0] = 0;
+		assert(!dead_viewer_sight(*result, 0, team_sight) && radar_entry_allowed(*result, 0, 2));
 		result->players[0].valid = true;
 		// Free for all: only the recipient's own sight counts.
 		result->filter_teammates = true;
@@ -726,7 +751,16 @@ namespace
 		const vec3 viewer {0.0f, 0.0f, 64.0f};
 		const std::array<visibility_occluder, 1> doors {door};
 		assert(capsule_visible_from_origin(open, viewer, body, nullptr, 0.0f, deadline) == capsule_query_result::visible);
-		assert(capsule_visible_from_origin(open, viewer, body, nullptr, 0.0f, deadline, nullptr, nullptr, nullptr, doors) == capsule_query_result::blocked);
+		capsule_query_stats door_stats;
+		assert(capsule_visible_from_origin(open, viewer, body, nullptr, 0.0f, deadline, nullptr, &door_stats, nullptr, doors) == capsule_query_result::blocked);
+		// Drawn into the depth buffer, the door proves the body hidden without
+		// a single exact ray.
+		assert(door_stats.traced_rays == 0);
+		// A box around the viewing origin is not drawn: it would hide everything.
+		visibility_occluder around_viewer {};
+		assert(make_occluder({0.0f, 0.0f, 40.0f}, {}, {-20.0f, -20.0f, -40.0f}, {20.0f, 20.0f, 40.0f}, occluder_kind::prop, around_viewer));
+		const std::array<visibility_occluder, 1> around {around_viewer};
+		assert(capsule_visible_from_origin(open, viewer, body, nullptr, 0.0f, deadline, nullptr, nullptr, nullptr, around) == capsule_query_result::visible);
 		// An open door (turned to lie along the sightline) no longer blocks.
 		visibility_occluder open_door {};
 		assert(make_occluder({100.0f, 40.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {-32.0f, -2.0f, 0.0f}, {32.0f, 2.0f, 100.0f}, occluder_kind::door, open_door));

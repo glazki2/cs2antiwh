@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.18
+
+- Dead players no longer receive every enemy. A dead player who may only watch his own team (`mp_forcecamera` 1 or 2) now gets the enemies a living teammate sees (reveal hold included) and whoever he is watching (the killer on the death camera, read from the observer pawn's `m_hObserverTarget`), which is everything he can legitimately see; a dead cheater used to get full information to call out. He is left unfiltered for the first 2 seconds after death (6 without the observer target), when no teammate is alive (he may then watch anyone), with `mp_forcecamera 0`, in free for all, for the spectator team and SourceTV. His radar gets his team's radar. `cs2glaz_filter_dead 0` turns it off (resets on restart); `cs2glaz_metrics` counts `dead_viewers` snapshots.
+- Doors and box props are also drawn into the depth buffer after the map, so a body behind one is proven hidden by the fast tests instead of only by exact rays at every pixel and four points per pixel, from every viewing origin. A box around the viewing origin is not drawn. A test checks that a door alone hides a body without a single exact ray.
+- Reviewed the 0.5.9-0.5.17 changes for crashes and leaks: guarded reads for entity model names, index-based entity walks through the verified table, no origin inside an occluder, and the dead-recipient path does not touch the own-pawn layout check.
+
 ## 0.5.17
 
 A live `cs2glaz_why` session on Dust II (two players at corners, limited mode) showed every reveal coming from a single viewing origin to the side or above, with the eye, feet and every other origin blocked: the walls were right, the peek allowances were wider than a standing player needs.

@@ -104,6 +104,7 @@ namespace cs2glaz
 		uint64_t filtered_snapshots {};
 		uint64_t full_update_snapshots {};		 // client full updates
 		uint64_t full_update_filtered {};		 // of those, filtered (cs2glaz_filter_full_updates 1)
+		uint64_t dead_viewer_snapshots {};		 // dead recipients filtered by their team's sight
 		uint64_t changing_recipient_snapshots {}; // recipient spawned, died or changed team <1 s ago
 		uint64_t hidden {};						 // walls block the pair; enemy withheld
 		uint64_t in_view {};					 // rays or the reveal hold say visible
@@ -212,6 +213,8 @@ namespace cs2glaz
 	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats);
 	// Diagnostic cs2glaz_hide_all_enemies: every enemy withheld and off the radar.
 	bool hide_all_enemies_requested();
+	// cs2glaz_filter_dead: dead players only get what their living team sees.
+	bool filter_dead_players_requested();
 	bool cs2glaz_filter_full_updates_value();
 
 	class plugin final : public ISmmPlugin, public IMetamodListener, public IGameEventListener2
@@ -248,6 +251,9 @@ namespace cs2glaz
 		bool read_occluder(CEntityInstance* entity, occluder_kind kind, visibility_occluder& output) const;
 		void capture_occluders(CGameEntitySystem* system, visibility_snapshot& value, std::chrono::steady_clock::time_point now);
 		void print_props(float radius);
+		void capture_dead_viewers(CGameEntitySystem* system, const std::array<lifecycle_key, k_max_players>& keys, float game_time,
+								  visibility_snapshot& value) const;
+		int forcecamera_mode() const;
 		std::string slot_name(CGameEntitySystem* system, uint32_t slot) const;
 		void filter_radar_message(const uint64* clients, const CNetMessage* data);
 		void print_help() const;
@@ -364,6 +370,7 @@ namespace cs2glaz
 		IVEngineServer2* engine_ {};
 		ICvar* cvar_ {};
 		ConVarRef teammates_are_enemies_;
+		ConVarRef forcecamera_;
 		IFileSystem* filesystem_ {};
 		IGameEventManager2* game_events_ {};
 		game_resource_service* game_resource_ {};

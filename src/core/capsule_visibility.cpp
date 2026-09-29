@@ -553,6 +553,84 @@ namespace cs2glaz
 			return map_render_result::complete;
 		}
 
+		// Draws doors and box props into the depth buffer after the map, so a body
+		// behind one is proven hidden by the fast tests instead of only by exact
+		// rays. The boxes are shrunk inside the real objects; one around the
+		// viewing origin is skipped, as it would cover the whole view.
+		void render_dynamic_occluders(occlusion_scratch& scratch, const camera_view& view, vec3 origin,
+									  std::span<const visibility_occluder> occluders, capsule_query_stats* stats)
+		{
+			if (occluders.empty() || scratch.moc == nullptr)
+			{
+				return;
+			}
+			constexpr uint8_t faces[12][3] = {{0, 2, 6}, {0, 6, 4}, {1, 5, 7}, {1, 7, 3}, {0, 4, 5}, {0, 5, 1},
+											  {2, 3, 7}, {2, 7, 6}, {0, 1, 3}, {0, 3, 2}, {4, 6, 7}, {4, 7, 5}};
+			const auto flush = [&]
+			{
+				if (scratch.index_count == 0)
+				{
+					return;
+				}
+				const int triangles = static_cast<int>(scratch.index_count / 3u);
+				scratch.moc->RenderTriangles(scratch.vertices.data(), scratch.indices.data(), triangles, nullptr, MaskedOcclusionCulling::BACKFACE_NONE,
+											 MaskedOcclusionCulling::CLIP_PLANE_ALL);
+				if (stats != nullptr)
+				{
+					++stats->moc_render_calls;
+					stats->rasterized_triangles += static_cast<uint32_t>(triangles);
+				}
+				scratch.vertex_count = 0;
+				scratch.index_count = 0;
+			};
+			scratch.vertex_count = 0;
+			scratch.index_count = 0;
+			for (const visibility_occluder& occluder : occluders)
+			{
+				if (occluders_contain(std::span<const visibility_occluder>(&occluder, 1u), origin))
+				{
+					continue;
+				}
+				const vec3 extent {std::fabs(occluder.axes[0].x) * occluder.half.x + std::fabs(occluder.axes[1].x) * occluder.half.y
+									   + std::fabs(occluder.axes[2].x) * occluder.half.z,
+								   std::fabs(occluder.axes[0].y) * occluder.half.x + std::fabs(occluder.axes[1].y) * occluder.half.y
+									   + std::fabs(occluder.axes[2].y) * occluder.half.z,
+								   std::fabs(occluder.axes[0].z) * occluder.half.x + std::fabs(occluder.axes[1].z) * occluder.half.y
+									   + std::fabs(occluder.axes[2].z) * occluder.half.z};
+				float near_depth = 0.0f;
+				if (!box_intersects_view(view, {subtract(occluder.center, extent), add(occluder.center, extent)}, near_depth))
+				{
+					continue;
+				}
+				std::array<vec3, 8> corners {};
+				for (uint32_t corner = 0; corner < corners.size(); ++corner)
+				{
+					corners[corner] = add(occluder.center,
+										  add(scale(occluder.axes[0], (corner & 1u) != 0u ? occluder.half.x : -occluder.half.x),
+											  add(scale(occluder.axes[1], (corner & 2u) != 0u ? occluder.half.y : -occluder.half.y),
+												  scale(occluder.axes[2], (corner & 4u) != 0u ? occluder.half.z : -occluder.half.z))));
+				}
+				if (scratch.vertex_count + 36u > k_moc_scratch_vertices || scratch.index_count + 36u > scratch.indices.size())
+				{
+					flush();
+				}
+				const uint32_t first_vertex = scratch.vertex_count;
+				const uint32_t first_index = scratch.index_count;
+				bool appended = true;
+				for (const auto& face : faces)
+				{
+					appended = appended && append_clip_triangle(scratch, view, corners[face[0]], corners[face[1]], corners[face[2]]);
+				}
+				if (!appended)
+				{
+					// A box that does not project cleanly is left out, as if absent.
+					scratch.vertex_count = first_vertex;
+					scratch.index_count = first_index;
+				}
+			}
+			flush();
+		}
+
 		bool append_capsule_mesh(occlusion_scratch& scratch, const camera_view& view, const visibility_capsule& capsule)
 		{
 			constexpr uint32_t sides = 12;
@@ -737,6 +815,23 @@ namespace cs2glaz
 			if (map_result != map_render_result::complete)
 			{
 				return capsule_query_result::indeterminate;
+			}
+			if (!dynamic_occluders.empty())
+			{
+				render_dynamic_occluders(scratch, view, origin, dynamic_occluders, stats);
+				constexpr float margin = 1.0e-4f;
+				bool all_hidden = true;
+				for (size_t index = 0; index < capsules.size() && all_hidden; ++index)
+				{
+					const projected_bounds& target = projected[index];
+					all_hidden = scratch.moc->TestRect(target.minimum_x - margin, target.minimum_y - margin, target.maximum_x + margin, target.maximum_y + margin,
+													   target.minimum_depth * (1.0f - margin))
+								 == MaskedOcclusionCulling::OCCLUDED;
+				}
+				if (all_hidden)
+				{
+					return capsule_query_result::blocked;
+				}
 			}
 			bool needs_exact_rays = false;
 			if (smokes == nullptr)
