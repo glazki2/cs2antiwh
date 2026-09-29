@@ -491,6 +491,11 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] dump: no live recipient in this snapshot\n");
 	}
 
+	bool cs2glaz_filter_full_updates_value()
+	{
+		return cs2glaz_filter_full_updates.Get();
+	}
+
 	bool hide_all_enemies_requested()
 	{
 		return cs2glaz_hide_all_enemies.Get();

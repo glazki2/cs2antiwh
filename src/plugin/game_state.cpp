@@ -10,6 +10,7 @@
 #include <tier1/utlvector.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -19,6 +20,8 @@ namespace cs2glaz
 {
 	namespace
 	{
+
+		constexpr float k_max_rtt_seconds = 0.5f;
 
 		template<typename type>
 		type& field(void* object, uint32_t offset)
@@ -787,7 +790,9 @@ namespace cs2glaz
 			{
 				continue;
 			}
-			player.rtt_seconds = std::max(0.0f, player.rtt_seconds);
+			// The latency comes from an engine virtual; a value past half a second is
+			// not a real round trip and only widens the viewing origins.
+			player.rtt_seconds = std::isfinite(player.rtt_seconds) ? std::clamp(player.rtt_seconds, 0.0f, k_max_rtt_seconds) : 0.0f;
 			player.valid = true;
 			value.players[slot] = player;
 			animated_pawns[slot] = pawn_entity;

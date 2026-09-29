@@ -25,6 +25,7 @@
 #include <tier1/convar.h>
 
 #include <array>
+#include <bitset>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -210,6 +211,7 @@ namespace cs2glaz
 	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats);
 	// Diagnostic cs2glaz_hide_all_enemies: every enemy withheld and off the radar.
 	bool hide_all_enemies_requested();
+	bool cs2glaz_filter_full_updates_value();
 
 	class plugin final : public ISmmPlugin, public IMetamodListener, public IGameEventListener2
 	{
@@ -238,6 +240,8 @@ namespace cs2glaz
 		void update_wallcheck_hud(CGameEntitySystem* system);
 		bool send_text(uint32_t slot, uint32_t destination, const std::string& text);
 		void print_wallcheck_status() const;
+		void print_why(const std::string& filter);
+		std::string slot_name(CGameEntitySystem* system, uint32_t slot) const;
 		void filter_radar_message(const uint64* clients, const CNetMessage* data);
 		void print_help() const;
 		void reload_config();
@@ -454,6 +458,8 @@ namespace cs2glaz
 		uint64_t wallcheck_sent_ {};
 		uint32_t wallcheck_last_recipients_ {};
 		const char* wallcheck_state_ = "not run yet";
+		// Pairs the wall-check log last saw visible, to log only new sightings.
+		std::array<std::bitset<k_max_players>, k_max_players> wallcheck_seen_ {};
 		// Entities withheld from at least one recipient in the current CheckTransmit.
 		CBitVec<MAX_EDICTS> transmit_withheld_;
 		// cs2glaz_probe dump: print one recipient record's entity lists on the next call.

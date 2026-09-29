@@ -11,6 +11,7 @@
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>
 
+#include <cmath>
 #include <cstring>
 #include <iterator>
 #include <string>
@@ -88,7 +89,77 @@ namespace cs2glaz
 			return origin < std::size(origins) ? std::string(test) + ", " + origins[origin] : std::string(test);
 		}
 
+		// Console (English) names for cs2glaz_why and the reveal log.
+		const char* decision_name(pair_decision decision)
+		{
+			switch (decision)
+			{
+				case pair_decision::hidden:
+					return "hidden";
+				case pair_decision::in_view:
+					return "sent (in view)";
+				case pair_decision::changing:
+					return "sent (enemy spawning/dying)";
+				case pair_decision::recipient_changing:
+					return "sent (you spawning/dying)";
+				case pair_decision::attachment:
+					return "sent (attachment)";
+				case pair_decision::group:
+					return "sent (weapons not listed)";
+				case pair_decision::baseline:
+					return "sent (mode 0 baseline)";
+				case pair_decision::full_update:
+					return "sent (full update)";
+				case pair_decision::none:
+					break;
+			}
+			return "no data";
+		}
+
+		std::string reveal_name(uint8_t code)
+		{
+			constexpr const char* tests[] = {"hidden", "hold", "body", "bounds corner", "muzzle", "unproven"};
+			constexpr const char* origins[] = {"eye", "left shoulder", "right shoulder", "above head", "feet", "movement"};
+			const auto test = static_cast<size_t>(visibility_reveal_test(code));
+			const uint8_t origin = visibility_reveal_origin(code);
+			std::string text = test < std::size(tests) ? tests[test] : "?";
+			if (origin < std::size(origins))
+			{
+				text += " from ";
+				text += origins[origin];
+			}
+			return text;
+		}
+
+		float distance_units(vec3 a, vec3 b)
+		{
+			const float x = a.x - b.x;
+			const float y = a.y - b.y;
+			const float z = a.z - b.z;
+			return std::sqrt(x * x + y * y + z * z);
+		}
+
 	} // namespace
+
+	std::string plugin::slot_name(CGameEntitySystem* system, uint32_t slot) const
+	{
+		std::string name = "игрок " + std::to_string(slot);
+		CEntityInstance* controller = system == nullptr ? nullptr : system->GetEntityInstance(CEntityIndex(static_cast<int>(slot + 1u)));
+		if (controller == nullptr || !compatibility_.player_name_available())
+		{
+			return name;
+		}
+		char text[33] {};
+		std::memcpy(text, reinterpret_cast<const char*>(controller) + compatibility_.fields().player_name, sizeof(text) - 1);
+		for (char& character : text)
+		{
+			if (character != '\0' && static_cast<unsigned char>(character) < 0x20)
+			{
+				character = ' ';
+			}
+		}
+		return text[0] == '\0' ? name : std::string(text);
+	}
 
 	void plugin::update_wallcheck_hud(CGameEntitySystem* system)
 	{
@@ -130,25 +201,24 @@ namespace cs2glaz
 				fresh[slot] = recipient_decided_at_[slot] != std::chrono::steady_clock::time_point {} && now - recipient_decided_at_[slot] <= k_decision_fresh;
 			}
 		}
-		const auto player_name = [&](uint32_t slot)
+		const auto player_name = [&](uint32_t slot) { return slot_name(system, slot); };
+		// Log each moment a human starts seeing an enemy, with what revealed him,
+		// so a leak seen in game can be matched to a line in the server console.
+		for (uint32_t me = 0; me < k_max_players; ++me)
 		{
-			std::string name = "игрок " + std::to_string(slot);
-			CEntityInstance* controller = system->GetEntityInstance(CEntityIndex(static_cast<int>(slot + 1u)));
-			if (controller == nullptr || !compatibility_.player_name_available())
+			const bool human = engine_->GetPlayerNetInfo(CPlayerSlot(static_cast<int>(me))) != nullptr;
+			for (uint32_t enemy = 0; enemy < k_max_players; ++enemy)
 			{
-				return name;
-			}
-			char text[33] {};
-			std::memcpy(text, reinterpret_cast<const char*>(controller) + compatibility_.fields().player_name, sizeof(text) - 1);
-			for (char& character : text)
-			{
-				if (character != '\0' && static_cast<unsigned char>(character) < 0x20)
+				const bool seen = human && visibility_pair_enabled(me, enemy, result->players[me], result->players[enemy], result->filter_teammates)
+								  && result->visible[me][enemy];
+				if (seen && !wallcheck_seen_[me].test(enemy))
 				{
-					character = ' ';
+					META_CONPRINTF("[CS2GLAZ] wallcheck: %s now sees %s (%s, %.0f units)\n", player_name(me).c_str(), player_name(enemy).c_str(),
+								   reveal_name(result->reveal[me][enemy]).c_str(), distance_units(result->players[me].eye, result->players[enemy].origin));
 				}
+				wallcheck_seen_[me].set(enemy, seen);
 			}
-			return text[0] == '\0' ? name : std::string(text);
-		};
+		}
 		const bool hide_all = hide_all_enemies_requested();
 		uint32_t recipients = 0;
 		for (uint32_t me = 0; me < k_max_players; ++me)
@@ -246,6 +316,71 @@ namespace cs2glaz
 		{
 			META_CONPRINTF("[CS2GLAZ] wallcheck does not run while cs2glaz_enable is 0\n");
 		}
+	}
+
+	void plugin::print_why(const std::string& filter)
+	{
+		CGameEntitySystem* system = entity_system();
+		const std::shared_ptr<const visibility_result> result = worker_.result();
+		if (system == nullptr || engine_ == nullptr || !result)
+		{
+			META_CONPRINTF("[CS2GLAZ] why: no visibility result yet (%s)\n", disabled_reason_.empty() ? "waiting for the worker" : disabled_reason_.c_str());
+			return;
+		}
+		const auto now = std::chrono::steady_clock::now();
+		std::array<std::array<pair_decision, k_max_players>, k_max_players> decisions {};
+		std::array<bool, k_max_players> fresh {};
+		{
+			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+			decisions = pair_decisions_;
+			for (uint32_t slot = 0; slot < k_max_players; ++slot)
+			{
+				fresh[slot] = recipient_decided_at_[slot] != std::chrono::steady_clock::time_point {} && now - recipient_decided_at_[slot] <= k_decision_fresh;
+			}
+		}
+		const runtime_configuration& configuration = settings::current();
+		const visibility_tuning tuning {configuration.shoulder_base_units, configuration.shoulder_rtt_scale, configuration.max_shoulder_units};
+		const float age_ms = std::chrono::duration<float, std::milli>(now - result->captured).count();
+		META_CONPRINTF("[CS2GLAZ] why: result age=%.0fms body=%s hide_all=%d filter_full_updates=%d hold=%dms\n", age_ms,
+					   compatibility_.bones_available() ? "bones" : "hull (limited mode)", hide_all_enemies_requested() ? 1 : 0,
+					   cs2glaz_filter_full_updates_value() ? 1 : 0, configuration.visibility_hold_ms);
+		uint32_t shown = 0;
+		for (uint32_t me = 0; me < k_max_players; ++me)
+		{
+			const player_state& player = result->players[me];
+			const bool human = engine_->GetPlayerNetInfo(CPlayerSlot(static_cast<int>(me))) != nullptr;
+			const std::string name = slot_name(system, me);
+			if (!player.valid || (filter.empty() ? !human : (name.find(filter) == std::string::npos && filter != std::to_string(me))))
+			{
+				continue;
+			}
+			++shown;
+			META_CONPRINTF("[CS2GLAZ] why: %s (slot %u%s) at %.0f %.0f %.0f rtt=%.0fms shoulders idle=%.0f moving=%.0f capsules=%u\n", name.c_str(), me,
+						   human ? "" : ", bot", player.origin.x, player.origin.y, player.origin.z, player.rtt_seconds * 1000.0f,
+						   visibility_shoulder_offset_units(player.rtt_seconds, tuning, false), visibility_shoulder_offset_units(player.rtt_seconds, tuning, true),
+						   player.capsule_count);
+			for (uint32_t enemy = 0; enemy < k_max_players; ++enemy)
+			{
+				if (!visibility_pair_enabled(me, enemy, player, result->players[enemy], result->filter_teammates))
+				{
+					continue;
+				}
+				META_CONPRINTF("[CS2GLAZ] why:   %s: %.0f units, line of sight %s (%s), you receive him: %s, he receives you: %s\n",
+							   slot_name(system, enemy).c_str(), distance_units(player.eye, result->players[enemy].origin),
+							   result->visible[me][enemy] ? "VISIBLE" : "blocked", reveal_name(result->reveal[me][enemy]).c_str(),
+							   fresh[me] ? decision_name(decisions[me][enemy]) : "no data", fresh[enemy] ? decision_name(decisions[enemy][me]) : "no data");
+			}
+		}
+		if (shown == 0)
+		{
+			META_CONPRINTF("[CS2GLAZ] why: no living %s matches; use cs2glaz_why <name part or slot>\n", filter.empty() ? "human" : "player");
+		}
+	}
+
+	CON_COMMAND_F(cs2glaz_why, "Explain the line of sight and transmit decision for every enemy of living humans, or of one player: cs2glaz_why [name or slot]",
+				  FCVAR_NONE)
+	{
+		g_plugin.print_why(args.ArgC() > 1 ? std::string(args.ArgS()) : std::string());
 	}
 
 	CON_COMMAND_F(cs2glaz_wallcheck_status, "Show why the cs2glaz_wallcheck test HUD is or is not shown", FCVAR_NONE)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.13
+
+- New `cs2glaz_why [name or slot]` for the server console: for every living human (or the named player) it prints position, latency, shoulder sizes and body mode, then for each enemy the distance, whether the line of sight is open and what opened it (body, bounds corner, muzzle, hold or unproven, and from which viewing origin), and what CheckTransmit last decided in both directions. It turns a screenshot of a leak into the exact reason.
+- With `cs2glaz_wallcheck` on, the server console logs every moment a human starts seeing an enemy, with the reason and distance (`[CS2GLAZ] wallcheck: A now sees B (body from right shoulder, 812 units)`).
+- The player latency that sizes the viewing origins is clamped to 0-500 ms and must be finite. It comes from an engine virtual; a wrong value used to push the shoulders and the movement origin far out (there was no cap before 0.5.12).
+
 ## 0.5.12
 
 - Enemies are now withheld in client full updates too. A full update is a snapshot the client rebuilds its entities from, and what it lacks is simply not created, as with ordinary PVS culling; the plugin used to send every enemy in it. A client can force one (starting a demo recording, or a forged network message from a cheat), so a wallhack could see every enemy on demand. `cs2glaz_filter_full_updates 0` restores the old behaviour; `cs2glaz_metrics` counts filtered full updates.
