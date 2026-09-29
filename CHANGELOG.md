@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+Production build: research and debug features removed.
+
+- Hiding always clears the entity in both CheckTransmit lists (the former mode 2); `cs2glaz_transmit_mode` and the other experimental modes are gone.
+- Removed the diagnostic commands and switches `cs2glaz_probe`, `cs2glaz_entity`, `cs2glaz_hide_all_enemies`, `cs2glaz_wallcheck`, `cs2glaz_wallcheck_status`, `cs2glaz_debug` and `cs2glaz_debug_los_player` (in-game LOS beams), with their code. `cs2glaz_why` and `cs2glaz_props` stay as console diagnostics.
+- `cs2glaz.cfg` no longer lists the removed settings; README lists every remaining command.
+
 ## 0.5.18
 
 - Dead players no longer receive every enemy. A dead player who may only watch his own team (`mp_forcecamera` 1 or 2) now gets the enemies a living teammate sees (reveal hold included) and whoever he is watching (the killer on the death camera, read from the observer pawn's `m_hObserverTarget`), which is everything he can legitimately see; a dead cheater used to get full information to call out. He is left unfiltered for the first 2 seconds after death (6 without the observer target), when no teammate is alive (he may then watch anyone), with `mp_forcecamera 0`, in free for all, for the spectator team and SourceTV. His radar gets his team's radar. `cs2glaz_filter_dead 0` turns it off (resets on restart); `cs2glaz_metrics` counts `dead_viewers` snapshots.

@@ -189,10 +189,6 @@ namespace cs2glaz
 			{
 				missing.emplace_back("weapon muzzle classification");
 			}
-			if (!debug_beam_available())
-			{
-				missing.emplace_back("temporary LOS debug beams");
-			}
 		}
 		report_ = make_compatibility_report(state, std::move(detail), std::move(missing));
 	}

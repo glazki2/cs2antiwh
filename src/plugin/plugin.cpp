@@ -42,85 +42,6 @@ namespace cs2glaz
 		return {CUtlStringToken(MurmurHash2LowerCase(name, STRINGTOKEN_MURMURHASH_SEED)), name};
 	}
 
-	using create_entity_by_name_fn = CEntityInstance* (*)(const char*, int);
-	using dispatch_spawn_fn = void (*)(CEntityInstance*, void*);
-	using remove_entity_fn = void (*)(CEntityInstance*);
-	using teleport_entity_fn = void (*)(CEntityInstance*, const Vector*, const QAngle*, const Vector*);
-
-	constexpr uint32_t k_los_animated_color = 0x00ff00;
-	constexpr uint32_t k_los_muzzle_color = 0x00ffff;
-	constexpr uint32_t k_los_aabb_color = 0xffa500;
-	constexpr float k_los_beam_half_length = 1.0f;
-	constexpr auto k_los_debug_interval = std::chrono::microseconds(15625);
-
-	template<typename type>
-	type& entity_field(CEntityInstance* entity, uint32_t offset)
-	{
-		return *reinterpret_cast<type*>(reinterpret_cast<uintptr_t>(entity) + offset);
-	}
-
-	Color los_debug_color(uint32_t color)
-	{
-		return Color(static_cast<uint8_t>(color >> 16), static_cast<uint8_t>(color >> 8), static_cast<uint8_t>(color), 255);
-	}
-
-	bool teleport_entity(CEntityInstance* entity, uint32_t vtable_index, const Vector& origin)
-	{
-		void** vtable = entity == nullptr ? nullptr : *reinterpret_cast<void***>(entity);
-		if (vtable == nullptr || vtable[vtable_index] == nullptr)
-		{
-			return false;
-		}
-		reinterpret_cast<teleport_entity_fn>(vtable[vtable_index])(entity, &origin, nullptr, nullptr);
-		return true;
-	}
-
-	CON_COMMAND_F(cs2glaz_entity, "List, filter, or clear actual CS2GLAZ transmit clears", FCVAR_NONE)
-	{
-		if (args.ArgC() == 1)
-		{
-			g_plugin.print_entities(-1);
-			return;
-		}
-		if (args.ArgC() != 2)
-		{
-			META_CONPRINTF("[CS2GLAZ] usage: cs2glaz_entity [<edict>|clear]\n");
-			return;
-		}
-		const char* text = args.Arg(1);
-		if (std::strcmp(text, "clear") == 0)
-		{
-			g_plugin.clear_entity_records();
-			return;
-		}
-		int edict = -1;
-		const auto result = std::from_chars(text, text + std::strlen(text), edict);
-		if (result.ec != std::errc {} || *result.ptr != '\0')
-		{
-			META_CONPRINTF("[CS2GLAZ] invalid edict: %s\n", text);
-			return;
-		}
-		g_plugin.print_entities(edict);
-	}
-
-	CON_COMMAND_F(cs2glaz_probe,
-				  "Diagnostic: 'cs2glaz_probe start' samples CheckTransmit lists, 'cs2glaz_probe dump' scans one recipient record, "
-				  "'cs2glaz_probe' prints the sample",
-				  FCVAR_NONE)
-	{
-		if (args.ArgC() == 2 && std::strcmp(args.Arg(1), "start") == 0)
-		{
-			g_plugin.start_transmit_probe();
-			return;
-		}
-		if (args.ArgC() == 2 && std::strcmp(args.Arg(1), "dump") == 0)
-		{
-			g_plugin.request_transmit_dump();
-			return;
-		}
-		g_plugin.print_transmit_probe();
-	}
-
 	bool plugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late)
 	{
 		PLUGIN_SAVEVARS();
@@ -151,8 +72,6 @@ namespace cs2glaz
 		// Optional: without it hidden enemies can still reach a cheat through the
 		// radar message, but everything else keeps working.
 		game_event_system_ = static_cast<IGameEventSystem*>(ismm->VInterfaceMatch(ismm->GetEngineFactory(), GAMEEVENTSYSTEM_INTERFACE_VERSION));
-		// Optional too: only the cs2glaz_wallcheck test HUD sends messages.
-		network_messages_ = static_cast<INetworkMessages*>(ismm->VInterfaceMatch(ismm->GetEngineFactory(), NETWORKMESSAGES_INTERFACE_VERSION));
 		if (game_event_system_ != nullptr)
 		{
 			post_event_hook_.Add(game_event_system_);
@@ -218,7 +137,6 @@ namespace cs2glaz
 		automatic_baker_.stop();
 		worker_.stop();
 		updater_.unload();
-		destroy_los_debug_beams();
 		if (game_frame_hooked_)
 		{
 			game_frame_hook_.Remove(server_);
@@ -291,7 +209,6 @@ namespace cs2glaz
 	{
 		automatic_baker_.stop();
 		worker_.stop();
-		destroy_los_debug_beams(false);
 		data_ = {};
 		source_ = {};
 		reset_transmit_state();
@@ -311,7 +228,6 @@ namespace cs2glaz
 	void plugin::disable(std::string reason)
 	{
 		worker_.stop();
-		destroy_los_debug_beams();
 		data_ = {};
 		reset_transmit_state();
 		limited_validation_pending_ = false;
@@ -472,7 +388,6 @@ namespace cs2glaz
 		automatic_baker_.stop();
 		worker_.stop();
 		active_worker_threads_ = 0;
-		destroy_los_debug_beams();
 		data_ = {};
 		source_ = {};
 		reset_transmit_state();
@@ -540,7 +455,7 @@ namespace cs2glaz
 	{
 		if ((changes & setting_change_visibility) != 0)
 		{
-			reset_transmit_state(false);
+			reset_transmit_state();
 		}
 	}
 
@@ -554,11 +469,8 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_check_update - Check for an update now instead of waiting.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_why [name|slot] - Why each enemy is or is not sent, from every viewing origin.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_props [radius] - Solid entities near each player and whether they block sight.\n");
-		META_CONPRINTF("[CS2GLAZ] cs2glaz_wallcheck 0|1|2 - Test HUD (off, centre, chat); cs2glaz_wallcheck_status explains it.\n");
-		META_CONPRINTF("[CS2GLAZ] cs2glaz_probe [start|dump] - Sample or dump the CheckTransmit entity lists.\n");
-		META_CONPRINTF("[CS2GLAZ] cs2glaz_entity [<edict>|clear] - Inspect actual debug-mode transmit clears.\n");
 		META_CONPRINTF("[CS2GLAZ] runtime switches (reset on restart): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
-					   "cs2glaz_dynamic_occluders, cs2glaz_transmit_mode, cs2glaz_hide_all_enemies.\n");
+					   "cs2glaz_dynamic_occluders.\n");
 	}
 
 	void plugin::check_update()
@@ -606,11 +518,6 @@ namespace cs2glaz
 		{
 			META_CONPRINTF("[CS2GLAZ] note: worker threads are configured as %d; %u remain active until the next map\n", configuration.worker_threads,
 						   active_worker_threads_);
-			++findings;
-		}
-		if ((configuration_findings & configuration_finding_debug_los) != 0)
-		{
-			META_CONPRINTF("[CS2GLAZ] note: temporary LOS debug is enabled for player %d\n", configuration.debug_los_player);
 			++findings;
 		}
 		int donttransmit = 0;
@@ -727,17 +634,12 @@ namespace cs2glaz
 	{
 		automatic_baker_.stop();
 		worker_.stop();
-		destroy_los_debug_beams();
 		data_ = {};
 		source_ = {};
 		reset_transmit_state();
 		transmit_layout_invalid_.store(false);
 		transmit_lists_verified_ = false;
 		limited_validation_pending_ = false;
-		{
-			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
-			transmit_probe_ = {};
-		}
 		map_ = map;
 		if (!compatibility_.valid())
 		{
@@ -775,7 +677,6 @@ namespace cs2glaz
 		INetworkGameServer* network_server = g_pNetworkServerService == nullptr ? nullptr : g_pNetworkServerService->GetIGameServer();
 		if (network_server == nullptr)
 		{
-			destroy_los_debug_beams(false);
 			return;
 		}
 		const char* current_map = network_server->GetMapName();
@@ -792,7 +693,6 @@ namespace cs2glaz
 		const runtime_configuration& configuration = settings::current();
 		if (!simulating || !configuration.enable || !disabled_reason_.empty())
 		{
-			destroy_los_debug_beams();
 			return;
 		}
 		CGameEntitySystem* system = entity_system();
@@ -801,7 +701,6 @@ namespace cs2glaz
 			disable("game entity system is unavailable");
 			return;
 		}
-		update_wallcheck_hud(system);
 		const auto now = std::chrono::steady_clock::now();
 		if (now - last_snapshot_ < std::chrono::milliseconds(configuration.update_interval_ms))
 		{
@@ -821,151 +720,10 @@ namespace cs2glaz
 			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
 			capture_timing_.record(capture_ms);
 		}
-		draw_los_debug(value);
 		last_snapshot_ = now;
 		worker_.submit(std::move(value), static_cast<uint32_t>(configuration.visibility_hold_ms),
 					   {configuration.shoulder_base_units, configuration.shoulder_rtt_scale, configuration.max_shoulder_units,
 						configuration.bounds_padding_units});
-	}
-
-	void plugin::draw_los_debug(const visibility_snapshot& value)
-	{
-		const int player_number = settings::current().debug_los_player;
-		if (player_number == 0)
-		{
-			destroy_los_debug_beams();
-			return;
-		}
-		if (!compatibility_.debug_beam_available() || los_debug_failed_ || value.captured - last_los_debug_draw_ < k_los_debug_interval)
-		{
-			return;
-		}
-		const player_state& player = value.players[static_cast<size_t>(player_number - 1)];
-		if (!player.valid)
-		{
-			destroy_los_debug_beams();
-			return;
-		}
-		CGameEntitySystem* system = entity_system();
-		if (system == nullptr)
-		{
-			destroy_los_debug_beams(false);
-			return;
-		}
-
-		last_los_debug_draw_ = value.captured;
-		const uint32_t capsule_count = player.capsule_count == k_visibility_capsule_count ? player.capsule_count : 0u;
-		// Draw the points the worker tests: clipped at walls once geometry is loaded.
-		visibility_target_points target_points;
-		if (data_.nodes.empty())
-		{
-			target_points.has_muzzle = visibility_muzzle_point(visibility_sample(player), target_points.muzzle);
-			target_points.aabb = visibility_aabb_points(visibility_sample(player), settings::current().bounds_padding_units);
-		}
-		else
-		{
-			target_points = visibility_clipped_target_points(data_, visibility_sample(player), value.occluders, settings::current().bounds_padding_units);
-		}
-		const vec3 muzzle = target_points.muzzle;
-		const bool has_muzzle = target_points.has_muzzle;
-		const auto& aabb_points = target_points.aabb;
-		const uint32_t aabb_start = capsule_count + static_cast<uint32_t>(has_muzzle);
-		const uint32_t debug_count = aabb_start + (capsule_count == 0 ? 0u : k_visibility_aabb_point_count);
-		auto create_entity = reinterpret_cast<create_entity_by_name_fn>(compatibility_.create_entity_by_name());
-		auto dispatch_spawn = reinterpret_cast<dispatch_spawn_fn>(compatibility_.dispatch_spawn());
-		auto remove_entity = reinterpret_cast<remove_entity_fn>(compatibility_.remove_entity());
-		for (uint32_t index = 0; index < los_debug_beams_.size(); ++index)
-		{
-			los_debug_beam& beam = los_debug_beams_[index];
-			CEntityInstance* entity = beam.handle.IsValid() ? system->GetEntityInstance(beam.handle) : nullptr;
-			if (index >= debug_count)
-			{
-				if (entity != nullptr)
-				{
-					remove_entity(entity);
-				}
-				beam = {};
-				continue;
-			}
-
-			const bool capsule_axis = index < capsule_count;
-			const bool muzzle_axis = !capsule_axis && has_muzzle && index == capsule_count;
-			const vec3 point = muzzle_axis ? muzzle : aabb_points[index - aabb_start];
-			const uint32_t color = capsule_axis ? k_los_animated_color : muzzle_axis ? k_los_muzzle_color : k_los_aabb_color;
-			const vec3 start_point = capsule_axis ? player.capsules[index].start : vec3 {point.x, point.y, point.z - k_los_beam_half_length};
-			const vec3 end_point = capsule_axis ? player.capsules[index].end : vec3 {point.x, point.y, point.z + k_los_beam_half_length};
-			Vector start(start_point.x, start_point.y, start_point.z);
-			Vector end(end_point.x, end_point.y, end_point.z);
-			if (entity == nullptr)
-			{
-				entity = create_entity("env_beam", -1);
-				const CEntityHandle handle = entity_handle(entity);
-				if (entity == nullptr || !handle.IsValid() || !teleport_entity(entity, compatibility_.teleport_vtable_index(), start))
-				{
-					if (entity != nullptr)
-					{
-						remove_entity(entity);
-					}
-					entity = nullptr;
-				}
-				else
-				{
-					entity_field<Vector>(entity, compatibility_.fields().beam_end_position) = end;
-					entity_field<float>(entity, compatibility_.fields().beam_width) = 1.25f;
-					entity_field<float>(entity, compatibility_.fields().beam_end_width) = 1.25f;
-					entity_field<Color>(entity, compatibility_.fields().render_color) = los_debug_color(color);
-					dispatch_spawn(entity, nullptr);
-					entity = system->GetEntityInstance(handle);
-					if (entity != nullptr)
-					{
-						beam = {handle, color};
-					}
-				}
-				if (entity == nullptr || !beam.handle.IsValid())
-				{
-					destroy_los_debug_beams();
-					los_debug_failed_ = true;
-					META_CONPRINTF("[CS2GLAZ] temporary LOS beam creation failed; set cs2glaz_debug_los_player 0 before retrying\n");
-					return;
-				}
-				continue;
-			}
-
-			if (!teleport_entity(entity, compatibility_.teleport_vtable_index(), start))
-			{
-				destroy_los_debug_beams();
-				los_debug_failed_ = true;
-				META_CONPRINTF("[CS2GLAZ] temporary LOS beam movement failed; set cs2glaz_debug_los_player 0 before retrying\n");
-				return;
-			}
-			entity_field<Vector>(entity, compatibility_.fields().beam_end_position) = end;
-			entity->NetworkStateChanged(NetworkStateChangedData(compatibility_.fields().beam_end_position));
-			if (beam.color != color)
-			{
-				entity_field<Color>(entity, compatibility_.fields().render_color) = los_debug_color(color);
-				entity->NetworkStateChanged(NetworkStateChangedData(compatibility_.fields().render_color));
-				beam.color = color;
-			}
-		}
-	}
-
-	void plugin::destroy_los_debug_beams(bool remove_entities)
-	{
-		CGameEntitySystem* system = remove_entities ? entity_system() : nullptr;
-		auto remove_entity = reinterpret_cast<remove_entity_fn>(compatibility_.remove_entity());
-		for (los_debug_beam& beam : los_debug_beams_)
-		{
-			if (system != nullptr && remove_entity != nullptr && beam.handle.IsValid())
-			{
-				if (CEntityInstance* entity = system->GetEntityInstance(beam.handle); entity != nullptr)
-				{
-					remove_entity(entity);
-				}
-			}
-			beam = {};
-		}
-		last_los_debug_draw_ = {};
-		los_debug_failed_ = false;
 	}
 
 	void plugin::print_status() const
@@ -1161,10 +919,6 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] mp_playerid readable=%d value=%d\n", playerid_readable ? 1 : 0, playerid);
 		META_CONPRINTF("[CS2GLAZ] automatic updates=%d source=GitHub stable releases install=next restart\n",
 					   settings::current().automatic_updates ? 1 : 0);
-		const uint32_t debug_beams = static_cast<uint32_t>(
-			std::count_if(los_debug_beams_.begin(), los_debug_beams_.end(), [](const los_debug_beam& beam) { return beam.handle.IsValid(); }));
-		META_CONPRINTF("[CS2GLAZ] temporary LOS debug player=%d available=%d beams=%u failed=%d\n", settings::current().debug_los_player,
-					   compatibility_.debug_beam_available() ? 1 : 0, debug_beams, los_debug_failed_ ? 1 : 0);
 		std::string bake_map;
 		double bake_elapsed_ms = 0;
 		if (automatic_baker_.status(bake_map, bake_elapsed_ms))

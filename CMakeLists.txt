@@ -220,7 +220,7 @@ set(CS2GLAZ_PLUGIN_SOURCES
   "${CMAKE_SOURCE_DIR}/src/plugin/transmit.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/updater.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/visibility_worker.cpp"
-  "${CMAKE_SOURCE_DIR}/src/plugin/wallcheck.cpp"
+  "${CMAKE_SOURCE_DIR}/src/plugin/diagnostics.cpp"
 
   # third_party (vendored, part of the plugin)
   "${CS2GLAZ_THIRD_PARTY_ROOT}/miniz.c"

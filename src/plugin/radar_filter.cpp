@@ -68,14 +68,14 @@ namespace cs2glaz
 		// One message per player is expected; one addressed to several players
 		// or to everyone is left alone rather than guessing whose view applies.
 		const int filter = cs2glaz_radar_filter.Get();
-		if ((filter <= 0 && !hide_all_enemies_requested()) || !settings::current().enable || !disabled_reason_.empty() || clients == nullptr
+		if (filter <= 0 || !settings::current().enable || !disabled_reason_.empty() || clients == nullptr
 			|| std::popcount(clients[0]) != 1 || !result || !visibility_snapshot_fresh(result->captured, std::chrono::steady_clock::now()))
 		{
 			radar_stats_.skipped_messages.fetch_add(1, std::memory_order_relaxed);
 			return;
 		}
 		const uint32_t recipient = static_cast<uint32_t>(std::countr_zero(clients[0]));
-		const radar_sight sight = hide_all_enemies_requested() ? radar_sight::none : filter >= 2 ? radar_sight::own : radar_sight::team;
+		const radar_sight sight = filter >= 2 ? radar_sight::own : radar_sight::team;
 
 		google::protobuf::Message* const message = const_cast<CNetMessage*>(data)->ToPB<google::protobuf::Message>();
 		// Every message of this class shares one vtable, so the RTTI proof runs once.

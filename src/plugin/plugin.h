@@ -41,7 +41,6 @@ namespace cs2glaz
 
 	inline constexpr uint32_t k_max_weapons = 64;
 	inline constexpr uint32_t k_max_wearables = 32;
-	inline constexpr uint32_t k_max_recent_hide_records = 256;
 	inline constexpr uint32_t k_entity_scan_hard_limit = MAX_TOTAL_ENTITIES;
 	inline constexpr uint32_t k_max_entity_name = 64;
 	inline constexpr uint32_t k_max_hidden_player_entities = 1 + 2 + k_max_weapons + k_max_wearables + 1;
@@ -90,12 +89,6 @@ namespace cs2glaz
 		bool valid {};
 	};
 
-	// Read-only evidence of which CheckTransmit lists carry enemy pawns, for
-	// finding what a CS2 build honours when hiding does not reach the client.
-	// Lists: +0, +8, +16, +24 in the recipient record, then the two union lists.
-	inline constexpr size_t k_transmit_probe_lists = 6;
-	inline constexpr uint32_t k_transmit_probe_calls = 640;
-
 	// Why CheckTransmit withheld an enemy or let it through, so a wallhack that
 	// flickers can be traced to a reason. Recipient snapshots and enemy pairs are
 	// counted separately.
@@ -109,7 +102,7 @@ namespace cs2glaz
 		uint64_t hidden {};						 // walls block the pair; enemy withheld
 		uint64_t in_view {};					 // rays or the reveal hold say visible
 		uint64_t changing_target {};			 // enemy spawned, died or changed team <1 s ago
-		uint64_t baseline {};					 // legacy mode 0 waiting for a sent baseline
+		uint64_t baseline {};					 // waiting for a sent baseline
 		uint64_t attachment {};					 // something attached cannot be hidden with the enemy
 		uint64_t group {};						 // the enemy's weapons/wearables could not be listed
 	};
@@ -129,7 +122,7 @@ namespace cs2glaz
 	};
 
 	// What CheckTransmit last decided for one recipient/enemy pair; shown by the
-	// cs2glaz_wallcheck test HUD.
+	// cs2glaz_why.
 	enum class pair_decision : uint8_t
 	{
 		none,
@@ -141,35 +134,6 @@ namespace cs2glaz
 		baseline,
 		full_update,
 		recipient_changing,
-	};
-
-	struct transmit_probe_stats
-	{
-		uint32_t calls_left {};
-		uint64_t calls {};
-		uint64_t full_updates {};
-		std::array<uint64_t, 2> samples {}; // [0] walls block the pair, [1] visible
-		std::array<std::array<uint64_t, k_transmit_probe_lists>, 2> set {};
-		std::array<uint64_t, 2> unreadable {}; // +16, +24
-		// The same enemies' other group members (weapons, wearables, attached
-		// entities): how many were sampled and how many were set in +0 and +8.
-		std::array<uint64_t, 2> members {};
-		std::array<std::array<uint64_t, 2>, 2> members_set {};
-		transmit_decision_stats decisions;
-		// Lists +16/+24 that a finished probe showed carrying hidden enemy pawns.
-		std::array<bool, 2> extended_allowed {};
-	};
-
-	struct los_debug_beam
-	{
-		CEntityHandle handle;
-		uint32_t color {};
-	};
-
-	enum class hide_reason : uint8_t
-	{
-		current,
-		quarantine
 	};
 
 	struct runtime_timing_stats
@@ -196,8 +160,6 @@ namespace cs2glaz
 		}
 	};
 
-	using recent_hide_log = transmit_debug_log<k_max_recent_hide_records, k_max_entity_name>;
-
 	struct qangle
 	{
 		float x {};
@@ -211,8 +173,6 @@ namespace cs2glaz
 	bool valid_networked_edict_index(int index);
 	int resolve_entity_index(CGameEntitySystem* system, CEntityHandle handle);
 	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats);
-	// Diagnostic cs2glaz_hide_all_enemies: every enemy withheld and off the radar.
-	bool hide_all_enemies_requested();
 	// cs2glaz_filter_dead: dead players only get what their living team sees.
 	bool filter_dead_players_requested();
 	bool cs2glaz_filter_full_updates_value();
@@ -241,9 +201,6 @@ namespace cs2glaz
 		void print_status() const;
 		void print_metrics() const;
 		void print_radar_filter() const;
-		void update_wallcheck_hud(CGameEntitySystem* system);
-		bool send_text(uint32_t slot, uint32_t destination, const std::string& text);
-		void print_wallcheck_status() const;
 		void print_why(const std::string& filter);
 		void print_why_probe(const player_state& viewer, const player_state& enemy, const visibility_result& result) const;
 		std::string entity_model_name(CEntityInstance* entity) const;
@@ -262,15 +219,10 @@ namespace cs2glaz
 		void check_update();
 		void config_loaded();
 		void settings_changed(uint32_t changes);
-		void print_entities(int edict);
-		void clear_entity_records();
-		void start_transmit_probe();
-		void print_transmit_probe() const;
-		void request_transmit_dump();
 		// Status commands call this so a hibernating server (no game frames) still
 		// finishes a completed bake and the pending limited-mode check.
 		void refresh_state();
-		void reset_transmit_state(bool clear_debug_records = true);
+		void reset_transmit_state();
 
 		const char* GetAuthor() override
 		{
@@ -318,8 +270,6 @@ namespace cs2glaz
 						   std::string& error) const;
 		void start_automatic_bake(const std::string& map, const map_source& source, const std::filesystem::path& output, const std::string& reason);
 		void poll_automatic_bake();
-		void draw_los_debug(const visibility_snapshot& value);
-		void destroy_los_debug_beams(bool remove_entities = true);
 		void activate(bvh8_data data);
 		void announce_active();
 		void finish_limited_validation(bool simulating);
@@ -349,15 +299,7 @@ namespace cs2glaz
 		bool group_fully_marked(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* bits, const visual_entity_group& group) const;
 		template<size_t max_count>
 		void withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
-							const hidden_entity_group<CEntityHandle, max_count>& group, int recipient_slot, hide_reason reason,
-							std::chrono::steady_clock::time_point now, transmit_mode mode, const std::array<void*, 2>& extended_lists);
-		void sample_transmit_probe(CGameEntitySystem* system, const CCheckTransmitInfo* info, int slot, const visibility_result& result,
-								   const CBitVec<MAX_EDICTS>& union_a, const CBitVec<MAX_EDICTS>& union_b);
-		void dump_transmit_lists(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count, const visibility_result& result,
-								 const CBitVec<MAX_EDICTS>& union_a, const CBitVec<MAX_EDICTS>& union_b);
-		template<size_t max_count>
-		void record_hidden_entity(CGameEntitySystem* system, size_t member_index, int edict, const hidden_entity_group<CEntityHandle, max_count>& group,
-								  int recipient_slot, hide_reason reason, std::chrono::steady_clock::time_point now);
+							const hidden_entity_group<CEntityHandle, max_count>& group);
 		bool capture(visibility_snapshot& value, float game_time);
 		bool capture_animated_capsules(CEntityInstance* pawn, uint32_t slot, player_state& player, std::chrono::steady_clock::time_point now);
 		bool capture_smokes(const std::array<CEntityInstance*, k_max_smoke_volumes>& entities, size_t count, bool overflow, float game_time,
@@ -437,7 +379,6 @@ namespace cs2glaz
 		std::array<tracked_grenade, 32> he_tracked_ {};
 		uint32_t he_tracked_count_ {};
 		uint64_t he_tracked_detonations_ {};
-		recent_hide_log recent_hides_;
 		std::array<lifecycle_guard, k_max_players> lifecycle_;
 		std::array<std::array<pair_guard, k_max_players>, k_max_players> pair_guards_;
 		std::array<std::array<visual_entity_group, k_max_players>, k_max_players> hidden_groups_;
@@ -450,28 +391,14 @@ namespace cs2glaz
 		uint32_t capsule_players_ {};
 		uint32_t capsule_failed_players_ {};
 		std::chrono::steady_clock::time_point last_snapshot_ {};
-		std::chrono::steady_clock::time_point last_los_debug_draw_ {};
-		std::array<los_debug_beam, k_visibility_debug_beam_count_max> los_debug_beams_;
-		bool los_debug_failed_ {};
 		// Set from CheckTransmit when the recipient list looks structurally wrong;
 		// the game thread turns it into a disabled state until the next map.
 		std::atomic_bool transmit_layout_invalid_ {};
 		// The recipient lists were proven readable with guarded reads this map.
 		bool transmit_lists_verified_ {};
-		transmit_probe_stats transmit_probe_;
 		transmit_decision_stats transmit_decisions_;
 		std::array<std::array<pair_decision, k_max_players>, k_max_players> pair_decisions_ {};
 		std::array<std::chrono::steady_clock::time_point, k_max_players> recipient_decided_at_ {};
-		std::chrono::steady_clock::time_point wallcheck_next_ {};
-		INetworkMessages* network_messages_ {};
-		INetworkMessageInternal* text_message_ {};
-		bool text_message_broken_ {};
-		// Chat mode sends a player's lines only when they change, at most once a second.
-		std::array<std::string, k_max_players> wallcheck_chat_last_ {};
-		std::array<std::chrono::steady_clock::time_point, k_max_players> wallcheck_chat_next_ {};
-		uint64_t wallcheck_sent_ {};
-		uint32_t wallcheck_last_recipients_ {};
-		const char* wallcheck_state_ = "not run yet";
 		// Doors and box props found by the last entity-list walk (once a second).
 		struct occluder_candidate
 		{
@@ -483,12 +410,6 @@ namespace cs2glaz
 		uint32_t occluders_active_ {};
 		std::unordered_map<uint32_t, bool> occluder_class_cache_;
 		std::string occluder_class_cache_map_;
-		// Pairs the wall-check log last saw visible, to log only new sightings.
-		std::array<std::bitset<k_max_players>, k_max_players> wallcheck_seen_ {};
-		// Entities withheld from at least one recipient in the current CheckTransmit.
-		CBitVec<MAX_EDICTS> transmit_withheld_;
-		// cs2glaz_probe dump: print one recipient record's entity lists on the next call.
-		bool transmit_dump_pending_ {};
 		// Limited mode validates the entity system on the first simulated frame.
 		bool limited_validation_pending_ {};
 		uint32_t limited_validation_attempts_ {};

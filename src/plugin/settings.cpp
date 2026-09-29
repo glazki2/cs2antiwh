@@ -39,10 +39,6 @@ namespace cs2glaz
 											 128.0f, true, 0.0f, true, 256.0f, on_convar_changed<float>);
 	CConVar<int> cs2glaz_visibility_hold_ms("cs2glaz_visibility_hold_ms", FCVAR_NONE, "Minimum revealed duration", 300, true, 0, true, 1000,
 										   on_convar_changed<int>);
-	CConVar<bool> cs2glaz_debug("cs2glaz_debug", FCVAR_NONE, "Enable CS2GLAZ diagnostic logging", false, on_convar_changed<bool>);
-	CConVar<int> cs2glaz_debug_los_player("cs2glaz_debug_los_player", FCVAR_NONE,
-										 "Temporarily draw one 1-based player's live capsule axes, muzzle, and AABB corners; 0 removes them", 0, true,
-										 0, true, static_cast<int>(k_max_players), on_convar_changed<int>);
 	CConVar<bool> cs2glaz_auto_update("cs2glaz_auto_update", FCVAR_NONE, "Automatically download verified compatible stable updates", false,
 									 on_convar_changed<bool>);
 	CConVar<float> cs2glaz_bounds_padding_units("cs2glaz_bounds_padding_units", FCVAR_NONE,
@@ -74,8 +70,8 @@ namespace cs2glaz
 			const uint32_t changes = config_transaction.apply_direct(
 				{cs2glaz_enable.Get(), cs2glaz_smoke_occlusion.Get(), cs2glaz_he_clear_radius_units.Get(), cs2glaz_he_clear_seconds.Get(),
 				 cs2glaz_filter_teammates.Get(), cs2glaz_update_interval_ms.Get(), cs2glaz_worker_threads.Get(), cs2glaz_shoulder_base_units.Get(),
-				 cs2glaz_shoulder_rtt_scale.Get(), cs2glaz_max_shoulder_units.Get(), cs2glaz_visibility_hold_ms.Get(), cs2glaz_debug.Get(),
-				 cs2glaz_debug_los_player.Get(), cs2glaz_auto_update.Get(), cs2glaz_limited_mode.Get(), cs2glaz_bounds_padding_units.Get()});
+				 cs2glaz_shoulder_rtt_scale.Get(), cs2glaz_max_shoulder_units.Get(), cs2glaz_visibility_hold_ms.Get(), false,
+				 0, cs2glaz_auto_update.Get(), cs2glaz_limited_mode.Get(), cs2glaz_bounds_padding_units.Get()});
 			if (changes != setting_change_none && config_change_callback != nullptr)
 			{
 				config_change_callback(changes);
@@ -104,8 +100,8 @@ namespace cs2glaz
 					cs2glaz_shoulder_rtt_scale.Get(),
 					cs2glaz_max_shoulder_units.Get(),
 					cs2glaz_visibility_hold_ms.Get(),
-					cs2glaz_debug.Get(),
-					cs2glaz_debug_los_player.Get(),
+					false,
+					0,
 					cs2glaz_auto_update.Get(),
 					cs2glaz_limited_mode.Get(),
 					cs2glaz_bounds_padding_units.Get()};
@@ -125,8 +121,6 @@ namespace cs2glaz
 			cs2glaz_shoulder_rtt_scale.Set(value.shoulder_rtt_scale);
 			cs2glaz_max_shoulder_units.Set(value.max_shoulder_units);
 			cs2glaz_visibility_hold_ms.Set(value.visibility_hold_ms);
-			cs2glaz_debug.Set(value.debug);
-			cs2glaz_debug_los_player.Set(value.debug_los_player);
 			cs2glaz_auto_update.Set(value.automatic_updates);
 			cs2glaz_limited_mode.Set(value.limited_mode);
 			cs2glaz_bounds_padding_units.Set(value.bounds_padding_units);

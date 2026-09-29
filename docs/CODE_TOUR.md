@@ -30,7 +30,7 @@ It explains the intent of the code. The engine and file-format details are still
 
 **CheckTransmit:** the CS2 server step that decides which entity bits are present in one recipient's outgoing snapshot.
 
-**Primary and second lists:** the first two entity-bit lists of a recipient's `CCheckTransmitInfo`. The primary list is what the recipient is sent. On CS2 1.41.8 the second list (the SDK's `m_pTransmitAlways`) also sends its entities, so hiding an entity clears its bit in both lists and sets nothing (`cs2glaz_transmit_mode 2`, the default).
+**Primary and second lists:** the first two entity-bit lists of a recipient's `CCheckTransmitInfo`. The primary list is what the recipient is sent. On CS2 1.41.8 the second list (the SDK's `m_pTransmitAlways`) also sends its entities, so hiding an entity clears its bit in both lists and sets nothing (the only mode).
 
 **Full update:** a refresh chosen by CS2 that sends a recipient complete entity state. CS2GLAZ recognizes it but never requests it.
 

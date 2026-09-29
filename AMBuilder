@@ -132,7 +132,7 @@ plugin.sources += [
   os.path.join(root, 'src', 'plugin', 'transmit.cpp'),
   os.path.join(root, 'src', 'plugin', 'updater.cpp'),
   os.path.join(root, 'src', 'plugin', 'visibility_worker.cpp'),
-  os.path.join(root, 'src', 'plugin', 'wallcheck.cpp'),
+  os.path.join(root, 'src', 'plugin', 'diagnostics.cpp'),
   os.path.join(sdk['path'], 'tier1', 'convar.cpp'),
   os.path.join(sdk['path'], 'public', 'tier0', 'memoverride.cpp'),
 ]
