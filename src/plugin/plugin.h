@@ -242,6 +242,7 @@ namespace cs2glaz
 		bool send_text(uint32_t slot, uint32_t destination, const std::string& text);
 		void print_wallcheck_status() const;
 		void print_why(const std::string& filter);
+		void print_why_probe(const player_state& viewer, const player_state& enemy, const visibility_result& result) const;
 		std::string entity_model_name(CEntityInstance* entity) const;
 		void scan_occluder_candidates(CGameEntitySystem* system);
 		bool read_occluder(CEntityInstance* entity, occluder_kind kind, visibility_occluder& output) const;

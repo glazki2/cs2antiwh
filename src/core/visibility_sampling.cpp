@@ -13,6 +13,7 @@ namespace cs2glaz
 
 		constexpr float k_vertical_origin_offset = 16.0f;
 		constexpr float k_feet_origin_lift = 4.0f;
+		constexpr float k_strafe_speed = 30.0f;
 		constexpr float k_ping_step_ms = 25.0f;
 		constexpr float k_same_point_epsilon_sq = 1.0e-4f;
 		constexpr uint32_t k_wall_clip_steps = 8;
@@ -217,7 +218,15 @@ namespace cs2glaz
 	float visibility_shoulder_offset_units(float rtt_seconds, const visibility_tuning& tuning, bool movement_intent)
 	{
 		const float configured_base = std::max(0.0f, tuning.shoulder_base_units);
-		const float base = movement_intent ? configured_base : configured_base * 0.5f;
+		// A player standing still covers a few units in the time a sighting takes
+		// to reach him (starting from rest), so the ping allowance applies only
+		// while he moves that way; at 77 ms it used to put an idle shoulder 54
+		// units out, enough to look around a corner.
+		if (!movement_intent)
+		{
+			return configured_base * 0.5f;
+		}
+		const float base = configured_base;
 		const float rtt_ms = std::max(0.0f, rtt_seconds) * 1000.0f;
 		const float stepped_ms = std::floor(rtt_ms / k_ping_step_ms) * k_ping_step_ms;
 		const float wanted = base + stepped_ms * std::max(0.0f, tuning.shoulder_rtt_scale);
@@ -327,8 +336,11 @@ namespace cs2glaz
 									- static_cast<float>((player.movement_buttons & k_visibility_button_back) != 0);
 		const float side_input = static_cast<float>((player.movement_buttons & k_visibility_button_right) != 0)
 								 - static_cast<float>((player.movement_buttons & k_visibility_button_left) != 0);
-		const bool left_button = (player.movement_buttons & k_visibility_button_left) != 0;
-		const bool right_button = (player.movement_buttons & k_visibility_button_right) != 0;
+		// A shoulder counts as moving while its key is held or while the player
+		// still slides that way (counter-strafing, releasing the key mid-peek).
+		const float side_speed = player.has_velocity ? player.velocity.x * right_axis.x + player.velocity.y * right_axis.y : 0.0f;
+		const bool left_button = (player.movement_buttons & k_visibility_button_left) != 0 || side_speed < -k_strafe_speed;
+		const bool right_button = (player.movement_buttons & k_visibility_button_right) != 0 || side_speed > k_strafe_speed;
 		const float left_offset = visibility_shoulder_offset_units(player.rtt_seconds, tuning, left_button);
 		const float right_offset = visibility_shoulder_offset_units(player.rtt_seconds, tuning, right_button);
 		const vec3 left = subtract(player.eye, scale(right_axis, left_offset));

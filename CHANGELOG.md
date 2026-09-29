@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.16
+
+- Idle viewing shoulders no longer get the ping allowance. A live `cs2glaz_why` on Dust II showed `rtt=77ms shoulders idle=54`: a player standing still had viewing origins 54 units to each side, enough to look around a corner and receive an enemy nobody could see. The ping allowance now applies to a shoulder only while its key is held or the player still slides that way (lateral speed above 30 u/s, from the pawn velocity); a standing player's shoulders are half the base (24 units by default) at any ping. A player starting to strafe covers only a few units before the next sighting reaches him.
+- The HUD, `cs2glaz_why` and the reveal log no longer hide the real reason behind the reveal hold. The live log showed `VISIBLE (hold)` every time, because a pair reported visible by the hold was re-proven visible every 300 ms but most passes fell inside the hold. They now say what opened the hold (`hold after body from right shoulder`, `удержание после: тело, плечо П`).
+- `cs2glaz_why` re-runs every test from every viewing origin at the moment of the command (without smoke) and prints each origin's position with whether the body, how many of the eight bounds corners and the muzzle are open, so the exact point that sees an enemy is visible in the console.
+
 ## 0.5.15
 
 - An enemy standing near a corner is no longer sent around it. The bounds corners that reveal an enemy a moment before he steps out were padded the same amount on every side (16 units, 32 before 0.5.14), so a player standing still just behind a corner, whom nobody could see, was sent to everyone around it. The padding now follows movement from the pawn's velocity (`m_vecAbsVelocity`) and movement keys: 4 units on every side for a standing player, growing towards where he moves or steers by his speed over 64 ms (two snapshots of interpolation plus a visibility pass), capped by `cs2glaz_bounds_padding_units` (16 units at running speed). Without the velocity field the old uniform padding applies.

@@ -91,6 +91,10 @@ namespace cs2glaz
 		{
 			recipient.fill(std::chrono::steady_clock::time_point {});
 		}
+		for (auto& recipient : revealed_code_)
+		{
+			recipient.fill(0);
+		}
 		{
 			std::lock_guard lock(stats_mutex_);
 			stats_ = {};
@@ -238,6 +242,7 @@ namespace cs2glaz
 			result.smoke_count = current->snapshot.smokes == nullptr ? 0u : static_cast<uint32_t>(current->snapshot.smokes->volumes.size());
 			result.he_clearance_count = current->snapshot.smokes == nullptr ? 0u : current->snapshot.smokes->he_clearance_count;
 			std::copy(std::begin(current->snapshot.players), std::end(current->snapshot.players), std::begin(result.players));
+			result.occluders = current->snapshot.occluders;
 			for (auto& row : result.visible)
 			{
 				std::fill(std::begin(row), std::end(row), true);
@@ -363,6 +368,7 @@ namespace cs2glaz
 				{
 					current.result->visible[recipient][target] = true;
 					current.result->reveal[recipient][target] = visibility_reveal_code(visibility_reveal::hold);
+					current.result->held_reveal[recipient][target] = revealed_code_[recipient][target];
 					++totals.reveal_counts[static_cast<size_t>(visibility_reveal::hold)];
 					++totals.visible_pairs;
 					++totals.hold_reuses;
@@ -457,11 +463,13 @@ namespace cs2glaz
 				if (!blocked)
 				{
 					revealed_until_[recipient][target] = now + std::chrono::milliseconds(current.hold_ms);
+					revealed_code_[recipient][target] = visibility_reveal_code(reveal, reveal_origin);
 				}
 				const bool visible = !blocked || now < revealed_until_[recipient][target];
 				if (blocked && visible)
 				{
 					reveal = visibility_reveal::hold;
+					current.result->held_reveal[recipient][target] = revealed_code_[recipient][target];
 				}
 				current.result->visible[recipient][target] = visible;
 				current.result->reveal[recipient][target] = visibility_reveal_code(reveal, reveal_origin);

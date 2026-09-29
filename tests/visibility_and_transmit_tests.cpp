@@ -408,9 +408,10 @@ namespace
 		assert(std::fabs(visibility_shoulder_offset_units(-1.0f, tuning, false) - 32.0f) < 0.01f);
 		assert(std::fabs(visibility_shoulder_offset_units(0.0f, tuning, false) - 32.0f) < 0.01f);
 		assert(std::fabs(visibility_shoulder_offset_units(0.024f, tuning, false) - 32.0f) < 0.01f);
-		assert(std::fabs(visibility_shoulder_offset_units(0.025f, tuning, false) - 48.0f) < 0.01f);
-		assert(std::fabs(visibility_shoulder_offset_units(0.049f, tuning, false) - 48.0f) < 0.01f);
-		assert(std::fabs(visibility_shoulder_offset_units(0.05f, tuning, false) - 64.0f) < 0.01f);
+		// Idle shoulders get no ping allowance: half the base at any ping.
+		assert(std::fabs(visibility_shoulder_offset_units(0.025f, tuning, false) - 32.0f) < 0.01f);
+		assert(std::fabs(visibility_shoulder_offset_units(0.077f, tuning, false) - 32.0f) < 0.01f);
+		assert(std::fabs(visibility_shoulder_offset_units(0.3f, tuning, false) - 32.0f) < 0.01f);
 		assert(std::fabs(visibility_shoulder_offset_units(0.075f, tuning, true) - 112.0f) < 0.01f);
 		assert(std::fabs(visibility_shoulder_offset_units(0.1f, tuning, true) - 128.0f) < 0.01f);
 		assert(std::fabs(visibility_shoulder_offset_units(0.125f, tuning, true) - 144.0f) < 0.01f);
@@ -436,7 +437,17 @@ namespace
 		assert(origins.roles[0] == visibility_origin_role::eye && origins.roles[4] == visibility_origin_role::feet);
 		player.rtt_seconds = 0.05f;
 		origins = visibility_origins(open, player, tuning);
-		assert(std::fabs(origins.points[1].y - 64.0f) < 0.01f && std::fabs(origins.points[2].y + 64.0f) < 0.01f);
+		assert(std::fabs(origins.points[1].y - 32.0f) < 0.01f && std::fabs(origins.points[2].y + 32.0f) < 0.01f);
+		// Sliding right (no key held) makes the right shoulder a moving one.
+		player.has_velocity = true;
+		player.velocity = {0.0f, -100.0f, 0.0f};
+		origins = visibility_origins(open, player, tuning);
+		assert(std::fabs(origins.points[1].y - 32.0f) < 0.01f && std::fabs(origins.points[2].y + 96.0f) < 0.01f);
+		player.velocity = {0.0f, -20.0f, 0.0f};
+		origins = visibility_origins(open, player, tuning);
+		assert(std::fabs(origins.points[2].y + 32.0f) < 0.01f);
+		player.has_velocity = false;
+		player.velocity = {};
 		player.rtt_seconds = 0.0f;
 
 		player.eye_yaw_degrees = 90.0f;

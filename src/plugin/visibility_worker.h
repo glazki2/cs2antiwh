@@ -131,6 +131,10 @@ namespace cs2glaz
 		uint32_t he_clearance_count {};
 		bool visible[k_max_players][k_max_players] {};
 		uint8_t reveal[k_max_players][k_max_players] {};
+		// The live occluders this result was computed with (for diagnostics).
+		std::vector<visibility_occluder> occluders;
+		// For pairs visible by the hold: the test and origin that started it.
+		uint8_t held_reveal[k_max_players][k_max_players] {};
 		std::array<uint32_t, static_cast<size_t>(visibility_reveal::count)> reveal_counts {};
 		std::array<uint32_t, static_cast<size_t>(visibility_origin_role::count)> reveal_origin_counts {};
 		double worker_ms {};
@@ -297,6 +301,8 @@ namespace cs2glaz
 		std::array<std::array<std::array<uint32_t, k_visibility_origin_count_max>, k_max_players>, k_max_players> cached_packets_ {};
 		std::array<std::array<std::array<capsule_occluder_cache, k_visibility_origin_count_max>, k_max_players>, k_max_players> cached_occluders_ {};
 		std::array<std::array<std::chrono::steady_clock::time_point, k_max_players>, k_max_players> revealed_until_ {};
+		// What last opened each pair's hold, reported while the hold lasts.
+		std::array<std::array<uint8_t, k_max_players>, k_max_players> revealed_code_ {};
 		mutable std::mutex stats_mutex_;
 		worker_stats stats_;
 		std::array<double, 128> recent_worker_ms_ {};

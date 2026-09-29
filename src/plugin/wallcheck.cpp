@@ -12,6 +12,7 @@
 #include <google/protobuf/message.h>
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <iterator>
 #include <string>
@@ -61,13 +62,15 @@ namespace cs2glaz
 		}
 
 		// Why the worker called a pair visible: the test, then the viewing origin.
-		std::string reveal_text(uint8_t code)
+		std::string reveal_text(uint8_t code, uint8_t held = 0)
 		{
 			const char* test = "?";
 			switch (visibility_reveal_test(code))
 			{
 				case visibility_reveal::hold:
-					return "удержание";
+					return visibility_reveal_test(held) == visibility_reveal::none || visibility_reveal_test(held) == visibility_reveal::hold
+							   ? std::string("удержание")
+							   : "удержание после: " + reveal_text(held);
 				case visibility_reveal::body:
 					test = "тело";
 					break;
@@ -116,8 +119,13 @@ namespace cs2glaz
 			return "no data";
 		}
 
-		std::string reveal_name(uint8_t code)
+		std::string reveal_name(uint8_t code, uint8_t held = 0)
 		{
+			if (visibility_reveal_test(code) == visibility_reveal::hold && visibility_reveal_test(held) != visibility_reveal::none
+				&& visibility_reveal_test(held) != visibility_reveal::hold)
+			{
+				return "hold after " + reveal_name(held);
+			}
 			constexpr const char* tests[] = {"hidden", "hold", "body", "bounds corner", "muzzle", "unproven"};
 			constexpr const char* origins[] = {"eye", "left shoulder", "right shoulder", "above head", "feet", "movement"};
 			const auto test = static_cast<size_t>(visibility_reveal_test(code));
@@ -214,7 +222,8 @@ namespace cs2glaz
 				if (seen && !wallcheck_seen_[me].test(enemy))
 				{
 					META_CONPRINTF("[CS2GLAZ] wallcheck: %s now sees %s (%s, %.0f units)\n", player_name(me).c_str(), player_name(enemy).c_str(),
-								   reveal_name(result->reveal[me][enemy]).c_str(), distance_units(result->players[me].eye, result->players[enemy].origin));
+								   reveal_name(result->reveal[me][enemy], result->held_reveal[me][enemy]).c_str(),
+								   distance_units(result->players[me].eye, result->players[enemy].origin));
 				}
 				wallcheck_seen_[me].set(enemy, seen);
 			}
@@ -243,7 +252,8 @@ namespace cs2glaz
 				// Line of sight from the worker (walls and smoke) is shown on its
 				// own, so it stays readable when hide-all withholds everyone.
 				std::string line = player_name(enemy) + ": ";
-				line += result->visible[me][enemy] ? "НА ВИДУ (" + reveal_text(result->reveal[me][enemy]) + ")" : std::string("ЗА СТЕНОЙ");
+				line += result->visible[me][enemy] ? "НА ВИДУ (" + reveal_text(result->reveal[me][enemy], result->held_reveal[me][enemy]) + ")"
+													: std::string("ЗА СТЕНОЙ");
 				line += " | тебе ";
 				line += fresh[me] ? decision_text(decisions[me][enemy]) : "нет данных";
 				if (fresh[enemy])
@@ -318,6 +328,50 @@ namespace cs2glaz
 		}
 	}
 
+	// Re-runs every test from every viewing origin now, without smoke, to show
+	// exactly which one sees the enemy.
+	void plugin::print_why_probe(const player_state& viewer, const player_state& enemy, const visibility_result& result) const
+	{
+		if (data_.nodes.empty() || enemy.capsule_count == 0 || enemy.capsule_count > k_visibility_capsule_count)
+		{
+			return;
+		}
+		const runtime_configuration& configuration = settings::current();
+		const visibility_tuning tuning {configuration.shoulder_base_units, configuration.shoulder_rtt_scale, configuration.max_shoulder_units,
+										configuration.bounds_padding_units};
+		const visibility_player from = visibility_sample(viewer);
+		const visibility_player to = visibility_sample(enemy);
+		const visibility_origin_points origins = visibility_origins(data_, from, tuning, result.occluders);
+		const visibility_target_points points = visibility_clipped_target_points(data_, to, result.occluders, tuning.bounds_padding_units);
+		constexpr const char* roles[] = {"eye", "left shoulder", "right shoulder", "above head", "feet", "movement"};
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+		std::string text;
+		for (uint32_t index = 0; index < origins.count; ++index)
+		{
+			const vec3 origin = origins.points[index];
+			const capsule_query_result body =
+				capsule_visible_from_origin(data_, origin, std::span<const visibility_capsule>(to.capsules.data(), to.capsule_count), nullptr, 0.0f,
+											deadline, nullptr, nullptr, nullptr, result.occluders);
+			uint32_t open_corners = 0;
+			for (const vec3& corner : points.aabb)
+			{
+				open_corners += !segment_blocked(data_, origin, corner).blocked && !occluders_block_segment(result.occluders, origin, corner);
+			}
+			const bool muzzle = points.has_muzzle && !segment_blocked(data_, origin, points.muzzle).blocked
+								&& !occluders_block_segment(result.occluders, origin, points.muzzle);
+			const auto role = static_cast<size_t>(origins.roles[index]);
+			char line[160];
+			std::snprintf(line, sizeof(line), "%s%s(%.0f %.0f %.0f): body %s, corners %u/8, muzzle %s", text.empty() ? "" : "; ",
+						  role < std::size(roles) ? roles[role] : "?", origin.x, origin.y, origin.z,
+						  body == capsule_query_result::blocked	  ? "blocked"
+						  : body == capsule_query_result::visible ? "OPEN"
+																  : "unproven",
+						  open_corners, !points.has_muzzle ? "-" : (muzzle ? "OPEN" : "blocked"));
+			text += line;
+		}
+		META_CONPRINTF("[CS2GLAZ] why:     now, without smoke: %s\n", text.c_str());
+	}
+
 	void plugin::print_why(const std::string& filter)
 	{
 		CGameEntitySystem* system = entity_system();
@@ -367,8 +421,9 @@ namespace cs2glaz
 				}
 				META_CONPRINTF("[CS2GLAZ] why:   %s: %.0f units, line of sight %s (%s), you receive him: %s, he receives you: %s\n",
 							   slot_name(system, enemy).c_str(), distance_units(player.eye, result->players[enemy].origin),
-							   result->visible[me][enemy] ? "VISIBLE" : "blocked", reveal_name(result->reveal[me][enemy]).c_str(),
+							   result->visible[me][enemy] ? "VISIBLE" : "blocked", reveal_name(result->reveal[me][enemy], result->held_reveal[me][enemy]).c_str(),
 							   fresh[me] ? decision_name(decisions[me][enemy]) : "no data", fresh[enemy] ? decision_name(decisions[enemy][me]) : "no data");
+				print_why_probe(player, result->players[enemy], *result);
 			}
 		}
 		if (shown == 0)
