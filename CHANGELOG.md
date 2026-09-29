@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.10
+
+- An enemy standing near a thin wall is no longer sent through it. Besides the body, the visibility check tests a few extra points around an enemy so that a peek is revealed a moment early: the corners of his bounds padded by 32 units (48 units from his centre) and his weapon muzzle (up to 52 units ahead). These points were not stopped by walls, so within about 45 units of a wall thinner than that, a corner or the muzzle ended on the other side and anyone there "saw" it. A live test matched: the wallhack worked right behind a wall but not a bit farther away or behind a thicker wall. Each corner is now clipped on the segment from the enemy's body centre and the muzzle on the segment from his eye, so only space he could actually reach counts; in the open the points are unchanged. The points are computed once per enemy per visibility pass, and the line-of-sight debug beams show the clipped points.
+
 ## 0.5.9
 
 - The wall-check HUD now shows line of sight on its own: each enemy line starts with `НА ВИДУ` or `ЗА СТЕНОЙ` (walls and smoke, from the visibility worker), followed by the transmit decision in both directions. With `cs2glaz_hide_all_enemies 1` every transmit decision reads `СКРЫТ` by design, which made the HUD look broken; the header now says hide-all is on and the line-of-sight part still changes.

@@ -53,6 +53,7 @@ namespace cs2glaz
 		uint32_t recipient_start {};
 		uint32_t target_start {};
 		std::array<visibility_origin_points, k_max_players> recipient_origins {};
+		std::array<visibility_target_points, k_max_players> target_points {};
 		std::shared_ptr<visibility_result> result;
 		std::atomic<uint32_t> next_recipient {};
 		std::atomic_bool budget_exhausted {};
@@ -247,8 +248,9 @@ namespace cs2glaz
 				}
 				if (current->snapshot.players[recipient].valid)
 				{
-					current->recipient_origins[recipient] =
-						visibility_origins(*data_, visibility_sample(current->snapshot.players[recipient]), tuning);
+					const visibility_player sample = visibility_sample(current->snapshot.players[recipient]);
+					current->recipient_origins[recipient] = visibility_origins(*data_, sample, tuning);
+					current->target_points[recipient] = visibility_clipped_target_points(*data_, sample);
 				}
 			}
 
@@ -358,10 +360,10 @@ namespace cs2glaz
 				}
 				// Animated capture supplies all 19 capsules; limited mode supplies the hull body.
 				bool blocked = to.capsule_count != 0 && to.capsule_count <= k_visibility_capsule_count;
-				const visibility_player target_sample = visibility_sample(to);
-				vec3 muzzle;
-				const bool has_muzzle = visibility_muzzle_point(target_sample, muzzle);
-				const auto aabb_points = visibility_aabb_points(target_sample);
+				const visibility_target_points& target_points = current.target_points[target];
+				const vec3& muzzle = target_points.muzzle;
+				const bool has_muzzle = target_points.has_muzzle;
+				const auto& aabb_points = target_points.aabb;
 				for (uint32_t origin_index = 0; blocked && origin_index < ray_origins.count; ++origin_index)
 				{
 					const vec3& origin = ray_origins.points[origin_index];

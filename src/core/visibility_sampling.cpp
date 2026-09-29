@@ -357,4 +357,22 @@ namespace cs2glaz
 				 {maximum.x, maximum.y, maximum.z}}};
 	}
 
+	visibility_target_points visibility_clipped_target_points(const bvh8_data& data, const visibility_player& player)
+	{
+		visibility_target_points points;
+		const vec3 centre {player.origin.x, player.origin.y, player.origin.z + 0.5f * (player.mins.z + player.maxs.z)};
+		const std::array<vec3, k_visibility_aabb_point_count> corners = visibility_aabb_points(player);
+		for (uint32_t index = 0; index < corners.size(); ++index)
+		{
+			points.aabb[index] = visibility_clip_destination(data, centre, corners[index]);
+		}
+		vec3 muzzle;
+		points.has_muzzle = visibility_muzzle_point(player, muzzle);
+		if (points.has_muzzle)
+		{
+			points.muzzle = visibility_clip_destination(data, player.eye, muzzle);
+		}
+		return points;
+	}
+
 } // namespace cs2glaz

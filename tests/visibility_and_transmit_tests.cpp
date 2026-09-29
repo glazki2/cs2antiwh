@@ -525,6 +525,34 @@ namespace
 		target.maxs.z = 54.0f;
 		assert(visibility_muzzle_point(target, muzzle));
 		assert(muzzle.z < 50.0f && muzzle.z > 45.0f);
+		target.maxs.z = 72.0f;
+
+		// A thin wall 20 units from a target: the padded corners (x = 48) and the
+		// rifle muzzle (x = 36) end beyond it, so a viewer on the far side would
+		// see them. Clipped, they stay on the target's side and the viewer's
+		// rays to them hit the wall; with no wall they are unchanged.
+		target.eye = {0, 0, 64};
+		const bvh8_data thin_wall =
+			test_world({{{20, -200, -200}, {20, 200, -200}, {20, -200, 200}}, {{20, 200, 200}, {20, -200, 200}, {20, 200, -200}}});
+		const vec3 far_viewer {100, 0, 64};
+		const visibility_target_points near_wall = visibility_clipped_target_points(thin_wall, target);
+		assert(near_wall.has_muzzle && near_wall.muzzle.x < 20.0f);
+		assert(segment_blocked(thin_wall, far_viewer, near_wall.muzzle).blocked);
+		bool corner_leaks = false;
+		for (uint32_t index = 0; index < aabb.size(); ++index)
+		{
+			corner_leaks = corner_leaks || !segment_blocked(thin_wall, far_viewer, aabb[index]).blocked;
+			assert(near_wall.aabb[index].x < 20.0f);
+			assert(segment_blocked(thin_wall, far_viewer, near_wall.aabb[index]).blocked);
+		}
+		assert(corner_leaks);
+		const visibility_target_points in_open = visibility_clipped_target_points(open, target);
+		for (uint32_t index = 0; index < aabb.size(); ++index)
+		{
+			assert(in_open.aabb[index].x == aabb[index].x && in_open.aabb[index].y == aabb[index].y && in_open.aabb[index].z == aabb[index].z);
+		}
+		assert(in_open.has_muzzle && std::fabs(in_open.muzzle.x - 36.0f) < 0.01f);
+		target.eye = {};
 
 		visibility_bone_transform identity {{10.0f, 20.0f, 30.0f}, {0.0f, 0.0f, 0.0f, 1.0f}};
 		vec3 transformed;

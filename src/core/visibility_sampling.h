@@ -79,6 +79,15 @@ namespace cs2glaz
 		float max_shoulder_units {};
 	};
 
+	// Extra target points beyond the body: padded bounds corners and the weapon
+	// muzzle, each pulled back to the target's side of any wall in between.
+	struct visibility_target_points
+	{
+		std::array<vec3, k_visibility_aabb_point_count> aabb {};
+		vec3 muzzle {};
+		bool has_muzzle {};
+	};
+
 	struct visibility_origin_points
 	{
 		std::array<vec3, k_visibility_origin_count_max> points {};
@@ -98,5 +107,11 @@ namespace cs2glaz
 	visibility_origin_points visibility_origins(const bvh8_data& data, const visibility_player& player, const visibility_tuning& tuning);
 	bool visibility_muzzle_point(const visibility_player& player, vec3& point);
 	std::array<vec3, k_visibility_aabb_point_count> visibility_aabb_points(const visibility_player& player);
+	// The padded corners reach 48 units from the centre and the muzzle up to 52
+	// units ahead, so near a thin wall they end on its far side, where any
+	// viewer there sees them and the target is sent through the wall. Each point
+	// is clipped on the segment from the body centre (corners) or the eye
+	// (muzzle), so only space the target could actually reach counts.
+	visibility_target_points visibility_clipped_target_points(const bvh8_data& data, const visibility_player& player);
 
 } // namespace cs2glaz

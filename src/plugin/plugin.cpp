@@ -847,9 +847,20 @@ namespace cs2glaz
 
 		last_los_debug_draw_ = value.captured;
 		const uint32_t capsule_count = player.capsule_count == k_visibility_capsule_count ? player.capsule_count : 0u;
-		vec3 muzzle;
-		const bool has_muzzle = visibility_muzzle_point(visibility_sample(player), muzzle);
-		const auto aabb_points = visibility_aabb_points(visibility_sample(player));
+		// Draw the points the worker tests: clipped at walls once geometry is loaded.
+		visibility_target_points target_points;
+		if (data_.nodes.empty())
+		{
+			target_points.has_muzzle = visibility_muzzle_point(visibility_sample(player), target_points.muzzle);
+			target_points.aabb = visibility_aabb_points(visibility_sample(player));
+		}
+		else
+		{
+			target_points = visibility_clipped_target_points(data_, visibility_sample(player));
+		}
+		const vec3 muzzle = target_points.muzzle;
+		const bool has_muzzle = target_points.has_muzzle;
+		const auto& aabb_points = target_points.aabb;
 		const uint32_t aabb_start = capsule_count + static_cast<uint32_t>(has_muzzle);
 		const uint32_t debug_count = aabb_start + (capsule_count == 0 ? 0u : k_visibility_aabb_point_count);
 		auto create_entity = reinterpret_cast<create_entity_by_name_fn>(compatibility_.create_entity_by_name());
