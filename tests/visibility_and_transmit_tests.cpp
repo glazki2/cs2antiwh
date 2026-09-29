@@ -432,7 +432,8 @@ namespace
 		assert(std::fabs(origins.points[1].y - 32.0f) < 0.01f);
 		assert(std::fabs(origins.points[2].y + 32.0f) < 0.01f);
 		assert(std::fabs(origins.points[3].z - 80.0f) < 0.01f);
-		assert(origins.points[4].x == player.origin.x && origins.points[4].y == player.origin.y && origins.points[4].z == player.origin.z);
+		assert(origins.points[4].x == player.origin.x && origins.points[4].y == player.origin.y && origins.points[4].z == player.origin.z + 4.0f);
+		assert(origins.roles[0] == visibility_origin_role::eye && origins.roles[4] == visibility_origin_role::feet);
 		player.rtt_seconds = 0.05f;
 		origins = visibility_origins(open, player, tuning);
 		assert(std::fabs(origins.points[1].y - 64.0f) < 0.01f && std::fabs(origins.points[2].y + 64.0f) < 0.01f);
@@ -511,7 +512,7 @@ namespace
 		target.maxs = {16, 16, 72};
 		target.muzzle_class = weapon_muzzle_class::rifle;
 		const auto aabb = visibility_aabb_points(target);
-		assert(aabb.size() == 8 && aabb.front().x == -48.0f && aabb.front().z == 0.0f && aabb.back().x == 48.0f && aabb.back().z == 80.0f);
+		assert(aabb.size() == 8 && aabb.front().x == -48.0f && aabb.front().z == 2.0f && aabb.back().x == 48.0f && aabb.back().z == 80.0f);
 		vec3 muzzle;
 		assert(visibility_muzzle_point(target, muzzle));
 		assert(std::fabs(muzzle.x - 36.0f) < 0.01f && std::fabs(muzzle.y) < 0.01f && std::fabs(muzzle.z - 60.0f) < 0.01f);
@@ -677,6 +678,11 @@ namespace
 					const float fz = static_cast<float>(iz) / k_steps;
 					const vec3 point {origin.x + mins.x + (maxs.x - mins.x) * fx, origin.y + mins.y + (maxs.y - mins.y) * fy,
 									  origin.z + mins.z + (maxs.z - mins.z) * fz};
+					// The lowest band (one radius) is only covered near column centres.
+					if (point.z < origin.z + mins.z + capsules[0].radius + 0.5f)
+					{
+						continue;
+					}
 					bool covered = false;
 					for (uint32_t index = 0; index < k_visibility_hull_capsule_count && !covered; ++index)
 					{
@@ -689,7 +695,9 @@ namespace
 		for (uint32_t index = 0; index < k_visibility_hull_capsule_count; ++index)
 		{
 			assert(valid_visibility_capsule(capsules[index]) && capsules[index].radius <= 9.0f);
-			assert(capsules[index].start.z == origin.z + mins.z && capsules[index].end.z == origin.z + maxs.z);
+			assert(capsules[index].end.z == origin.z + maxs.z);
+			// Nothing reaches below the feet, where a thin floor would not hide it.
+			assert(capsules[index].start.z - capsules[index].radius >= origin.z + mins.z + 0.49f);
 		}
 		const float nan = std::numeric_limits<float>::quiet_NaN();
 		assert(visibility_hull_capsules(origin, maxs, mins, capsules) == 0);
@@ -706,6 +714,25 @@ namespace
 		const bvh8_data low_wall =
 			test_world({{{64, -200, -100}, {64, 200, -100}, {64, -200, 40}}, {{64, 200, 40}, {64, -200, 40}, {64, 200, -100}}});
 		assert(capsule_visible_from_origin(low_wall, viewer, body, nullptr, 0.0f, deadline) == capsule_query_result::visible);
+
+		// A player standing on a thin floor, seen from the level below: the hull
+		// body and the bounds corners no longer reach under his feet.
+		const bvh8_data thin_floor =
+			test_world({{{-400, -400, 0}, {400, -400, 0}, {-400, 400, 0}}, {{400, 400, 0}, {-400, 400, 0}, {400, -400, 0}}});
+		const uint32_t upstairs_count = visibility_hull_capsules({0.0f, 0.0f, 0.0f}, mins, maxs, capsules);
+		const vec3 downstairs {150.0f, 0.0f, -60.0f};
+		assert(capsule_visible_from_origin(thin_floor, downstairs, std::span<const visibility_capsule>(capsules.data(), upstairs_count), nullptr, 0.0f,
+										   deadline)
+			   == capsule_query_result::blocked);
+		visibility_player upstairs {};
+		upstairs.origin = {0.0f, 0.0f, 0.0f};
+		upstairs.eye = {0.0f, 0.0f, 64.0f};
+		upstairs.mins = mins;
+		upstairs.maxs = maxs;
+		for (const vec3& corner : visibility_clipped_target_points(thin_floor, upstairs).aabb)
+		{
+			assert(segment_blocked(thin_floor, downstairs, corner).blocked);
+		}
 
 		// A viewing origin at a wall (the movement origin is clipped to 0.25 units
 		// from it) and an enemy just behind it: the body 24 units away does not fit

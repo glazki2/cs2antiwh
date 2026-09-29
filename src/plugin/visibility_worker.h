@@ -82,6 +82,37 @@ namespace cs2glaz
 		player_state players[k_max_players];
 	};
 
+	// What made a pair visible, for diagnostics (the wall-check HUD and metrics).
+	enum class visibility_reveal : uint8_t
+	{
+		none,	   // hidden
+		hold,	   // seen within cs2glaz_visibility_hold_ms
+		body,	   // the body capsules
+		corner,	   // a padded bounds corner
+		muzzle,	   // the weapon muzzle
+		uncertain, // not provable (no body, budget, geometry), revealed to be safe
+		count
+	};
+
+	inline constexpr uint8_t k_visibility_reveal_no_origin = 0x0fu;
+
+	// Packs the test and the viewing origin role that revealed a pair.
+	inline uint8_t visibility_reveal_code(visibility_reveal reveal, uint8_t origin_role = k_visibility_reveal_no_origin)
+	{
+		return static_cast<uint8_t>(static_cast<uint8_t>(reveal) | static_cast<uint8_t>(origin_role << 4u));
+	}
+
+	inline visibility_reveal visibility_reveal_test(uint8_t code)
+	{
+		const uint8_t test = code & 0x0fu;
+		return test < static_cast<uint8_t>(visibility_reveal::count) ? static_cast<visibility_reveal>(test) : visibility_reveal::none;
+	}
+
+	inline uint8_t visibility_reveal_origin(uint8_t code)
+	{
+		return static_cast<uint8_t>(code >> 4u);
+	}
+
 	struct visibility_result
 	{
 		uint64_t sequence {};
@@ -94,6 +125,9 @@ namespace cs2glaz
 		uint32_t smoke_count {};
 		uint32_t he_clearance_count {};
 		bool visible[k_max_players][k_max_players] {};
+		uint8_t reveal[k_max_players][k_max_players] {};
+		std::array<uint32_t, static_cast<size_t>(visibility_reveal::count)> reveal_counts {};
+		std::array<uint32_t, static_cast<size_t>(visibility_origin_role::count)> reveal_origin_counts {};
 		double worker_ms {};
 		double worker_active_ms {};
 		uint32_t evaluated_pairs {};
@@ -214,6 +248,10 @@ namespace cs2glaz
 		uint32_t cache_compaction_leaves_saved {};
 		uint32_t uncached_blocked {};
 		uint64_t budget_exhaustions {};
+		// Summed over every pass: what revealed the visible pairs, and from which
+		// viewing origin (rays only).
+		std::array<uint64_t, static_cast<size_t>(visibility_reveal::count)> reveal_counts {};
+		std::array<uint64_t, static_cast<size_t>(visibility_origin_role::count)> reveal_origin_counts {};
 	};
 
 	class visibility_worker

@@ -15,9 +15,9 @@ namespace cs2glaz
 		bool filter_teammates {};
 		int update_interval_ms {1};
 		int worker_threads {2};
-		float shoulder_base_units {64.0f};
-		float shoulder_rtt_scale {0.64f};
-		float max_shoulder_units {};
+		float shoulder_base_units {48.0f};
+		float shoulder_rtt_scale {0.4f};
+		float max_shoulder_units {128.0f};
 		int visibility_hold_ms {300};
 		bool debug {};
 		int debug_los_player {};

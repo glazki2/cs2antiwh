@@ -30,13 +30,13 @@ namespace cs2glaz
 										   on_convar_changed<int>);
 	CConVar<int> cs2glaz_worker_threads("cs2glaz_worker_threads", FCVAR_NONE, "Visibility worker thread count (applies on map activation)", 2, true, 1,
 									   true, 4, on_convar_changed<int>);
-	CConVar<float> cs2glaz_shoulder_base_units("cs2glaz_shoulder_base_units", FCVAR_NONE, "Minimum sideways shoulder origin distance", 64.0f, true,
+	CConVar<float> cs2glaz_shoulder_base_units("cs2glaz_shoulder_base_units", FCVAR_NONE, "Minimum sideways shoulder origin distance", 48.0f, true,
 											  0.0f, true, 256.0f, on_convar_changed<float>);
 	CConVar<float> cs2glaz_shoulder_rtt_scale("cs2glaz_shoulder_rtt_scale", FCVAR_NONE,
-											 "Sideways shoulder units per RTT millisecond, applied in 25 ms steps", 0.64f, true, 0.0f, true, 4.0f,
+											 "Sideways shoulder units per RTT millisecond, applied in 25 ms steps", 0.4f, true, 0.0f, true, 4.0f,
 											 on_convar_changed<float>);
 	CConVar<float> cs2glaz_max_shoulder_units("cs2glaz_max_shoulder_units", FCVAR_NONE, "Maximum sideways shoulder origin distance; 0 disables the cap",
-											 0.0f, true, 0.0f, true, 256.0f, on_convar_changed<float>);
+											 128.0f, true, 0.0f, true, 256.0f, on_convar_changed<float>);
 	CConVar<int> cs2glaz_visibility_hold_ms("cs2glaz_visibility_hold_ms", FCVAR_NONE, "Minimum revealed duration", 300, true, 0, true, 1000,
 										   on_convar_changed<int>);
 	CConVar<bool> cs2glaz_debug("cs2glaz_debug", FCVAR_NONE, "Enable CS2GLAZ diagnostic logging", false, on_convar_changed<bool>);

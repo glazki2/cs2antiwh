@@ -12,6 +12,7 @@
 #include <google/protobuf/message.h>
 
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -56,6 +57,35 @@ namespace cs2glaz
 					break;
 			}
 			return "нет данных";
+		}
+
+		// Why the worker called a pair visible: the test, then the viewing origin.
+		std::string reveal_text(uint8_t code)
+		{
+			const char* test = "?";
+			switch (visibility_reveal_test(code))
+			{
+				case visibility_reveal::hold:
+					return "удержание";
+				case visibility_reveal::body:
+					test = "тело";
+					break;
+				case visibility_reveal::corner:
+					test = "угол рамки";
+					break;
+				case visibility_reveal::muzzle:
+					test = "ствол";
+					break;
+				case visibility_reveal::uncertain:
+					test = "не доказано";
+					break;
+				case visibility_reveal::none:
+				case visibility_reveal::count:
+					return "";
+			}
+			constexpr const char* origins[] = {"глаза", "плечо Л", "плечо П", "над головой", "ноги", "шаг"};
+			const uint8_t origin = visibility_reveal_origin(code);
+			return origin < std::size(origins) ? std::string(test) + ", " + origins[origin] : std::string(test);
 		}
 
 	} // namespace
@@ -143,7 +173,7 @@ namespace cs2glaz
 				// Line of sight from the worker (walls and smoke) is shown on its
 				// own, so it stays readable when hide-all withholds everyone.
 				std::string line = player_name(enemy) + ": ";
-				line += result->visible[me][enemy] ? "НА ВИДУ" : "ЗА СТЕНОЙ";
+				line += result->visible[me][enemy] ? "НА ВИДУ (" + reveal_text(result->reveal[me][enemy]) + ")" : std::string("ЗА СТЕНОЙ");
 				line += " | тебе ";
 				line += fresh[me] ? decision_text(decisions[me][enemy]) : "нет данных";
 				if (fresh[enemy])

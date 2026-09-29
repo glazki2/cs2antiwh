@@ -1117,6 +1117,13 @@ namespace cs2glaz
 			stats.evaluated_pairs, stats.visible_pairs, stats.hidden_pairs, stats.hold_reuses, stats.sampled_pixels, stats.traced_rays,
 			stats.visited_nodes, stats.rasterized_triangles, stats.occluder_cache_hits, stats.occluder_cache_hits + stats.occluder_cache_misses,
 			static_cast<unsigned long long>(stats.budget_exhaustions), static_cast<unsigned long long>(stats.cycles));
+		const auto count = [](uint64_t value) { return static_cast<unsigned long long>(value); };
+		const auto& reveals = stats.reveal_counts;
+		const auto& origins = stats.reveal_origin_counts;
+		META_CONPRINTF("[CS2GLAZ] reveals hold=%llu body=%llu corner=%llu muzzle=%llu uncertain=%llu; by origin eye=%llu left=%llu right=%llu "
+					   "above=%llu feet=%llu movement=%llu\n",
+					   count(reveals[1]), count(reveals[2]), count(reveals[3]), count(reveals[4]), count(reveals[5]), count(origins[0]),
+					   count(origins[1]), count(origins[2]), count(origins[3]), count(origins[4]), count(origins[5]));
 		const double average_proof_leaves =
 			stats.rebuilt_proofs == 0 ? 0.0 : static_cast<double>(stats.rebuilt_proof_leaves) / static_cast<double>(stats.rebuilt_proofs);
 		META_CONPRINTF("[CS2GLAZ] MOC draws=%u rects=%u proofs=%u proof_leaves=%.1f/%u cache_capacity=%u saturated=%u compact=%u/%u saved=%u "

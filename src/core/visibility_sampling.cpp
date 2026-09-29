@@ -12,6 +12,7 @@ namespace cs2glaz
 	{
 
 		constexpr float k_vertical_origin_offset = 16.0f;
+		constexpr float k_feet_origin_lift = 4.0f;
 		constexpr float k_ping_step_ms = 25.0f;
 		constexpr float k_same_point_epsilon_sq = 1.0e-4f;
 		constexpr uint32_t k_wall_clip_steps = 8;
@@ -21,6 +22,11 @@ namespace cs2glaz
 		constexpr float k_muzzle_z = 60.0f;
 		constexpr float k_horizontal_bounds_padding = 32.0f;
 		constexpr float k_top_bounds_padding = 8.0f;
+		// Bounds corners and the hull body's lowest point stay this far above the
+		// feet, so a point never lies on the floor surface, which a ray from below
+		// ending there does not count as crossed.
+		constexpr float k_bottom_bounds_lift = 2.0f;
+		constexpr float k_hull_floor_clearance = 0.5f;
 
 		float distance_sq(vec3 a, vec3 b)
 		{
@@ -86,7 +92,7 @@ namespace cs2glaz
 					player.origin.z + adjusted_local_z(player, local.z)};
 		}
 
-		void add_origin(visibility_origin_points& origins, vec3 point)
+		void add_origin(visibility_origin_points& origins, vec3 point, visibility_origin_role role)
 		{
 			for (uint32_t index = 0; index < origins.count; ++index)
 			{
@@ -97,6 +103,7 @@ namespace cs2glaz
 			}
 			if (origins.count < origins.points.size())
 			{
+				origins.roles[origins.count] = role;
 				origins.points[origins.count++] = point;
 			}
 		}
@@ -171,10 +178,17 @@ namespace cs2glaz
 		const float cell_y = width_y / grid;
 		// Half the cell diagonal reaches every point of the cell from its centre, so
 		// each vertical capsule covers its column of the hull; 0.5 units absorbs
-		// rounding. The caps add the same radius above the head and below the feet.
+		// rounding. The top cap adds the radius above the head. The bottom cap is
+		// raised to end just above the feet: below them it went through thin floors
+		// and revealed the player to anyone underneath. Only the lowest band of the
+		// hull's outer corners is left uncovered, where a player has no body.
 		const float radius = 0.5f * std::sqrt(cell_x * cell_x + cell_y * cell_y) + 0.5f;
-		const float bottom = origin.z + mins.z;
+		const float bottom = origin.z + mins.z + radius + k_hull_floor_clearance;
 		const float top = origin.z + maxs.z;
+		if (bottom >= top)
+		{
+			return 0;
+		}
 		uint32_t count = 0;
 		for (uint32_t column = 0; column < k_visibility_hull_capsule_grid; ++column)
 		{
@@ -312,11 +326,14 @@ namespace cs2glaz
 		const vec3 left = subtract(player.eye, scale(right_axis, left_offset));
 		const vec3 right = add(player.eye, scale(right_axis, right_offset));
 		const vec3 vertical {0.0f, 0.0f, k_vertical_origin_offset};
-		add_origin(origins, player.eye);
-		add_origin(origins, safe_origin(data, player.eye, left));
-		add_origin(origins, safe_origin(data, player.eye, right));
-		add_origin(origins, safe_origin(data, player.eye, add(player.eye, vertical)));
-		add_origin(origins, player.origin);
+		add_origin(origins, player.eye, visibility_origin_role::eye);
+		add_origin(origins, safe_origin(data, player.eye, left), visibility_origin_role::left_shoulder);
+		add_origin(origins, safe_origin(data, player.eye, right), visibility_origin_role::right_shoulder);
+		add_origin(origins, safe_origin(data, player.eye, add(player.eye, vertical)), visibility_origin_role::above);
+		// The origin sits on the floor surface and can round to just under it, where
+		// rays pass below a thin floor to the level beneath; lift it and require a
+		// clear line from the eye like the other origins.
+		add_origin(origins, safe_origin(data, player.eye, add(player.origin, {0.0f, 0.0f, k_feet_origin_lift})), visibility_origin_role::feet);
 
 		// Pure A/D already has the matching ping-scaled shoulder origin.
 		if (forward_input != 0.0f)
@@ -325,7 +342,7 @@ namespace cs2glaz
 			const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
 			const float movement_offset = visibility_shoulder_offset_units(player.rtt_seconds, tuning, true);
 			direction = scale(direction, movement_offset / length);
-			add_origin(origins, visibility_clip_destination(data, player.eye, add(player.eye, direction)));
+			add_origin(origins, visibility_clip_destination(data, player.eye, add(player.eye, direction)), visibility_origin_role::movement);
 		}
 		return origins;
 	}
@@ -344,7 +361,7 @@ namespace cs2glaz
 	std::array<vec3, k_visibility_aabb_point_count> visibility_aabb_points(const visibility_player& player)
 	{
 		const vec3 minimum {player.origin.x + player.mins.x - k_horizontal_bounds_padding,
-							player.origin.y + player.mins.y - k_horizontal_bounds_padding, player.origin.z + player.mins.z};
+							player.origin.y + player.mins.y - k_horizontal_bounds_padding, player.origin.z + player.mins.z + k_bottom_bounds_lift};
 		const vec3 maximum {player.origin.x + player.maxs.x + k_horizontal_bounds_padding,
 							player.origin.y + player.maxs.y + k_horizontal_bounds_padding, player.origin.z + player.maxs.z + k_top_bounds_padding};
 		return {{{minimum.x, minimum.y, minimum.z},

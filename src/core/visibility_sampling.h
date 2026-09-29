@@ -88,9 +88,22 @@ namespace cs2glaz
 		bool has_muzzle {};
 	};
 
+	// Which viewing origin a point is, for diagnostics.
+	enum class visibility_origin_role : uint8_t
+	{
+		eye,
+		left_shoulder,
+		right_shoulder,
+		above,
+		feet,
+		movement,
+		count
+	};
+
 	struct visibility_origin_points
 	{
 		std::array<vec3, k_visibility_origin_count_max> points {};
+		std::array<visibility_origin_role, k_visibility_origin_count_max> roles {};
 		uint32_t count {};
 	};
 
@@ -101,8 +114,9 @@ namespace cs2glaz
 	bool visibility_transform_point(const visibility_bone_transform& transform, vec3 local, vec3& world);
 	bool valid_visibility_capsule(const visibility_capsule& capsule);
 	// Conservative body for builds without verified bone access: vertical capsules
-	// on a 3x3 grid whose union contains the whole collision hull. Returns 0 when
-	// the bounds are unusable, which leaves the target visible.
+	// on a 3x3 grid whose union contains the collision hull above its lowest band
+	// and never reaches below the feet. Returns 0 when the bounds are unusable,
+	// which leaves the target visible.
 	uint32_t visibility_hull_capsules(vec3 origin, vec3 mins, vec3 maxs, std::array<visibility_capsule, k_visibility_capsule_count>& capsules);
 	visibility_origin_points visibility_origins(const bvh8_data& data, const visibility_player& player, const visibility_tuning& tuning);
 	bool visibility_muzzle_point(const visibility_player& player, vec3& point);

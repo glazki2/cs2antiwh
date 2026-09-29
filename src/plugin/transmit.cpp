@@ -28,9 +28,17 @@ namespace cs2glaz
 		// Diagnostic only: withholds every enemy even in plain view, and drops every
 		// enemy from the radar, to show what still reaches a cheat through other
 		// channels. It breaks normal play, is not saved in cs2glaz.cfg, and resets
-		// to 0 on restart. Spawn/death safety windows and full updates still apply.
+		// to 0 on restart. Spawn/death safety windows still apply.
 		CConVar<bool> cs2glaz_hide_all_enemies("cs2glaz_hide_all_enemies", FCVAR_NONE,
 											   "Diagnostic: hide every enemy even in plain view (breaks normal play; resets on restart)", false);
+
+		// A full update is a snapshot the client rebuilds its entities from; what it
+		// lacks the client simply does not create, as with ordinary PVS culling.
+		// A client can force one (starting a demo recording, or a forged message
+		// from a cheat), so sending every enemy in it handed a wallhack everyone on
+		// demand. 0 restores the old unfiltered full updates.
+		CConVar<bool> cs2glaz_filter_full_updates("cs2glaz_filter_full_updates", FCVAR_NONE,
+												  "Filter enemies in client full updates too (0 sends everyone in them, the old behaviour)", true);
 
 		// Clears one entity bit in a list the probe proved to be an entity bit
 		// list, through guarded memory access so a wrong guess cannot fault.
@@ -491,8 +499,9 @@ namespace cs2glaz
 	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats)
 	{
 		const auto value = [](uint64_t count) { return static_cast<unsigned long long>(count); };
-		META_CONPRINTF("[CS2GLAZ] %s recipient snapshots: filtered=%llu full_update=%llu recipient_spawning_or_dying=%llu\n", scope,
-					   value(stats.filtered_snapshots), value(stats.full_update_snapshots), value(stats.changing_recipient_snapshots));
+		META_CONPRINTF("[CS2GLAZ] %s recipient snapshots: filtered=%llu full_update=%llu (filtered %llu) recipient_spawning_or_dying=%llu\n", scope,
+					   value(stats.filtered_snapshots), value(stats.full_update_snapshots), value(stats.full_update_filtered),
+					   value(stats.changing_recipient_snapshots));
 		META_CONPRINTF("[CS2GLAZ] %s enemy pairs: hidden=%llu in_view=%llu shown_because enemy_spawning_or_dying=%llu baseline=%llu "
 					   "attachment=%llu weapons_unlisted=%llu\n",
 					   scope, value(stats.hidden), value(stats.in_view), value(stats.changing_target), value(stats.baseline),
@@ -597,6 +606,7 @@ namespace cs2glaz
 		{
 			transmit_withheld_.ClearAll();
 		}
+		const bool filter_full_updates = cs2glaz_filter_full_updates.Get();
 		for (int i = 0; i < count; ++i)
 		{
 			CCheckTransmitInfo* info = infos[i];
@@ -607,6 +617,12 @@ namespace cs2glaz
 			if (probing)
 			{
 				++transmit_probe_.full_updates;
+			}
+			// A filtered full update leaves hidden entities off the client, so the
+			// stored groups stay true; an unfiltered one sends them all.
+			if (filter_full_updates)
+			{
+				continue;
 			}
 			int slot = -1;
 			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
@@ -692,9 +708,13 @@ namespace cs2glaz
 			if (read_checktransmit_full_update(info, compatibility_.transmit_offsets().full_update_offset))
 			{
 				note(&transmit_decision_stats::full_update_snapshots);
-				recipient_decided_at_[slot] = now;
-				pair_decisions_[slot].fill(pair_decision::full_update);
-				continue;
+				if (!filter_full_updates)
+				{
+					recipient_decided_at_[slot] = now;
+					pair_decisions_[slot].fill(pair_decision::full_update);
+					continue;
+				}
+				note(&transmit_decision_stats::full_update_filtered);
 			}
 			const player_state& recipient = result->players[slot];
 			if (transmit_target_cache_[slot].pawn == nullptr)

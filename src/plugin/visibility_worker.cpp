@@ -38,6 +38,8 @@ namespace cs2glaz
 			uint32_t cache_compactions {};
 			uint32_t cache_compaction_leaves_saved {};
 			uint32_t uncached_blocked {};
+			std::array<uint32_t, static_cast<size_t>(visibility_reveal::count)> reveal_counts {};
+			std::array<uint32_t, static_cast<size_t>(visibility_origin_role::count)> reveal_origin_counts {};
 		};
 
 	} // namespace
@@ -240,6 +242,11 @@ namespace cs2glaz
 			{
 				std::fill(std::begin(row), std::end(row), true);
 			}
+			// Pairs the budget leaves unevaluated stay visible, as uncertain.
+			for (auto& row : result.reveal)
+			{
+				std::fill(std::begin(row), std::end(row), visibility_reveal_code(visibility_reveal::uncertain));
+			}
 			for (uint32_t recipient = 0; recipient < k_max_players; ++recipient)
 			{
 				if (stopping_.load())
@@ -354,12 +361,16 @@ namespace cs2glaz
 				if (pair_started < revealed_until_[recipient][target])
 				{
 					current.result->visible[recipient][target] = true;
+					current.result->reveal[recipient][target] = visibility_reveal_code(visibility_reveal::hold);
+					++totals.reveal_counts[static_cast<size_t>(visibility_reveal::hold)];
 					++totals.visible_pairs;
 					++totals.hold_reuses;
 					continue;
 				}
 				// Animated capture supplies all 19 capsules; limited mode supplies the hull body.
 				bool blocked = to.capsule_count != 0 && to.capsule_count <= k_visibility_capsule_count;
+				visibility_reveal reveal = blocked ? visibility_reveal::none : visibility_reveal::uncertain;
+				uint8_t reveal_origin = k_visibility_reveal_no_origin;
 				const visibility_target_points& target_points = current.target_points[target];
 				const vec3& muzzle = target_points.muzzle;
 				const bool has_muzzle = target_points.has_muzzle;
@@ -396,6 +407,8 @@ namespace cs2glaz
 					if (capsule_result != capsule_query_result::blocked)
 					{
 						blocked = false;
+						reveal = capsule_result == capsule_query_result::visible ? visibility_reveal::body : visibility_reveal::uncertain;
+						reveal_origin = static_cast<uint8_t>(ray_origins.roles[origin_index]);
 						if (capsule_result == capsule_query_result::indeterminate && std::chrono::steady_clock::now() >= current.deadline)
 						{
 							current.budget_exhausted = true;
@@ -411,6 +424,8 @@ namespace cs2glaz
 							&& (active_smokes == nullptr || !smoke_line_blocked(*active_smokes, origin, point, current.smoke_age_advance, data_)))
 						{
 							blocked = false;
+							reveal = visibility_reveal::corner;
+							reveal_origin = static_cast<uint8_t>(ray_origins.roles[origin_index]);
 							break;
 						}
 					}
@@ -427,6 +442,8 @@ namespace cs2glaz
 							&& (active_smokes == nullptr || !smoke_line_blocked(*active_smokes, origin, muzzle, current.smoke_age_advance, data_)))
 						{
 							blocked = false;
+							reveal = visibility_reveal::muzzle;
+							reveal_origin = static_cast<uint8_t>(ray_origins.roles[origin_index]);
 						}
 					}
 					if (!blocked)
@@ -440,7 +457,20 @@ namespace cs2glaz
 					revealed_until_[recipient][target] = now + std::chrono::milliseconds(current.hold_ms);
 				}
 				const bool visible = !blocked || now < revealed_until_[recipient][target];
+				if (blocked && visible)
+				{
+					reveal = visibility_reveal::hold;
+				}
 				current.result->visible[recipient][target] = visible;
+				current.result->reveal[recipient][target] = visibility_reveal_code(reveal, reveal_origin);
+				if (visible)
+				{
+					++totals.reveal_counts[static_cast<size_t>(reveal)];
+					if (reveal_origin < totals.reveal_origin_counts.size())
+					{
+						++totals.reveal_origin_counts[reveal_origin];
+					}
+				}
 				visible ? ++totals.visible_pairs : ++totals.hidden_pairs;
 				if (current.budget_exhausted.load())
 				{
@@ -487,6 +517,14 @@ namespace cs2glaz
 			result.cache_compactions += totals.cache_compactions;
 			result.cache_compaction_leaves_saved += totals.cache_compaction_leaves_saved;
 			result.uncached_blocked += totals.uncached_blocked;
+			for (size_t index = 0; index < result.reveal_counts.size(); ++index)
+			{
+				result.reveal_counts[index] += totals.reveal_counts[index];
+			}
+			for (size_t index = 0; index < result.reveal_origin_counts.size(); ++index)
+			{
+				result.reveal_origin_counts[index] += totals.reveal_origin_counts[index];
+			}
 		}
 		result.budget_exhausted = current.budget_exhausted.load();
 		result.completed = std::chrono::steady_clock::now();
@@ -518,6 +556,14 @@ namespace cs2glaz
 			stats_.cache_compactions = result.cache_compactions;
 			stats_.cache_compaction_leaves_saved = result.cache_compaction_leaves_saved;
 			stats_.uncached_blocked = result.uncached_blocked;
+			for (size_t index = 0; index < stats_.reveal_counts.size(); ++index)
+			{
+				stats_.reveal_counts[index] += result.reveal_counts[index];
+			}
+			for (size_t index = 0; index < stats_.reveal_origin_counts.size(); ++index)
+			{
+				stats_.reveal_origin_counts[index] += result.reveal_origin_counts[index];
+			}
 			if (result.budget_exhausted)
 			{
 				++stats_.budget_exhaustions;

@@ -100,7 +100,8 @@ namespace cs2glaz
 	struct transmit_decision_stats
 	{
 		uint64_t filtered_snapshots {};
-		uint64_t full_update_snapshots {};		 // CS2 sends everything; never filtered
+		uint64_t full_update_snapshots {};		 // client full updates
+		uint64_t full_update_filtered {};		 // of those, filtered (cs2glaz_filter_full_updates 1)
 		uint64_t changing_recipient_snapshots {}; // recipient spawned, died or changed team <1 s ago
 		uint64_t hidden {};						 // walls block the pair; enemy withheld
 		uint64_t in_view {};					 // rays or the reveal hold say visible
