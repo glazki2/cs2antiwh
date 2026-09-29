@@ -1,4 +1,5 @@
 #include "plugin.h"
+#include "smoke_layout_check.h"
 
 // Reads live controllers, pawns, weapons, bounds, and visual groups on the game
 // thread, then outputs plain copied visibility snapshots. Broken handles,
@@ -223,8 +224,8 @@ namespace cs2glaz
 		return weapon_muzzle_class_from_item_definition(definition);
 	}
 
-	void plugin::collect_smoke_entities(CGameEntitySystem* system, std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t& smoke_count,
-										bool& smoke_overflow)
+	void plugin::collect_smoke_entities(CGameEntitySystem* system, float game_time, bool include_candidates,
+										std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t& smoke_count, bool& smoke_overflow)
 	{
 		smoke_count = 0;
 		smoke_overflow = false;
@@ -232,6 +233,12 @@ namespace cs2glaz
 		{
 			return;
 		}
+		const bool want_smokes = compatibility_.smoke_available() || include_candidates;
+		// Limited mode has no HE event listener; follow the HE projectiles instead.
+		const bool track_he = !he_event_available_ && compatibility_.smoke_available() && std::isfinite(game_time);
+		std::array<tracked_grenade, 32> grenades {};
+		uint32_t grenade_count = 0;
+		bool grenade_overflow = false;
 		CEntityIdentity* identity = system->m_EntityList.m_pFirstActiveEntity;
 		for (uint32_t scanned = 0; identity != nullptr && scanned < k_entity_scan_hard_limit; identity = identity->m_pNext, ++scanned)
 		{
@@ -242,8 +249,11 @@ namespace cs2glaz
 				continue;
 			}
 			const char* classname = entity != nullptr && entity->m_pEntity != nullptr ? entity->m_pEntity->GetClassname() : nullptr;
-			if (compatibility_.smoke_available() && classname != nullptr && std::strcmp(classname, "smokegrenade_projectile") == 0
-				&& field<bool>(entity, compatibility_.fields().did_smoke_effect))
+			if (classname == nullptr)
+			{
+				continue;
+			}
+			if (want_smokes && std::strcmp(classname, "smokegrenade_projectile") == 0 && field<bool>(entity, compatibility_.fields().did_smoke_effect))
 			{
 				if (smoke_count < smokes.size())
 				{
@@ -254,7 +264,206 @@ namespace cs2glaz
 					smoke_overflow = true;
 				}
 			}
+			else if (track_he && std::strcmp(classname, "hegrenade_projectile") == 0)
+			{
+				void* body_component = field<void*>(entity, compatibility_.fields().body_component);
+				void* scene_node = body_component == nullptr ? nullptr : field<void*>(body_component, compatibility_.fields().scene_node);
+				if (scene_node == nullptr || grenade_count >= grenades.size())
+				{
+					grenade_overflow = true;
+					continue;
+				}
+				grenades[grenade_count++] = {static_cast<uint32_t>(entity_handle(entity).ToInt()),
+											 to_vec3(field<Vector>(scene_node, compatibility_.fields().abs_origin))};
+			}
 		}
+		if (!track_he || grenade_overflow)
+		{
+			he_tracked_count_ = 0;
+			return;
+		}
+		for (uint32_t previous = 0; previous < he_tracked_count_; ++previous)
+		{
+			const bool still_flying = std::any_of(grenades.begin(), grenades.begin() + grenade_count,
+												  [&](const tracked_grenade& grenade) { return grenade.handle == he_tracked_[previous].handle; });
+			if (!still_flying)
+			{
+				std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+				if (he_clearance_history_.record(he_tracked_[previous].position, game_time))
+				{
+					++he_tracked_detonations_;
+				}
+			}
+		}
+		he_tracked_ = grenades;
+		he_tracked_count_ = grenade_count;
+	}
+
+	bool plugin::smoke_layout_matches(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation, float game_time) const
+	{
+		const smoke_private_layout& layout = compatibility_.smoke_layout();
+		const auto* volume = reinterpret_cast<const std::byte*>(smoke) + volume_offset;
+		Vector center;
+		smoke_volume_header header;
+		if (!runtime_compatibility::safe_read(volume + layout.center, &center, sizeof(center))
+			|| !runtime_compatibility::safe_read(volume + layout.start_time, &header.start_time, sizeof(header.start_time))
+			|| !runtime_compatibility::safe_read(volume + layout.frame, &header.frame, sizeof(header.frame))
+			|| !runtime_compatibility::safe_read(volume + layout.storage, &header.storage, sizeof(header.storage)))
+		{
+			return false;
+		}
+		header.center = to_vec3(center);
+		if (!smoke_header_plausible(header, detonation, game_time))
+		{
+			return false;
+		}
+		std::vector<uint8_t> mask(k_smoke_mask_bytes);
+		std::vector<std::byte> density(k_smoke_storage_frame_stride);
+		return runtime_compatibility::safe_read(header.storage + k_smoke_storage_mask_offset, mask.data(), mask.size())
+			   && runtime_compatibility::safe_read(header.storage + k_smoke_storage_density_offset
+													   + static_cast<size_t>(header.frame) * k_smoke_storage_frame_stride,
+												   density.data(), density.size())
+			   && smoke_voxels_plausible(mask.data(), density.data());
+	}
+
+	void plugin::verify_runtime_smoke_layout(const std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t count, float game_time)
+	{
+		if (smoke_layout_state_ != smoke_layout_state::unchecked || !compatibility_.smoke_layout_candidate() || !std::isfinite(game_time))
+		{
+			return;
+		}
+		for (size_t index = 0; index < count && smoke_layout_state_ == smoke_layout_state::unchecked; ++index)
+		{
+			CEntityInstance* smoke = smokes[index];
+			const uint32_t handle = static_cast<uint32_t>(entity_handle(smoke).ToInt());
+			smoke_seen* seen = nullptr;
+			for (smoke_seen& entry : smoke_seen_)
+			{
+				if (entry.handle == handle)
+				{
+					seen = &entry;
+					break;
+				}
+			}
+			if (seen == nullptr)
+			{
+				// Remember when the smoke first appeared; judge it once it has spread.
+				auto slot = std::find_if(smoke_seen_.begin(), smoke_seen_.end(), [](const smoke_seen& entry) { return entry.handle == 0; });
+				if (slot == smoke_seen_.end())
+				{
+					slot = std::min_element(smoke_seen_.begin(), smoke_seen_.end(),
+											[](const smoke_seen& left, const smoke_seen& right) { return left.first_seen < right.first_seen; });
+				}
+				*slot = {handle, game_time, false};
+				continue;
+			}
+			if (seen->judged || game_time - seen->first_seen < k_smoke_check_min_age + 0.5f)
+			{
+				continue;
+			}
+			seen->judged = true;
+			++smoke_layout_judged_;
+			const vec3 detonation = to_vec3(field<Vector>(smoke, compatibility_.fields().smoke_detonation_pos));
+			const uint32_t base = compatibility_.smoke_layout().volume;
+			uint32_t matches = 0;
+			uint32_t matched_offset = 0;
+			if (smoke_layout_matches(smoke, base, detonation, game_time))
+			{
+				matches = 1;
+				matched_offset = base;
+			}
+			else
+			{
+				// A new build may have moved the volume inside the entity; its own
+				// layout must still match exactly one nearby offset.
+				for (int64_t shift = -1024; shift <= 1024 && matches < 2; shift += 8)
+				{
+					const int64_t offset = static_cast<int64_t>(base) + shift;
+					if (shift == 0 || offset < 64)
+					{
+						continue;
+					}
+					if (smoke_layout_matches(smoke, static_cast<uint32_t>(offset), detonation, game_time))
+					{
+						++matches;
+						matched_offset = static_cast<uint32_t>(offset);
+					}
+				}
+			}
+			if (matches == 1)
+			{
+				smoke_layout_shift_ = static_cast<int64_t>(matched_offset) - static_cast<int64_t>(base);
+				compatibility_.accept_runtime_smoke_layout(matched_offset);
+				smoke_layout_state_ = smoke_layout_state::verified;
+				META_CONPRINTF("[CS2GLAZ] smoke layout verified on a live smoke (volume offset %u, %+lld from gamedata); smoke occlusion is on\n",
+							   matched_offset, static_cast<long long>(smoke_layout_shift_));
+			}
+			else if (++smoke_layout_failures_ >= 3)
+			{
+				smoke_layout_state_ = smoke_layout_state::failed;
+				META_CONPRINTF("[CS2GLAZ] smoke layout not recognised on %u live smokes; smoke occlusion stays off for this map\n",
+							   smoke_layout_failures_);
+			}
+		}
+	}
+
+	bool plugin::smoke_header_readable(const CEntityInstance* smoke) const
+	{
+		// Re-checked for every smoke before the direct copy in limited mode: the
+		// verified layout must still describe this entity and its storage.
+		const smoke_private_layout& layout = compatibility_.smoke_layout();
+		const auto* volume = reinterpret_cast<const std::byte*>(smoke) + layout.volume;
+		Vector center;
+		int32_t frame = -1;
+		const std::byte* storage = nullptr;
+		uint8_t probe = 0;
+		const vec3 detonation = to_vec3(field<Vector>(const_cast<CEntityInstance*>(smoke), compatibility_.fields().smoke_detonation_pos));
+		if (!runtime_compatibility::safe_read(volume + layout.center, &center, sizeof(center))
+			|| !runtime_compatibility::safe_read(volume + layout.frame, &frame, sizeof(frame))
+			|| !runtime_compatibility::safe_read(volume + layout.storage, &storage, sizeof(storage)) || (frame != 0 && frame != 1)
+			|| storage == nullptr)
+		{
+			return false;
+		}
+		const float dx = center.x - detonation.x;
+		const float dy = center.y - detonation.y;
+		const float dz = center.z - detonation.z;
+		const std::byte* last_cell = storage + k_smoke_storage_density_offset + static_cast<size_t>(frame) * k_smoke_storage_frame_stride
+									 + static_cast<size_t>(k_smoke_cell_count - 1) * k_smoke_storage_cell_stride;
+		return std::isfinite(dx) && std::isfinite(dy) && std::isfinite(dz)
+			   && dx * dx + dy * dy + dz * dz <= k_smoke_check_center_tolerance * k_smoke_check_center_tolerance
+			   && runtime_compatibility::safe_read(storage + k_smoke_storage_mask_offset, &probe, sizeof(probe))
+			   && runtime_compatibility::safe_read(last_cell, &probe, sizeof(probe));
+	}
+
+	const char* plugin::smoke_layout_summary() const
+	{
+		if (!compatibility_.limited())
+		{
+			return compatibility_.smoke_available() ? "smoke" : "smoke off";
+		}
+		switch (smoke_layout_state_)
+		{
+			case smoke_layout_state::verified:
+				return "smoke verified on a live smoke";
+			case smoke_layout_state::failed:
+				return "smoke off: layout not recognised";
+			case smoke_layout_state::unchecked:
+				break;
+		}
+		return compatibility_.smoke_layout_candidate() ? "smoke checked on the first live smoke" : "smoke off";
+	}
+
+	void plugin::print_smoke_layout() const
+	{
+		const char* state = smoke_layout_state_ == smoke_layout_state::verified ? "verified"
+							: smoke_layout_state_ == smoke_layout_state::failed ? "failed"
+																				: "unchecked";
+		META_CONPRINTF("[CS2GLAZ] smoke layout limited=%d candidate=%d state=%s judged=%u failures=%u volume_offset=%u shift=%lld "
+					   "he_tracking=%d he_tracked_detonations=%llu\n",
+					   compatibility_.limited() ? 1 : 0, compatibility_.smoke_layout_candidate() ? 1 : 0, state, smoke_layout_judged_,
+					   smoke_layout_failures_, compatibility_.smoke_layout().volume, static_cast<long long>(smoke_layout_shift_),
+					   !he_event_available_ && compatibility_.smoke_available() ? 1 : 0, static_cast<unsigned long long>(he_tracked_detonations_));
 	}
 
 	bool plugin::capture_smokes(const std::array<CEntityInstance*, k_max_smoke_volumes>& entities, size_t count, bool overflow, float game_time,
@@ -290,6 +499,10 @@ namespace cs2glaz
 		{
 			CEntityInstance* entity = entities[index];
 			if (entity == nullptr)
+			{
+				return false;
+			}
+			if (compatibility_.limited() && !smoke_header_readable(entity))
 			{
 				return false;
 			}
@@ -505,18 +718,28 @@ namespace cs2glaz
 		std::array<CEntityInstance*, k_max_players> animated_pawns {};
 		value.filter_teammates = visibility_teammate_filter_enabled(settings::current().filter_teammates, teammates_are_enemies());
 		value.smoke_enabled = settings::current().smoke_occlusion;
-		value.smoke_available = compatibility_.smoke_available();
-		if (value.smoke_enabled && value.smoke_available)
+		const bool smoke_check_pending = !compatibility_.smoke_available() && compatibility_.smoke_layout_candidate()
+										 && smoke_layout_state_ == smoke_layout_state::unchecked;
+		if (value.smoke_enabled && (compatibility_.smoke_available() || smoke_check_pending))
 		{
 			std::array<CEntityInstance*, k_max_smoke_volumes> smoke_entities {};
 			size_t smoke_count = 0;
 			bool smoke_overflow = false;
-			collect_smoke_entities(system, smoke_entities, smoke_count, smoke_overflow);
-			if (!capture_smokes(smoke_entities, smoke_count, smoke_overflow, game_time, value))
+			collect_smoke_entities(system, game_time, smoke_check_pending, smoke_entities, smoke_count, smoke_overflow);
+			if (smoke_check_pending)
+			{
+				verify_runtime_smoke_layout(smoke_entities, smoke_count, game_time);
+			}
+			value.smoke_available = compatibility_.smoke_available();
+			if (value.smoke_available && !capture_smokes(smoke_entities, smoke_count, smoke_overflow, game_time, value))
 			{
 				value.smoke_available = false;
 				value.smokes.reset();
 			}
+		}
+		else
+		{
+			value.smoke_available = compatibility_.smoke_available();
 		}
 		std::unique_lock<std::mutex> lock(transmit_state_mutex_);
 		for (uint32_t slot = 0; slot < k_max_players; ++slot)

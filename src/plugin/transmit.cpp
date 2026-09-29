@@ -181,6 +181,15 @@ namespace cs2glaz
 			}
 		}
 		he_clearance_history_.clear();
+		// A verified smoke layout belongs to the server binary and stays; a failed
+		// check is retried on the next map.
+		if (smoke_layout_state_ == smoke_layout_state::failed)
+		{
+			smoke_layout_state_ = smoke_layout_state::unchecked;
+		}
+		smoke_seen_.fill({});
+		smoke_layout_failures_ = 0;
+		he_tracked_count_ = 0;
 		player_bone_cache_.fill({});
 		capture_timing_ = {};
 		bone_timing_ = {};

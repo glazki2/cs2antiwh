@@ -1019,11 +1019,20 @@ namespace cs2glaz
 		}
 
 		META_CONPRINTF("[CS2GLAZ] CS2GLAZ %s: %s\n", CS2GLAZ_VERSION, runtime_health_state_name(state));
-		META_CONPRINTF("[CS2GLAZ] Game build: %s\n",
-					   !compatibility_.valid()	   ? compatibility_state_name(compatibility_.report().state)
-					   : compatibility_.limited() ? (configuration.limited_mode ? "unverified; limited mode (walls only, hull-shaped body, smoke off)"
-																				: "unverified; limited mode disabled by cs2glaz_limited_mode 0")
-												  : "verified gamedata (animated capsules, smoke)");
+		if (!compatibility_.valid())
+		{
+			META_CONPRINTF("[CS2GLAZ] Game build: %s\n", compatibility_state_name(compatibility_.report().state));
+		}
+		else if (compatibility_.limited())
+		{
+			META_CONPRINTF("[CS2GLAZ] Game build: unverified; %s\n",
+						   configuration.limited_mode ? "limited mode (walls, hull-shaped body)" : "limited mode disabled by cs2glaz_limited_mode 0");
+			META_CONPRINTF("[CS2GLAZ] Smoke: %s\n", smoke_layout_summary());
+		}
+		else
+		{
+			META_CONPRINTF("[CS2GLAZ] Game build: verified gamedata (animated capsules, smoke)\n");
+		}
 		const char* configuration_state = settings::loading() ? "loading"
 										  : settings::load_state() == configuration_load_state::failed
 											  ? "previous settings restored after a failed load"
@@ -1039,7 +1048,7 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] Protection: walls=%s smoke=%s HE=%s teammates=%s target_ids=%s\n", protection_active ? "on" : "off",
 					   configuration.smoke_occlusion && smoke_available ? "on" : "off",
 					   configuration.smoke_occlusion && configuration.he_clear_radius_units > 0.0f && configuration.he_clear_seconds > 0.0f
-							   && he_event_available_
+							   && (he_event_available_ || (compatibility_.limited() && compatibility_.smoke_available()))
 						   ? "on"
 						   : "off",
 					   visibility_teammate_filter_enabled(configuration.filter_teammates, ffa) ? "filtered" : "not filtered",
@@ -1114,6 +1123,7 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] smoke enabled=%d available=%d captured=%u he_listener=%d he_active=%u\n",
 					   settings::current().smoke_occlusion ? 1 : 0, smoke_available ? 1 : 0, result == nullptr ? 0u : result->smoke_count,
 					   he_event_available_ ? 1 : 0, result == nullptr ? 0u : result->he_clearance_count);
+		print_smoke_layout();
 		const bool ffa = teammates_are_enemies();
 		META_CONPRINTF("[CS2GLAZ] teammate filtering configured=%d ffa=%d effective=%d\n", settings::current().filter_teammates ? 1 : 0, ffa ? 1 : 0,
 					   visibility_teammate_filter_enabled(settings::current().filter_teammates, ffa) ? 1 : 0);

@@ -51,6 +51,7 @@ namespace cs2glaz
 		uint32_t death_info_time {};
 		uint32_t carried_hostage_prop {};
 		uint32_t did_smoke_effect {};
+		uint32_t smoke_detonation_pos {};
 		uint32_t beam_end_position {};
 		uint32_t beam_width {};
 		uint32_t beam_end_width {};
@@ -169,7 +170,25 @@ namespace cs2glaz
 
 		bool smoke_available() const
 		{
-			return smoke_gamedata_available_ && smoke_schema_available_;
+			return (smoke_gamedata_available_ || smoke_runtime_verified_) && smoke_schema_available_;
+		}
+
+		// Limited mode keeps the gamedata smoke layout only as a candidate: it is
+		// used after plugin::verify_runtime_smoke_layout proves it on a live smoke.
+		bool smoke_layout_candidate() const
+		{
+			return limited() && smoke_layout_candidate_ && smoke_schema_available_ && smoke_detonation_schema_available_;
+		}
+
+		bool smoke_runtime_verified() const
+		{
+			return smoke_runtime_verified_;
+		}
+
+		void accept_runtime_smoke_layout(uint32_t volume_offset)
+		{
+			smoke_layout_.volume = volume_offset;
+			smoke_runtime_verified_ = true;
 		}
 
 		bool weapon_item_available() const
@@ -216,6 +235,9 @@ namespace cs2glaz
 		server_binary_fingerprint detected_server_binary_fingerprint_;
 		bool weapon_item_schema_available_ {};
 		bool smoke_schema_available_ {};
+		bool smoke_detonation_schema_available_ {};
+		bool smoke_layout_candidate_ {};
+		bool smoke_runtime_verified_ {};
 		bool debug_beam_schema_available_ {};
 		bool scene_hierarchy_schema_available_ {};
 		bool smoke_gamedata_available_ {};

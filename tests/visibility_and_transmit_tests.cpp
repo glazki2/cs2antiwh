@@ -8,6 +8,7 @@
 #include "capsule_visibility.h"
 #include "lifecycle_guard.h"
 #include "rtti_check.h"
+#include "smoke_layout_check.h"
 #include "smoke_occlusion.h"
 #include "transmit_debug.h"
 #include "transmit_masks.h"
@@ -326,6 +327,72 @@ namespace
 		const float invalid = std::numeric_limits<float>::quiet_NaN();
 		std::memcpy(storage.data() + k_smoke_storage_density_offset, &invalid, sizeof(invalid));
 		assert(!copy_smoke_frame(storage.data(), 0, {}, 2.0f, copied));
+	}
+
+	void test_smoke_layout_check()
+	{
+		// Header: centre near the detonation point, spread but not faded, frame 0/1.
+		std::byte storage_marker {};
+		const smoke_volume_header header {{100, 200, 30}, 10.0f, 1, &storage_marker};
+		assert(smoke_header_plausible(header, {110, 190, 0}, 14.0f));
+		assert(!smoke_header_plausible(header, {300, 200, 30}, 14.0f)); // centre far from detonation
+		assert(!smoke_header_plausible(header, {100, 200, 30}, 11.0f)); // too young to judge
+		assert(!smoke_header_plausible(header, {100, 200, 30}, 40.0f)); // long gone
+		smoke_volume_header bad_frame = header;
+		bad_frame.frame = 7;
+		assert(!smoke_header_plausible(bad_frame, {100, 200, 30}, 14.0f));
+		smoke_volume_header no_storage = header;
+		no_storage.storage = nullptr;
+		assert(!smoke_header_plausible(no_storage, {100, 200, 30}, 14.0f));
+
+		// Voxels: a dense ball with a matching mask passes.
+		std::vector<uint8_t> mask(k_smoke_mask_bytes);
+		std::vector<std::byte> density(k_smoke_storage_frame_stride);
+		const auto set_cell = [&](uint32_t cell, float value, bool marked)
+		{
+			std::memcpy(density.data() + static_cast<size_t>(cell) * k_smoke_storage_cell_stride, &value, sizeof(value));
+			if (marked)
+			{
+				mask[cell >> 3] |= static_cast<uint8_t>(1u << (cell & 7u));
+			}
+		};
+		for (uint32_t x = 12; x < 20; ++x)
+		{
+			for (uint32_t y = 12; y < 20; ++y)
+			{
+				for (uint32_t z = 14; z < 18; ++z)
+				{
+					set_cell(test_morton(x, y, z), 40.0f, true);
+				}
+			}
+		}
+		assert(smoke_voxels_plausible(mask.data(), density.data()));
+		// Zeroed memory, a NaN, a huge value, or a mask unrelated to the density fail.
+		std::vector<uint8_t> empty_mask(k_smoke_mask_bytes);
+		std::vector<std::byte> empty_density(k_smoke_storage_frame_stride);
+		assert(!smoke_voxels_plausible(empty_mask.data(), empty_density.data()));
+		assert(!smoke_voxels_plausible(nullptr, density.data()));
+		std::vector<std::byte> broken = density;
+		const float nan = std::numeric_limits<float>::quiet_NaN();
+		std::memcpy(broken.data(), &nan, sizeof(nan));
+		assert(!smoke_voxels_plausible(mask.data(), broken.data()));
+		broken = density;
+		const float huge = 1.0e9f;
+		std::memcpy(broken.data(), &huge, sizeof(huge));
+		assert(!smoke_voxels_plausible(mask.data(), broken.data()));
+		std::vector<uint8_t> shifted_mask(k_smoke_mask_bytes);
+		for (uint32_t x = 0; x < 8; ++x)
+		{
+			for (uint32_t y = 0; y < 8; ++y)
+			{
+				for (uint32_t z = 0; z < 4; ++z)
+				{
+					const uint32_t cell = test_morton(x, y, z);
+					shifted_mask[cell >> 3] |= static_cast<uint8_t>(1u << (cell & 7u));
+				}
+			}
+		}
+		assert(!smoke_voxels_plausible(shifted_mask.data(), density.data()));
 	}
 
 	void test_visibility_sampling()
@@ -1428,6 +1495,7 @@ void run_visibility_and_transmit_tests()
 	test_radar_entry_filter();
 	test_rtti_check();
 	test_smoke_occlusion();
+	test_smoke_layout_check();
 	test_visibility_sampling();
 	test_capsule_visibility();
 	test_hull_capsules();

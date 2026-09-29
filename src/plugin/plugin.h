@@ -299,8 +299,13 @@ namespace cs2glaz
 		CEntityInstance* pawn(CEntityInstance* controller) const;
 		lifecycle_key player_lifecycle(uint32_t slot, CGameEntitySystem* system, live_player* live) const;
 		weapon_muzzle_class active_weapon_muzzle_class(CGameEntitySystem* system, CEntityInstance* pawn) const;
-		void collect_smoke_entities(CGameEntitySystem* system, std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t& smoke_count,
-									bool& smoke_overflow);
+		void collect_smoke_entities(CGameEntitySystem* system, float game_time, bool include_candidates,
+									std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t& smoke_count, bool& smoke_overflow);
+		void verify_runtime_smoke_layout(const std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t count, float game_time);
+		bool smoke_layout_matches(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation, float game_time) const;
+		bool smoke_header_readable(const CEntityInstance* smoke) const;
+		void print_smoke_layout() const;
+		const char* smoke_layout_summary() const;
 		bool collect_player_visual_group(CGameEntitySystem* system, CEntityInstance* pawn, visual_entity_group& group) const;
 		bool collect_attached_entities(CGameEntitySystem* system, CEntityInstance* pawn, const visual_entity_group& owned,
 									   attached_entity_group& attached) const;
@@ -366,6 +371,34 @@ namespace cs2glaz
 		automatic_baker automatic_baker_;
 		bool he_event_available_ {};
 		he_clearance_history he_clearance_history_;
+		// Limited mode: the gamedata smoke layout is proven on live smokes first.
+		enum class smoke_layout_state
+		{
+			unchecked,
+			verified,
+			failed,
+		};
+		struct smoke_seen
+		{
+			uint32_t handle {};
+			float first_seen {};
+			bool judged {};
+		};
+		smoke_layout_state smoke_layout_state_ {smoke_layout_state::unchecked};
+		std::array<smoke_seen, k_max_smoke_volumes> smoke_seen_ {};
+		uint32_t smoke_layout_failures_ {};
+		uint32_t smoke_layout_judged_ {};
+		int64_t smoke_layout_shift_ {};
+		// Without the HE event listener, an HE grenade projectile that disappears
+		// is taken as its detonation at the last position seen.
+		struct tracked_grenade
+		{
+			uint32_t handle {};
+			vec3 position;
+		};
+		std::array<tracked_grenade, 32> he_tracked_ {};
+		uint32_t he_tracked_count_ {};
+		uint64_t he_tracked_detonations_ {};
 		recent_hide_log recent_hides_;
 		std::array<lifecycle_guard, k_max_players> lifecycle_;
 		std::array<std::array<pair_guard, k_max_players>, k_max_players> pair_guards_;

@@ -120,9 +120,11 @@ namespace cs2glaz
 		}
 		if (!verify_server_binary(game_entities, error))
 		{
-			// Unknown CS2 build: never call private functions or read private smoke
-			// layouts. Only schema fields and SDK-level layouts (entity system,
-			// CheckTransmit recipient) remain, and those are checked at runtime.
+			// Unknown CS2 build: never call private functions. Only schema fields
+			// and SDK-level layouts (entity system, CheckTransmit recipient) remain,
+			// checked at runtime; the smoke layout stays a candidate that is used
+			// only after a live smoke proves it through guarded reads.
+			smoke_layout_candidate_ = smoke_gamedata_available_;
 			drop_private_build_data();
 			std::string schema_error;
 			if (!resolve_schema(schema, schema_error))
@@ -166,7 +168,8 @@ namespace cs2glaz
 		std::vector<std::string> missing;
 		if (state == compatibility_state::limited)
 		{
-			missing = {"animated capsules (hull-shaped body used)", "smoke occlusion", "HE event listener", "temporary LOS debug beams"};
+			missing = {"animated capsules (hull-shaped body used)", "smoke occlusion until a live smoke verifies its layout",
+					   "HE event listener (HE grenades are tracked by their projectiles instead)", "temporary LOS debug beams"};
 		}
 		if ((state == compatibility_state::limited || state == compatibility_state::compatible) && !scene_hierarchy_available())
 		{
@@ -509,6 +512,7 @@ namespace cs2glaz
 											&& optional(fields_.scene_node_child, "CGameSceneNode", "m_pChild")
 											&& optional(fields_.scene_node_next_sibling, "CGameSceneNode", "m_pNextSibling");
 		smoke_schema_available_ = optional(fields_.did_smoke_effect, "CSmokeGrenadeProjectile", "m_bDidSmokeEffect");
+		smoke_detonation_schema_available_ = optional(fields_.smoke_detonation_pos, "CSmokeGrenadeProjectile", "m_vSmokeDetonationPos");
 		debug_beam_schema_available_ =
 			optional(fields_.beam_end_position, "CBeam", "m_vecEndPos") && optional(fields_.beam_width, "CBeam", "m_fWidth")
 			&& optional(fields_.beam_end_width, "CBeam", "m_fEndWidth") && optional(fields_.render_color, "CBaseModelEntity", "m_clrRender");

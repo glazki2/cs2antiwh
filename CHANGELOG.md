@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.7
+
+- Smoke occlusion can now work in limited mode. A wallhack otherwise sees every enemy in or behind a smoke there, because the private smoke layout was dropped with the rest of the unverified gamedata. The gamedata smoke layout is now kept as a candidate and proven on the map's first live smokes through guarded reads: the voxel grid's centre must match the public `m_vSmokeDetonationPos`, its start time and frame must be plausible, and its occupancy mask and densities must look like a spread smoke (finite, bounded, a plausible share of dense cells, and a mask that mostly marks dense cells). If the volume moved inside the entity, offsets up to 1 KiB either side are tried and one is accepted only if it is the only match. Until then, and if three smokes fail, smoke occlusion stays off (retried on the next map). Every smoke is re-checked through guarded reads before its voxels are copied.
+- Without the HE event listener (limited mode), an HE grenade projectile that disappears is taken as its detonation at the last position seen, so HE holes in smokes open as they do with the listener.
+- `cs2glaz_status` shows a `Smoke:` line in limited mode, and `cs2glaz_metrics` a `smoke layout` line (state, offset, shift from gamedata, HE tracking).
+- Research note: public CS2 ESP projects read the always-networked player controller (team, health, alive state, pawn handle) and the pawn (position, angles, bones, weapon, flags, spotted mask). Withholding the pawn and filtering the radar already cover the position data; a pawn the client once received stays as a frozen copy at the last position the player legitimately saw.
+
 ## 0.5.6
 
 - Diagnostic `cs2glaz_hide_all_enemies 1` withholds every enemy even in plain view and drops every enemy from the radar, to show what still reaches a wallhack by other channels (sounds, grenades, the spawn/death safety window). It breaks normal play, is not saved in `cs2glaz.cfg` and resets to 0 on restart; the spawn/death safety window, full updates and the attachment checks still apply.
