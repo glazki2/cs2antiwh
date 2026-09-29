@@ -706,6 +706,45 @@ namespace
 		const bvh8_data low_wall =
 			test_world({{{64, -200, -100}, {64, 200, -100}, {64, -200, 40}}, {{64, 200, 40}, {64, -200, 40}, {64, 200, -100}}});
 		assert(capsule_visible_from_origin(low_wall, viewer, body, nullptr, 0.0f, deadline) == capsule_query_result::visible);
+
+		// A viewing origin at a wall (the movement origin is clipped to 0.25 units
+		// from it) and an enemy just behind it: the body 24 units away does not fit
+		// in front of one camera, which used to leave the pair uncertain and
+		// revealed. Pieces are proven one by one: blocked by the wall, not blocked
+		// without it, and a slot in the wall still reveals.
+		const vec3 close_target {44.0f, 0.0f, 0.0f};
+		const uint32_t close_count = visibility_hull_capsules(close_target, mins, maxs, capsules);
+		const std::span<const visibility_capsule> close_body(capsules.data(), close_count);
+		const bvh8_data thin_wall =
+			test_world({{{20, -200, -100}, {20, 200, -100}, {20, -200, 200}}, {{20, 200, 200}, {20, -200, 200}, {20, 200, -100}}});
+		const bvh8_data open_world = test_world({{{10000, 10000, 10000}, {10001, 10000, 10000}, {10000, 10001, 10000}}});
+		for (const vec3 close_viewer : {vec3 {0.0f, 0.0f, 64.0f}, vec3 {19.75f, 0.0f, 64.0f}, vec3 {19.75f, 0.0f, 80.0f}, vec3 {19.75f, 8.0f, 30.0f},
+										vec3 {19.75f, 0.0f, 0.5f}})
+		{
+			assert(capsule_visible_from_origin(thin_wall, close_viewer, close_body, nullptr, 0.0f, deadline) == capsule_query_result::blocked);
+			assert(capsule_visible_from_origin(open_world, close_viewer, close_body, nullptr, 0.0f, deadline) != capsule_query_result::blocked);
+		}
+		const bvh8_data slotted_wall =
+			test_world({{{20, -200, -100}, {20, 200, -100}, {20, -200, 40}}, {{20, 200, 40}, {20, -200, 40}, {20, 200, -100}},
+						{{20, -200, 48}, {20, 200, 48}, {20, -200, 200}}, {{20, 200, 200}, {20, -200, 200}, {20, 200, 48}}});
+		assert(capsule_visible_from_origin(slotted_wall, {19.75f, 0.0f, 44.0f}, close_body, nullptr, 0.0f, deadline) != capsule_query_result::blocked);
+		assert(capsule_visible_from_origin(slotted_wall, {0.0f, 0.0f, 44.0f}, close_body, nullptr, 0.0f, deadline) != capsule_query_result::blocked);
+
+		// A body standing close behind a wall that is tilted to the camera: the
+		// depth buffer keeps one conservative depth per tile and could not prove
+		// the wall nearer, so the target was revealed. Exact rays settle it,
+		// while a body that really reaches past the wall stays visible.
+		const bvh8_data near_wall =
+			test_world({{{30, -200, -100}, {30, 200, -100}, {30, -200, 200}}, {{30, 200, 200}, {30, -200, 200}, {30, 200, -100}}});
+		for (const float target_x : {50.0f, 60.0f, 80.0f})
+		{
+			const uint32_t behind_count = visibility_hull_capsules({target_x, 0.0f, 0.0f}, mins, maxs, capsules);
+			const std::span<const visibility_capsule> behind_body(capsules.data(), behind_count);
+			assert(capsule_visible_from_origin(near_wall, viewer, behind_body, nullptr, 0.0f, deadline) == capsule_query_result::blocked);
+		}
+		const uint32_t through_count = visibility_hull_capsules({44.0f, 0.0f, 0.0f}, mins, maxs, capsules);
+		assert(capsule_visible_from_origin(near_wall, viewer, std::span<const visibility_capsule>(capsules.data(), through_count), nullptr, 0.0f, deadline)
+			   == capsule_query_result::visible);
 	}
 
 	void test_visibility_worker()

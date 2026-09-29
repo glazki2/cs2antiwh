@@ -37,7 +37,7 @@ namespace cs2glaz
 											 on_convar_changed<float>);
 	CConVar<float> cs2glaz_max_shoulder_units("cs2glaz_max_shoulder_units", FCVAR_NONE, "Maximum sideways shoulder origin distance; 0 disables the cap",
 											 0.0f, true, 0.0f, true, 256.0f, on_convar_changed<float>);
-	CConVar<int> cs2glaz_visibility_hold_ms("cs2glaz_visibility_hold_ms", FCVAR_NONE, "Minimum revealed duration", 1000, true, 0, true, 1000,
+	CConVar<int> cs2glaz_visibility_hold_ms("cs2glaz_visibility_hold_ms", FCVAR_NONE, "Minimum revealed duration", 300, true, 0, true, 1000,
 										   on_convar_changed<int>);
 	CConVar<bool> cs2glaz_debug("cs2glaz_debug", FCVAR_NONE, "Enable CS2GLAZ diagnostic logging", false, on_convar_changed<bool>);
 	CConVar<int> cs2glaz_debug_los_player("cs2glaz_debug_los_player", FCVAR_NONE,

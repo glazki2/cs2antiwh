@@ -19,6 +19,12 @@ namespace cs2glaz
 		constexpr float k_epsilon = 1.0e-5f;
 		constexpr float k_near_depth = 0.125f;
 		constexpr float k_view_margin = 1.02f;
+		// Close-range split of a body that does not fit in front of one camera:
+		// capsules are cut into pieces of at most this length, and a piece that
+		// still does not fit is halved down to the minimum.
+		constexpr float k_close_piece_length = 16.0f;
+		constexpr float k_close_piece_length_min = 2.0f;
+		constexpr uint32_t k_close_pieces_max = 32;
 		constexpr float k_depth_epsilon = 1.0e-5f;
 		constexpr size_t k_moc_scratch_vertices = k_capsule_occluder_cache_size * 8u * 3u;
 
@@ -697,6 +703,270 @@ namespace cs2glaz
 			return result.first_x <= result.last_x && result.first_y <= result.last_y;
 		}
 
+		bounds capsule_bounds(const visibility_capsule& capsule)
+		{
+			return {{std::min(capsule.start.x, capsule.end.x) - capsule.radius, std::min(capsule.start.y, capsule.end.y) - capsule.radius,
+					 std::min(capsule.start.z, capsule.end.z) - capsule.radius},
+					{std::max(capsule.start.x, capsule.end.x) + capsule.radius, std::max(capsule.start.y, capsule.end.y) + capsule.radius,
+					 std::max(capsule.start.z, capsule.end.z) + capsule.radius}};
+		}
+
+		// Proves the capsules with one camera that holds all of them.
+		capsule_query_result capsules_visible_in_view(const bvh8_data& geometry, vec3 origin, std::span<const visibility_capsule> capsules,
+													  const camera_view& view, const smoke_snapshot* smokes, float smoke_age_advance,
+													  std::chrono::steady_clock::time_point deadline, const std::atomic_bool* stopping,
+													  capsule_query_stats* stats, capsule_occluder_cache* occluder_cache)
+		{
+			std::array<projected_bounds, k_visibility_capsule_count> projected {};
+			for (size_t index = 0; index < capsules.size(); ++index)
+			{
+				if (!project_bounds(view, capsule_bounds(capsules[index]), projected[index]))
+				{
+					return capsule_query_result::indeterminate;
+				}
+			}
+			thread_local occlusion_scratch scratch;
+			const map_render_result map_result = render_map_moc(geometry, view, std::span<const projected_bounds>(projected.data(), capsules.size()), scratch,
+																deadline, stopping, stats, occluder_cache);
+			if (map_result == map_render_result::target_occluded)
+			{
+				return capsule_query_result::blocked;
+			}
+			if (map_result != map_render_result::complete)
+			{
+				return capsule_query_result::indeterminate;
+			}
+			bool needs_exact_rays = false;
+			if (smokes == nullptr)
+			{
+				for (size_t index = 0; index < capsules.size(); ++index)
+				{
+					const projected_bounds& capsule_projection = projected[index];
+					constexpr float conservative_margin = 1.0e-4f;
+					if (stats != nullptr)
+					{
+						++stats->moc_rect_tests;
+					}
+					if (scratch.moc->TestRect(capsule_projection.minimum_x - conservative_margin, capsule_projection.minimum_y - conservative_margin,
+											  capsule_projection.maximum_x + conservative_margin, capsule_projection.maximum_y + conservative_margin,
+											  capsule_projection.minimum_depth * (1.0f - conservative_margin))
+						== MaskedOcclusionCulling::OCCLUDED)
+					{
+						continue;
+					}
+					// Not proven hidden: the depth buffer keeps one conservative depth
+					// per tile, so a wall tilted to the camera cannot hide a body
+					// standing close behind it. The exact rays below decide.
+					if (test_capsule_moc(scratch, view, capsules[index]) != MaskedOcclusionCulling::OCCLUDED)
+					{
+						needs_exact_rays = true;
+						break;
+					}
+				}
+				if (!needs_exact_rays)
+				{
+					if (stats != nullptr)
+					{
+						++stats->uncached_blocked;
+					}
+					return capsule_query_result::blocked;
+				}
+			}
+			scratch.moc->ComputePixelDepthBuffer(scratch.pixel_depth.data(), false);
+
+			const float grid = static_cast<float>(k_visibility_pixel_grid_size);
+			bool geometry_visible_sample = false;
+			uint32_t exact_cache = k_invalid_ref;
+			// The projected AABB contains its capsule. If even this larger, slightly
+			// nearer rectangle is hidden, the capsule is proven hidden without sampling.
+			std::array<bool, k_visibility_capsule_count> sampled {};
+			int first_x = static_cast<int>(k_visibility_pixel_grid_size);
+			int last_x = -1;
+			int first_y = static_cast<int>(k_visibility_pixel_grid_size);
+			int last_y = -1;
+			for (size_t capsule_index = 0; capsule_index < capsules.size(); ++capsule_index)
+			{
+				const projected_bounds& capsule_projection = projected[capsule_index];
+				constexpr float conservative_margin = 1.0e-4f;
+				if (stats != nullptr)
+				{
+					++stats->moc_rect_tests;
+				}
+				if (scratch.moc->TestRect(capsule_projection.minimum_x - conservative_margin, capsule_projection.minimum_y - conservative_margin,
+										  capsule_projection.maximum_x + conservative_margin, capsule_projection.maximum_y + conservative_margin,
+										  capsule_projection.minimum_depth * (1.0f - conservative_margin))
+					== MaskedOcclusionCulling::OCCLUDED)
+				{
+					continue;
+				}
+				sampled[capsule_index] = true;
+				first_x = std::min(first_x, capsule_projection.first_x);
+				last_x = std::max(last_x, capsule_projection.last_x);
+				first_y = std::min(first_y, capsule_projection.first_y);
+				last_y = std::max(last_y, capsule_projection.last_y);
+			}
+			// One ray per pixel to the nearest capsule surface: if that point is
+			// hidden, every farther point on the same ray is hidden too.
+			for (uint32_t ordered_y = 0; ordered_y < k_visibility_pixel_grid_size; ++ordered_y)
+			{
+				if ((stopping != nullptr && stopping->load()) || std::chrono::steady_clock::now() >= deadline)
+				{
+					return capsule_query_result::indeterminate;
+				}
+				const uint32_t y = center_out(ordered_y);
+				if (static_cast<int>(y) < first_y || static_cast<int>(y) > last_y)
+				{
+					continue;
+				}
+				const float screen_y = 1.0f - (2.0f * static_cast<float>(y) + 1.0f) / grid;
+				for (uint32_t ordered_x = 0; ordered_x < k_visibility_pixel_grid_size; ++ordered_x)
+				{
+					const uint32_t x = center_out(ordered_x);
+					if (static_cast<int>(x) < first_x || static_cast<int>(x) > last_x)
+					{
+						continue;
+					}
+					const float screen_x = (2.0f * static_cast<float>(x) + 1.0f) / grid - 1.0f;
+					const vec3 direction = add(view.forward, add(scale(view.right, screen_x * view.horizontal), scale(view.up, screen_y * view.vertical)));
+					if (stats != nullptr)
+					{
+						++stats->sampled_pixels;
+					}
+					float nearest = std::numeric_limits<float>::infinity();
+					for (size_t capsule_index = 0; capsule_index < capsules.size(); ++capsule_index)
+					{
+						const projected_bounds& capsule_projection = projected[capsule_index];
+						float distance = 0.0f;
+						if (sampled[capsule_index] && static_cast<int>(x) >= capsule_projection.first_x && static_cast<int>(x) <= capsule_projection.last_x
+							&& static_cast<int>(y) >= capsule_projection.first_y && static_cast<int>(y) <= capsule_projection.last_y
+							&& ray_capsule(origin, direction, capsules[capsule_index], distance))
+						{
+							nearest = std::min(nearest, distance);
+						}
+					}
+					if (!std::isfinite(nearest))
+					{
+						continue;
+					}
+					const size_t pixel = static_cast<size_t>(y) * k_visibility_pixel_grid_size + x;
+					if (scratch.pixel_depth[pixel] > (1.0f / nearest) * (1.0f + k_depth_epsilon))
+					{
+						continue;
+					}
+					// The depth buffer keeps one conservative depth per tile, so a
+					// pixel it does not hide is traced exactly against the map.
+					const vec3 target = add(origin, scale(direction, nearest));
+					if (stats != nullptr)
+					{
+						++stats->traced_rays;
+					}
+					const ray_hit hit = segment_blocked(geometry, origin, target, exact_cache);
+					exact_cache = hit.packet_index;
+					if (hit.blocked)
+					{
+						continue;
+					}
+					geometry_visible_sample = true;
+					if (smokes == nullptr || !smoke_line_blocked(*smokes, origin, target, smoke_age_advance, &geometry))
+					{
+						return capsule_query_result::visible;
+					}
+				}
+			}
+			// A pixel the depth buffer proved open whose line to the body is smoked
+			// hides the body as before. Pixels only exact rays closed go through the
+			// sub-pixel check below, since an opening can lie between pixel centres.
+			if (geometry_visible_sample)
+			{
+				if (stats != nullptr)
+				{
+					++stats->uncached_blocked;
+				}
+				return capsule_query_result::blocked;
+			}
+
+			// Pixel centers can miss a sub-pixel opening. The conservative outer capsule
+			// mesh proves the rest hidden; the capsules it cannot prove (it shares the
+			// depth buffer's per-tile uncertainty) are traced exactly at four points
+			// inside every pixel they cover, and one none of them reaches reveals.
+			std::array<bool, k_visibility_capsule_count> uncertain {};
+			int check_first_x = static_cast<int>(k_visibility_pixel_grid_size);
+			int check_last_x = -1;
+			int check_first_y = static_cast<int>(k_visibility_pixel_grid_size);
+			int check_last_y = -1;
+			for (size_t index = 0; index < capsules.size(); ++index)
+			{
+				if ((stopping != nullptr && stopping->load()) || std::chrono::steady_clock::now() >= deadline)
+				{
+					return capsule_query_result::indeterminate;
+				}
+				if (!sampled[index] || test_capsule_moc(scratch, view, capsules[index]) == MaskedOcclusionCulling::OCCLUDED)
+				{
+					continue;
+				}
+				uncertain[index] = true;
+				check_first_x = std::min(check_first_x, projected[index].first_x);
+				check_last_x = std::max(check_last_x, projected[index].last_x);
+				check_first_y = std::min(check_first_y, projected[index].first_y);
+				check_last_y = std::max(check_last_y, projected[index].last_y);
+			}
+			bool uncertain_reached = check_last_x < 0;
+			for (int y = check_first_y; y <= check_last_y; ++y)
+			{
+				if ((stopping != nullptr && stopping->load()) || std::chrono::steady_clock::now() >= deadline)
+				{
+					return capsule_query_result::indeterminate;
+				}
+				for (int x = check_first_x; x <= check_last_x; ++x)
+				{
+					for (uint32_t sub = 0; sub < 4u; ++sub)
+					{
+						const float screen_x = (2.0f * (static_cast<float>(x) + 0.25f + 0.5f * static_cast<float>(sub & 1u))) / grid - 1.0f;
+						const float screen_y = 1.0f - (2.0f * (static_cast<float>(y) + 0.25f + 0.5f * static_cast<float>(sub >> 1u))) / grid;
+						const vec3 direction = add(view.forward, add(scale(view.right, screen_x * view.horizontal), scale(view.up, screen_y * view.vertical)));
+						// As above, only the nearest body point on the ray needs a trace.
+						float nearest = std::numeric_limits<float>::infinity();
+						bool reaches_uncertain = false;
+						for (size_t index = 0; index < capsules.size(); ++index)
+						{
+							float distance = 0.0f;
+							if (sampled[index] && x >= projected[index].first_x && x <= projected[index].last_x && y >= projected[index].first_y
+								&& y <= projected[index].last_y && ray_capsule(origin, direction, capsules[index], distance))
+							{
+								nearest = std::min(nearest, distance);
+								reaches_uncertain = reaches_uncertain || uncertain[index];
+							}
+						}
+						if (!reaches_uncertain)
+						{
+							continue;
+						}
+						uncertain_reached = true;
+						const vec3 target = add(origin, scale(direction, nearest));
+						if (stats != nullptr)
+						{
+							++stats->traced_rays;
+						}
+						const ray_hit hit = segment_blocked(geometry, origin, target, exact_cache);
+						exact_cache = hit.packet_index;
+						if (!hit.blocked && (smokes == nullptr || !smoke_line_blocked(*smokes, origin, target, smoke_age_advance, &geometry)))
+						{
+							return capsule_query_result::visible;
+						}
+					}
+				}
+			}
+			if (!uncertain_reached)
+			{
+				return capsule_query_result::indeterminate;
+			}
+			if (stats != nullptr)
+			{
+				++stats->uncached_blocked;
+			}
+			return capsule_query_result::blocked;
+		}
+
 	} // namespace
 
 	capsule_query_result capsule_visible_from_origin(const bvh8_data& geometry, vec3 origin, std::span<const visibility_capsule> capsules,
@@ -732,179 +1002,70 @@ namespace cs2glaz
 		}
 
 		camera_view view;
-		if (!build_view(origin, body, view))
+		if (build_view(origin, body, view))
 		{
-			return capsule_query_result::indeterminate;
+			return capsules_visible_in_view(geometry, origin, capsules, view, smokes, smoke_age_advance, deadline, stopping, stats, occluder_cache);
 		}
-		std::array<projected_bounds, k_visibility_capsule_count> projected {};
-		for (size_t index = 0; index < capsules.size(); ++index)
+
+		// Close range: the whole body does not fit in front of one camera (a body
+		// a few dozen units from a viewing origin, such as the movement origin
+		// clipped against a wall), which used to reveal the target whatever stood
+		// between. The body is the union of its capsules and a capsule is the union
+		// of shorter capsules along its axis, so pieces are proven with their own
+		// cameras, halving any piece that still does not fit. One that does not
+		// fit at the shortest length stays uncertain and reveals, as before.
+		struct piece_range
 		{
-			const visibility_capsule& capsule = capsules[index];
-			const bounds capsule_box {
-				{std::min(capsule.start.x, capsule.end.x) - capsule.radius, std::min(capsule.start.y, capsule.end.y) - capsule.radius,
-				 std::min(capsule.start.z, capsule.end.z) - capsule.radius},
-				{std::max(capsule.start.x, capsule.end.x) + capsule.radius, std::max(capsule.start.y, capsule.end.y) + capsule.radius,
-				 std::max(capsule.start.z, capsule.end.z) + capsule.radius}};
-			if (!project_bounds(view, capsule_box, projected[index]))
+			const visibility_capsule* capsule;
+			float from;
+			float to;
+		};
+		std::array<piece_range, k_close_pieces_max> pending {};
+		uint32_t pending_count = 0;
+		for (const visibility_capsule& capsule : capsules)
+		{
+			const float length = std::sqrt(length_sq(subtract(capsule.end, capsule.start)));
+			const uint32_t pieces = static_cast<uint32_t>(std::clamp(std::ceil(length / k_close_piece_length), 1.0f, 8.0f));
+			for (uint32_t piece_index = pieces; piece_index-- > 0;)
 			{
-				return capsule_query_result::indeterminate;
-			}
-		}
-		thread_local occlusion_scratch scratch;
-		const map_render_result map_result = render_map_moc(geometry, view, std::span<const projected_bounds>(projected.data(), capsules.size()), scratch,
-															deadline, stopping, stats, occluder_cache);
-		if (map_result == map_render_result::target_occluded)
-		{
-			return capsule_query_result::blocked;
-		}
-		if (map_result != map_render_result::complete)
-		{
-			return capsule_query_result::indeterminate;
-		}
-		if (smokes == nullptr)
-		{
-			for (size_t index = 0; index < capsules.size(); ++index)
-			{
-				const projected_bounds& capsule_projection = projected[index];
-				constexpr float conservative_margin = 1.0e-4f;
-				if (stats != nullptr)
-				{
-					++stats->moc_rect_tests;
-				}
-				if (scratch.moc->TestRect(capsule_projection.minimum_x - conservative_margin, capsule_projection.minimum_y - conservative_margin,
-										  capsule_projection.maximum_x + conservative_margin, capsule_projection.maximum_y + conservative_margin,
-										  capsule_projection.minimum_depth * (1.0f - conservative_margin))
-					== MaskedOcclusionCulling::OCCLUDED)
-				{
-					continue;
-				}
-				const auto capsule_result = test_capsule_moc(scratch, view, capsules[index]);
-				if (capsule_result == MaskedOcclusionCulling::VISIBLE)
-				{
-					return capsule_query_result::visible;
-				}
-				if (capsule_result != MaskedOcclusionCulling::OCCLUDED)
+				if (pending_count == pending.size())
 				{
 					return capsule_query_result::indeterminate;
 				}
+				pending[pending_count++] = {&capsule, static_cast<float>(piece_index) / static_cast<float>(pieces),
+											static_cast<float>(piece_index + 1u) / static_cast<float>(pieces)};
 			}
-			if (stats != nullptr)
-			{
-				++stats->uncached_blocked;
-			}
-			return capsule_query_result::blocked;
-		}
-		scratch.moc->ComputePixelDepthBuffer(scratch.pixel_depth.data(), false);
-
-		const float grid = static_cast<float>(k_visibility_pixel_grid_size);
-		bool geometry_visible_sample = false;
-		for (size_t capsule_index = 0; capsule_index < capsules.size(); ++capsule_index)
-		{
-			const visibility_capsule& capsule = capsules[capsule_index];
-			const projected_bounds& capsule_projection = projected[capsule_index];
-			// The projected AABB contains the capsule. If even this larger, slightly
-			// nearer rectangle is hidden, the capsule is proven hidden without sampling.
-			constexpr float conservative_margin = 1.0e-4f;
-			if (stats != nullptr)
-			{
-				++stats->moc_rect_tests;
-			}
-			const auto coarse =
-				scratch.moc->TestRect(capsule_projection.minimum_x - conservative_margin, capsule_projection.minimum_y - conservative_margin,
-									  capsule_projection.maximum_x + conservative_margin, capsule_projection.maximum_y + conservative_margin,
-									  capsule_projection.minimum_depth * (1.0f - conservative_margin));
-			if (coarse == MaskedOcclusionCulling::OCCLUDED)
-			{
-				continue;
-			}
-			for (uint32_t ordered_y = 0; ordered_y < k_visibility_pixel_grid_size; ++ordered_y)
+			while (pending_count != 0)
 			{
 				if ((stopping != nullptr && stopping->load()) || std::chrono::steady_clock::now() >= deadline)
 				{
 					return capsule_query_result::indeterminate;
 				}
-				const uint32_t y = center_out(ordered_y);
-				if (static_cast<int>(y) < capsule_projection.first_y || static_cast<int>(y) > capsule_projection.last_y)
+				const piece_range range = pending[--pending_count];
+				const vec3 axis = subtract(range.capsule->end, range.capsule->start);
+				const visibility_capsule piece {add(range.capsule->start, scale(axis, range.from)), add(range.capsule->start, scale(axis, range.to)),
+												range.capsule->radius};
+				camera_view piece_view;
+				if (!build_view(origin, capsule_bounds(piece), piece_view))
 				{
+					const float piece_length = length * (range.to - range.from);
+					if (piece_length <= k_close_piece_length_min || pending_count + 2u > pending.size())
+					{
+						return capsule_query_result::indeterminate;
+					}
+					const float middle = 0.5f * (range.from + range.to);
+					pending[pending_count++] = {range.capsule, middle, range.to};
+					pending[pending_count++] = {range.capsule, range.from, middle};
 					continue;
 				}
-				const float screen_y = 1.0f - (2.0f * static_cast<float>(y) + 1.0f) / grid;
-				for (uint32_t ordered_x = 0; ordered_x < k_visibility_pixel_grid_size; ++ordered_x)
+				// The per-pair occluder cache belongs to the whole-body camera.
+				const capsule_query_result piece_result = capsules_visible_in_view(geometry, origin, std::span<const visibility_capsule>(&piece, 1u),
+																				   piece_view, smokes, smoke_age_advance, deadline, stopping, stats, nullptr);
+				if (piece_result != capsule_query_result::blocked)
 				{
-					const uint32_t x = center_out(ordered_x);
-					if (static_cast<int>(x) < capsule_projection.first_x || static_cast<int>(x) > capsule_projection.last_x)
-					{
-						continue;
-					}
-					const float screen_x = (2.0f * static_cast<float>(x) + 1.0f) / grid - 1.0f;
-					const vec3 direction =
-						add(view.forward, add(scale(view.right, screen_x * view.horizontal), scale(view.up, screen_y * view.vertical)));
-					float distance = 0.0f;
-					if (stats != nullptr)
-					{
-						++stats->sampled_pixels;
-					}
-					if (!ray_capsule(origin, direction, capsule, distance))
-					{
-						continue;
-					}
-					const size_t pixel = static_cast<size_t>(y) * k_visibility_pixel_grid_size + x;
-					const float target_depth = 1.0f / distance;
-					if (scratch.pixel_depth[pixel] > target_depth * (1.0f + k_depth_epsilon))
-					{
-						continue;
-					}
-					const vec3 target = add(origin, scale(direction, distance));
-					geometry_visible_sample = true;
-					if (stats != nullptr)
-					{
-						++stats->traced_rays;
-					}
-					if (smokes == nullptr || !smoke_line_blocked(*smokes, origin, target, smoke_age_advance, &geometry))
-					{
-						return capsule_query_result::visible;
-					}
+					return piece_result;
 				}
 			}
-		}
-		if (geometry_visible_sample)
-		{
-			if (stats != nullptr)
-			{
-				++stats->uncached_blocked;
-			}
-			return capsule_query_result::blocked;
-		}
-
-		// Pixel centers can miss a sub-pixel opening. The conservative outer capsule
-		// mesh is the final proof: uncertainty reveals rather than hiding a visible player.
-		for (size_t index = 0; index < capsules.size(); ++index)
-		{
-			if ((stopping != nullptr && stopping->load()) || std::chrono::steady_clock::now() >= deadline)
-			{
-				return capsule_query_result::indeterminate;
-			}
-			const projected_bounds& capsule_projection = projected[index];
-			constexpr float conservative_margin = 1.0e-4f;
-			if (stats != nullptr)
-			{
-				++stats->moc_rect_tests;
-			}
-			if (scratch.moc->TestRect(capsule_projection.minimum_x - conservative_margin, capsule_projection.minimum_y - conservative_margin,
-									  capsule_projection.maximum_x + conservative_margin, capsule_projection.maximum_y + conservative_margin,
-									  capsule_projection.minimum_depth * (1.0f - conservative_margin))
-				== MaskedOcclusionCulling::OCCLUDED)
-			{
-				continue;
-			}
-			if (test_capsule_moc(scratch, view, capsules[index]) != MaskedOcclusionCulling::OCCLUDED)
-			{
-				return capsule_query_result::indeterminate;
-			}
-		}
-		if (stats != nullptr)
-		{
-			++stats->uncached_blocked;
 		}
 		return capsule_query_result::blocked;
 	}

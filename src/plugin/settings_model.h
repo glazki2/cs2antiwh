@@ -18,7 +18,7 @@ namespace cs2glaz
 		float shoulder_base_units {64.0f};
 		float shoulder_rtt_scale {0.64f};
 		float max_shoulder_units {};
-		int visibility_hold_ms {1000};
+		int visibility_hold_ms {300};
 		bool debug {};
 		int debug_los_player {};
 		bool automatic_updates {false};
