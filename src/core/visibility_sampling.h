@@ -56,6 +56,9 @@ namespace cs2glaz
 		weapon_muzzle_class muzzle_class {weapon_muzzle_class::none};
 		std::array<visibility_capsule, k_visibility_capsule_count> capsules {};
 		uint32_t capsule_count {};
+		// World velocity; without it the bounds padding is the same on every side.
+		vec3 velocity;
+		bool has_velocity {};
 	};
 
 	struct visibility_capsule_binding
@@ -125,6 +128,10 @@ namespace cs2glaz
 	visibility_origin_points visibility_origins(const bvh8_data& data, const visibility_player& player, const visibility_tuning& tuning,
 												std::span<const visibility_occluder> occluders = {});
 	bool visibility_muzzle_point(const visibility_player& player, vec3& point);
+	// Padded bounds corners. With a known velocity the padding follows movement:
+	// a standing player gets 4 units, and a side grows up to horizontal_padding
+	// only as fast as he moves or means to move (movement keys) towards it, over
+	// the time a hidden player needs to be sent before he steps into view.
 	std::array<vec3, k_visibility_aabb_point_count> visibility_aabb_points(const visibility_player& player, float horizontal_padding = 32.0f);
 	// The padded corners reach 16 + padding units from the centre and the muzzle up to 52
 	// units ahead, so near a thin wall they end on its far side, where any

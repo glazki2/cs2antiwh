@@ -42,12 +42,15 @@ namespace cs2glaz
 		std::array<visibility_capsule, k_visibility_capsule_count> capsules {};
 		uint32_t capsule_count {};
 		int pawn_entity {-1};
+		vec3 velocity;
+		bool has_velocity {};
 	};
 
 	inline visibility_player visibility_sample(const player_state& player)
 	{
-		return {player.eye,         player.origin,           player.mins,         player.maxs,     player.eye_yaw_degrees,
-				player.rtt_seconds, player.movement_buttons, player.muzzle_class, player.capsules, player.capsule_count};
+		return {player.eye,			player.origin,			 player.mins,		  player.maxs,	   player.eye_yaw_degrees,
+				player.rtt_seconds, player.movement_buttons, player.muzzle_class, player.capsules, player.capsule_count,
+				player.velocity,	player.has_velocity};
 	}
 
 	inline bool valid_player_numbers(const player_state& player)

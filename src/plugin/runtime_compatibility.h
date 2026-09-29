@@ -65,6 +65,7 @@ namespace cs2glaz
 		uint32_t solid_flags {};
 		uint32_t model_state {};
 		uint32_t model_name {};
+		uint32_t abs_velocity {};
 	};
 
 	struct smoke_private_layout
@@ -191,6 +192,12 @@ namespace cs2glaz
 			return player_name_schema_available_;
 		}
 
+		// A player's world velocity, which steers the bounds padding.
+		bool velocity_available() const
+		{
+			return velocity_schema_available_;
+		}
+
 		// Doors and props as live occluders: rotation, solidity and model name.
 		bool dynamic_occluders_available() const
 		{
@@ -255,6 +262,7 @@ namespace cs2glaz
 		bool smoke_detonation_schema_available_ {};
 		bool player_name_schema_available_ {};
 		bool dynamic_occluder_schema_available_ {};
+		bool velocity_schema_available_ {};
 		bool smoke_layout_candidate_ {};
 		bool smoke_runtime_verified_ {};
 		bool debug_beam_schema_available_ {};

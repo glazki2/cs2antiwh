@@ -513,6 +513,28 @@ namespace
 		target.muzzle_class = weapon_muzzle_class::rifle;
 		const auto aabb = visibility_aabb_points(target);
 		assert(aabb.size() == 8 && aabb.front().x == -48.0f && aabb.front().z == 2.0f && aabb.back().x == 48.0f && aabb.back().z == 80.0f);
+		// With a known velocity the padding follows movement: 4 units standing,
+		// up to the configured padding towards where he moves or steers.
+		target.has_velocity = true;
+		const auto standing = visibility_aabb_points(target, 16.0f);
+		assert(std::fabs(standing.front().x + 20.0f) < 0.01f && std::fabs(standing.back().x - 20.0f) < 0.01f
+			   && std::fabs(standing.front().y + 20.0f) < 0.01f && std::fabs(standing.back().y - 20.0f) < 0.01f);
+		target.velocity = {250.0f, 0.0f, 0.0f};
+		const auto running = visibility_aabb_points(target, 16.0f);
+		assert(std::fabs(running.back().x - 32.0f) < 0.01f && std::fabs(running.front().x + 20.0f) < 0.01f);
+		target.velocity = {60.0f, 0.0f, 0.0f};
+		const auto walking = visibility_aabb_points(target, 16.0f);
+		assert(walking.back().x > 23.0f && walking.back().x < 24.0f);
+		target.velocity = {};
+		target.eye_yaw_degrees = 90.0f;
+		target.movement_buttons = k_visibility_button_forward;
+		const auto steering = visibility_aabb_points(target, 16.0f);
+		assert(std::fabs(steering.back().y - 32.0f) < 0.01f && std::fabs(steering.front().y + 20.0f) < 0.01f
+			   && std::fabs(steering.back().x - 20.0f) < 0.01f);
+		target.has_velocity = false;
+		target.eye_yaw_degrees = 0.0f;
+		target.movement_buttons = 0;
+
 		vec3 muzzle;
 		assert(visibility_muzzle_point(target, muzzle));
 		assert(std::fabs(muzzle.x - 36.0f) < 0.01f && std::fabs(muzzle.y) < 0.01f && std::fabs(muzzle.z - 60.0f) < 0.01f);

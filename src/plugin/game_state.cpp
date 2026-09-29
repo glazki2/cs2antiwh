@@ -783,6 +783,12 @@ namespace cs2glaz
 				player.movement_buttons = field<uint64_t>(buttons, compatibility_.fields().button_states);
 			}
 			player.muzzle_class = active_weapon_muzzle_class(system, pawn_entity);
+			if (compatibility_.velocity_available())
+			{
+				const vec3 velocity = to_vec3(field<Vector>(pawn_entity, compatibility_.fields().abs_velocity));
+				player.has_velocity = std::isfinite(velocity.x) && std::isfinite(velocity.y) && std::isfinite(velocity.z);
+				player.velocity = player.has_velocity ? velocity : vec3 {};
+			}
 			if (INetChannelInfo* channel = engine_->GetPlayerNetInfo(CPlayerSlot(static_cast<int>(slot))); channel != nullptr)
 			{
 				player.rtt_seconds = channel->GetEngineLatency();

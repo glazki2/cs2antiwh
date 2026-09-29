@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.15
+
+- An enemy standing near a corner is no longer sent around it. The bounds corners that reveal an enemy a moment before he steps out were padded the same amount on every side (16 units, 32 before 0.5.14), so a player standing still just behind a corner, whom nobody could see, was sent to everyone around it. The padding now follows movement from the pawn's velocity (`m_vecAbsVelocity`) and movement keys: 4 units on every side for a standing player, growing towards where he moves or steers by his speed over 64 ms (two snapshots of interpolation plus a visibility pass), capped by `cs2glaz_bounds_padding_units` (16 units at running speed). Without the velocity field the old uniform padding applies.
+
 ## 0.5.14
 
 - Doors and box-shaped props now block sight. The baked map holds only the static world, so a closed door or a crate that is an entity was transparent to the visibility check and a wallhack saw anyone behind it (reported on Dust II doors and boxes). Doors (`prop_door*`, `func_door*`) and props whose model name contains `crate`, `box`, `container` or `dumpster` (`prop_dynamic*`, `prop_physics*`) are found once a second by index through the verified entity table; every snapshot copies each one's collision box, current rotation and solidity. Doors keep their thickness and lose a unit at the edges, props shrink to 90%, so the box stays inside the real shape; non-solid, trigger and oddly shaped ones, and models with glass, windows, fences, gates, grates, mesh, vehicles and similar in their name are left out. The boxes block the exact rays that decide visibility, the shoulder, feet, above-head and movement origins, and the target's corner and muzzle points. A segment that starts or ends inside a box is never blocked by it. Model names are read once per entity through guarded reads. `cs2glaz_dynamic_occluders 0` turns this off (resets on restart).

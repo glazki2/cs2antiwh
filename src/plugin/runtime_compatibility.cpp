@@ -514,6 +514,7 @@ namespace cs2glaz
 		smoke_schema_available_ = optional(fields_.did_smoke_effect, "CSmokeGrenadeProjectile", "m_bDidSmokeEffect");
 		smoke_detonation_schema_available_ = optional(fields_.smoke_detonation_pos, "CSmokeGrenadeProjectile", "m_vSmokeDetonationPos");
 		player_name_schema_available_ = optional(fields_.player_name, "CBasePlayerController", "m_iszPlayerName");
+		velocity_schema_available_ = optional(fields_.abs_velocity, "CBaseEntity", "m_vecAbsVelocity");
 		dynamic_occluder_schema_available_ = optional(fields_.abs_rotation, "CGameSceneNode", "m_angAbsRotation")
 											 && optional(fields_.solid_type, "CCollisionProperty", "m_nSolidType")
 											 && optional(fields_.solid_flags, "CCollisionProperty", "m_usSolidFlags")

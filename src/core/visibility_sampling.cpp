@@ -25,6 +25,12 @@ namespace cs2glaz
 		// feet, so a point never lies on the floor surface, which a ray from below
 		// ending there does not count as crossed.
 		constexpr float k_bottom_bounds_lift = 2.0f;
+		// Movement-following bounds padding: a standing player's margin, the
+		// running speed the movement keys imply, and how far ahead a hidden player
+		// is revealed (two snapshots of interpolation plus a visibility pass).
+		constexpr float k_idle_bounds_padding = 4.0f;
+		constexpr float k_run_speed = 250.0f;
+		constexpr float k_padding_lookahead_seconds = 0.064f;
 		constexpr float k_hull_floor_clearance = 0.5f;
 
 		float distance_sq(vec3 a, vec3 b)
@@ -363,10 +369,34 @@ namespace cs2glaz
 	std::array<vec3, k_visibility_aabb_point_count> visibility_aabb_points(const visibility_player& player, float horizontal_padding)
 	{
 		const float padding = std::isfinite(horizontal_padding) ? std::clamp(horizontal_padding, 0.0f, 64.0f) : 32.0f;
-		const vec3 minimum {player.origin.x + player.mins.x - padding,
-							player.origin.y + player.mins.y - padding, player.origin.z + player.mins.z + k_bottom_bounds_lift};
-		const vec3 maximum {player.origin.x + player.maxs.x + padding,
-							player.origin.y + player.maxs.y + padding, player.origin.z + player.maxs.z + k_top_bounds_padding};
+		float minus_x = padding;
+		float plus_x = padding;
+		float minus_y = padding;
+		float plus_y = padding;
+		if (player.has_velocity && std::isfinite(player.velocity.x) && std::isfinite(player.velocity.y))
+		{
+			// Where the keys push him, at running speed.
+			const vec3 forward = eye_forward(player.eye_yaw_degrees);
+			const vec3 right = eye_right(player.eye_yaw_degrees);
+			const float forward_input = static_cast<float>((player.movement_buttons & k_visibility_button_forward) != 0)
+										- static_cast<float>((player.movement_buttons & k_visibility_button_back) != 0);
+			const float side_input = static_cast<float>((player.movement_buttons & k_visibility_button_right) != 0)
+									 - static_cast<float>((player.movement_buttons & k_visibility_button_left) != 0);
+			vec3 intent = add(scale(forward, forward_input), scale(right, side_input));
+			const float intent_length = std::sqrt(intent.x * intent.x + intent.y * intent.y);
+			intent = intent_length > 0.0f ? scale(intent, k_run_speed / intent_length) : vec3 {};
+			const float idle = std::min(k_idle_bounds_padding, padding);
+			const auto reach = [&](float velocity, float intended)
+			{ return std::clamp(idle + std::max({0.0f, velocity, intended}) * k_padding_lookahead_seconds, idle, padding); };
+			plus_x = reach(player.velocity.x, intent.x);
+			minus_x = reach(-player.velocity.x, -intent.x);
+			plus_y = reach(player.velocity.y, intent.y);
+			minus_y = reach(-player.velocity.y, -intent.y);
+		}
+		const vec3 minimum {player.origin.x + player.mins.x - minus_x, player.origin.y + player.mins.y - minus_y,
+							player.origin.z + player.mins.z + k_bottom_bounds_lift};
+		const vec3 maximum {player.origin.x + player.maxs.x + plus_x, player.origin.y + player.maxs.y + plus_y,
+							player.origin.z + player.maxs.z + k_top_bounds_padding};
 		return {{{minimum.x, minimum.y, minimum.z},
 				 {maximum.x, minimum.y, minimum.z},
 				 {minimum.x, maximum.y, minimum.z},
