@@ -552,7 +552,13 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_reload - Transactionally reload cs2glaz.cfg.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_check_config - Check settings without changing them.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_check_update - Check for an update now instead of waiting.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_why [name|slot] - Why each enemy is or is not sent, from every viewing origin.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_props [radius] - Solid entities near each player and whether they block sight.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_wallcheck 0|1|2 - Test HUD (off, centre, chat); cs2glaz_wallcheck_status explains it.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_probe [start|dump] - Sample or dump the CheckTransmit entity lists.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_entity [<edict>|clear] - Inspect actual debug-mode transmit clears.\n");
+		META_CONPRINTF("[CS2GLAZ] runtime switches (reset on restart): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
+					   "cs2glaz_dynamic_occluders, cs2glaz_transmit_mode, cs2glaz_hide_all_enemies.\n");
 	}
 
 	void plugin::check_update()
