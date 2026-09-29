@@ -14,6 +14,14 @@ namespace cs2glaz
 		constexpr float k_vertical_origin_offset = 16.0f;
 		constexpr float k_feet_origin_lift = 4.0f;
 		constexpr float k_strafe_speed = 30.0f;
+		constexpr float k_idle_vertical_origin_offset = 4.0f;
+		constexpr float k_standing_eye_height = 60.0f;
+		constexpr float k_run_acceleration = 1375.0f; // sv_accelerate 5.5 at 250 u/s
+		constexpr float k_idle_reaction_seconds = 0.08f;
+		constexpr float k_idle_shoulder_min = 4.0f;
+		// The body without bones stays this far inside the collision hull's sides:
+		// the hull is 32 units wide, a player model's shoulders about 24.
+		constexpr float k_hull_body_inset = 4.0f;
 		constexpr float k_ping_step_ms = 25.0f;
 		constexpr float k_same_point_epsilon_sq = 1.0e-4f;
 		constexpr uint32_t k_wall_clip_steps = 8;
@@ -72,7 +80,7 @@ namespace cs2glaz
 		vec3 safe_origin(const bvh8_data& data, vec3 eye, vec3 candidate, std::span<const visibility_occluder> occluders)
 		{
 			if (distance_sq(eye, candidate) <= k_same_point_epsilon_sq || segment_blocked(data, eye, candidate).blocked
-				|| occluders_block_segment(occluders, eye, candidate))
+				|| occluders_block_segment(occluders, eye, candidate) || occluders_contain(occluders, candidate))
 			{
 				return eye;
 			}
@@ -172,6 +180,13 @@ namespace cs2glaz
 
 	uint32_t visibility_hull_capsules(vec3 origin, vec3 mins, vec3 maxs, std::array<visibility_capsule, k_visibility_capsule_count>& capsules)
 	{
+		if (maxs.x - mins.x > 4.0f * k_hull_body_inset && maxs.y - mins.y > 4.0f * k_hull_body_inset)
+		{
+			mins.x += k_hull_body_inset;
+			mins.y += k_hull_body_inset;
+			maxs.x -= k_hull_body_inset;
+			maxs.y -= k_hull_body_inset;
+		}
 		const float width_x = maxs.x - mins.x;
 		const float width_y = maxs.y - mins.y;
 		const float height = maxs.z - mins.z;
@@ -218,13 +233,16 @@ namespace cs2glaz
 	float visibility_shoulder_offset_units(float rtt_seconds, const visibility_tuning& tuning, bool movement_intent)
 	{
 		const float configured_base = std::max(0.0f, tuning.shoulder_base_units);
-		// A player standing still covers a few units in the time a sighting takes
-		// to reach him (starting from rest), so the ping allowance applies only
-		// while he moves that way; at 77 ms it used to put an idle shoulder 54
-		// units out, enough to look around a corner.
+		// A player standing still only covers what he can accelerate through from
+		// rest before his first step reaches the server and the moving shoulder's
+		// sighting comes back (his ping plus about 80 ms of ticks, a visibility
+		// pass and interpolation): half of 1375 u/s^2 times that time squared,
+		// about 17 units at 77 ms. The moving shoulder takes over as soon as the
+		// server sees him move. Half the base stays the upper limit.
 		if (!movement_intent)
 		{
-			return configured_base * 0.5f;
+			const float reach_seconds = std::max(0.0f, rtt_seconds) + k_idle_reaction_seconds;
+			return std::clamp(0.5f * k_run_acceleration * reach_seconds * reach_seconds, k_idle_shoulder_min, std::max(k_idle_shoulder_min, configured_base * 0.5f));
 		}
 		const float base = configured_base;
 		const float rtt_ms = std::max(0.0f, rtt_seconds) * 1000.0f;
@@ -240,7 +258,12 @@ namespace cs2glaz
 
 	vec3 visibility_clip_destination(const bvh8_data& data, vec3 origin, vec3 destination, std::span<const visibility_occluder> occluders)
 	{
-		const auto blocked_to = [&](vec3 point) { return segment_blocked(data, origin, point).blocked || occluders_block_segment(occluders, origin, point); };
+		// A point inside a door or box counts as blocked, so it is pulled back out.
+		const auto blocked_to = [&](vec3 point)
+		{
+			return segment_blocked(data, origin, point).blocked || occluders_block_segment(occluders, origin, point)
+				   || occluders_contain(occluders, point);
+		};
 		if (distance_sq(origin, destination) <= k_same_point_epsilon_sq || !blocked_to(destination))
 		{
 			return destination;
@@ -345,7 +368,13 @@ namespace cs2glaz
 		const float right_offset = visibility_shoulder_offset_units(player.rtt_seconds, tuning, right_button);
 		const vec3 left = subtract(player.eye, scale(right_axis, left_offset));
 		const vec3 right = add(player.eye, scale(right_axis, right_offset));
-		const vec3 vertical {0.0f, 0.0f, k_vertical_origin_offset};
+		// Above the eye: a jump or standing up from a crouch lifts it, so the full
+		// offset applies while jumping, moving vertically or crouched; a player
+		// standing on the ground gets a small one.
+		const bool crouched = player.eye.z - player.origin.z < k_standing_eye_height;
+		const bool rising = (player.movement_buttons & k_visibility_button_jump) != 0 || crouched
+							|| (player.has_velocity && std::fabs(player.velocity.z) > k_strafe_speed);
+		const vec3 vertical {0.0f, 0.0f, rising ? k_vertical_origin_offset : k_idle_vertical_origin_offset};
 		add_origin(origins, player.eye, visibility_origin_role::eye);
 		add_origin(origins, safe_origin(data, player.eye, left, occluders), visibility_origin_role::left_shoulder);
 		add_origin(origins, safe_origin(data, player.eye, right, occluders), visibility_origin_role::right_shoulder);

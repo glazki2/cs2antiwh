@@ -405,13 +405,16 @@ namespace
 		player.mins = {-16, -16, 0};
 		player.maxs = {16, 16, 72};
 
-		assert(std::fabs(visibility_shoulder_offset_units(-1.0f, tuning, false) - 32.0f) < 0.01f);
-		assert(std::fabs(visibility_shoulder_offset_units(0.0f, tuning, false) - 32.0f) < 0.01f);
-		assert(std::fabs(visibility_shoulder_offset_units(0.024f, tuning, false) - 32.0f) < 0.01f);
-		// Idle shoulders get no ping allowance: half the base at any ping.
-		assert(std::fabs(visibility_shoulder_offset_units(0.025f, tuning, false) - 32.0f) < 0.01f);
-		assert(std::fabs(visibility_shoulder_offset_units(0.077f, tuning, false) - 32.0f) < 0.01f);
-		assert(std::fabs(visibility_shoulder_offset_units(0.3f, tuning, false) - 32.0f) < 0.01f);
+		// Idle shoulders cover what a player accelerates through from rest before
+		// the moving shoulder's sighting reaches him: 687.5 * (rtt + 0.08)^2,
+		// between 4 units and half the base.
+		const auto idle_at = [](float rtt) { return std::clamp(687.5f * (std::max(0.0f, rtt) + 0.08f) * (std::max(0.0f, rtt) + 0.08f), 4.0f, 32.0f); };
+		for (const float rtt : {-1.0f, 0.0f, 0.024f, 0.05f, 0.077f, 0.3f})
+		{
+			assert(std::fabs(visibility_shoulder_offset_units(rtt, tuning, false) - idle_at(rtt)) < 0.01f);
+		}
+		assert(std::fabs(idle_at(0.077f) - 16.95f) < 0.05f && idle_at(0.3f) == 32.0f);
+		const float idle = idle_at(0.0f);
 		assert(std::fabs(visibility_shoulder_offset_units(0.075f, tuning, true) - 112.0f) < 0.01f);
 		assert(std::fabs(visibility_shoulder_offset_units(0.1f, tuning, true) - 128.0f) < 0.01f);
 		assert(std::fabs(visibility_shoulder_offset_units(0.125f, tuning, true) - 144.0f) < 0.01f);
@@ -430,46 +433,59 @@ namespace
 		assert(1.06f * std::cos(pi / 12.0f) * std::cos(pi / 16.0f) >= 1.0f);
 		assert(origins.count == 5);
 		assert(origins.points[0].x == 0.0f && origins.points[0].z == 64.0f);
-		assert(std::fabs(origins.points[1].y - 32.0f) < 0.01f);
-		assert(std::fabs(origins.points[2].y + 32.0f) < 0.01f);
-		assert(std::fabs(origins.points[3].z - 80.0f) < 0.01f);
+		assert(std::fabs(origins.points[1].y - idle) < 0.01f);
+		assert(std::fabs(origins.points[2].y + idle) < 0.01f);
+		assert(std::fabs(origins.points[3].z - 68.0f) < 0.01f);
 		assert(origins.points[4].x == player.origin.x && origins.points[4].y == player.origin.y && origins.points[4].z == player.origin.z + 4.0f);
 		assert(origins.roles[0] == visibility_origin_role::eye && origins.roles[4] == visibility_origin_role::feet);
 		player.rtt_seconds = 0.05f;
 		origins = visibility_origins(open, player, tuning);
-		assert(std::fabs(origins.points[1].y - 32.0f) < 0.01f && std::fabs(origins.points[2].y + 32.0f) < 0.01f);
+		assert(std::fabs(origins.points[1].y - idle_at(0.05f)) < 0.01f && std::fabs(origins.points[2].y + idle_at(0.05f)) < 0.01f);
 		// Sliding right (no key held) makes the right shoulder a moving one.
 		player.has_velocity = true;
 		player.velocity = {0.0f, -100.0f, 0.0f};
 		origins = visibility_origins(open, player, tuning);
-		assert(std::fabs(origins.points[1].y - 32.0f) < 0.01f && std::fabs(origins.points[2].y + 96.0f) < 0.01f);
+		assert(std::fabs(origins.points[1].y - idle_at(0.05f)) < 0.01f && std::fabs(origins.points[2].y + 96.0f) < 0.01f);
 		player.velocity = {0.0f, -20.0f, 0.0f};
 		origins = visibility_origins(open, player, tuning);
-		assert(std::fabs(origins.points[2].y + 32.0f) < 0.01f);
+		assert(std::fabs(origins.points[2].y + idle_at(0.05f)) < 0.01f);
+		// Jumping, moving vertically or crouching gives the full origin above.
+		player.velocity = {0.0f, 0.0f, 200.0f};
+		origins = visibility_origins(open, player, tuning);
+		assert(std::fabs(origins.points[3].z - 80.0f) < 0.01f);
+		player.velocity = {};
+		player.movement_buttons = k_visibility_button_jump;
+		origins = visibility_origins(open, player, tuning);
+		assert(std::fabs(origins.points[3].z - 80.0f) < 0.01f);
+		player.movement_buttons = 0;
+		player.eye.z = 46.0f;
+		origins = visibility_origins(open, player, tuning);
+		assert(std::fabs(origins.points[3].z - 62.0f) < 0.01f);
+		player.eye.z = 64.0f;
 		player.has_velocity = false;
 		player.velocity = {};
 		player.rtt_seconds = 0.0f;
 
 		player.eye_yaw_degrees = 90.0f;
 		origins = visibility_origins(open, player, tuning);
-		assert(std::fabs(origins.points[1].x + 32.0f) < 0.01f);
-		assert(std::fabs(origins.points[2].x - 32.0f) < 0.01f);
+		assert(std::fabs(origins.points[1].x + idle) < 0.01f);
+		assert(std::fabs(origins.points[2].x - idle) < 0.01f);
 		player.eye_yaw_degrees = 0.0f;
 
 		player.movement_buttons = k_visibility_button_forward;
 		origins = visibility_origins(open, player, tuning);
-		assert(origins.count == 6 && std::fabs(origins.points[1].y - 32.0f) < 0.01f && std::fabs(origins.points[2].y + 32.0f) < 0.01f
+		assert(origins.count == 6 && std::fabs(origins.points[1].y - idle) < 0.01f && std::fabs(origins.points[2].y + idle) < 0.01f
 			   && std::fabs(origins.points[5].x - 64.0f) < 0.01f);
 		player.movement_buttons = k_visibility_button_back;
 		origins = visibility_origins(open, player, tuning);
-		assert(origins.count == 6 && std::fabs(origins.points[1].y - 32.0f) < 0.01f && std::fabs(origins.points[2].y + 32.0f) < 0.01f
+		assert(origins.count == 6 && std::fabs(origins.points[1].y - idle) < 0.01f && std::fabs(origins.points[2].y + idle) < 0.01f
 			   && std::fabs(origins.points[5].x + 64.0f) < 0.01f);
 		player.movement_buttons = k_visibility_button_left;
 		origins = visibility_origins(open, player, tuning);
-		assert(origins.count == 5 && std::fabs(origins.points[1].y - 64.0f) < 0.01f && std::fabs(origins.points[2].y + 32.0f) < 0.01f);
+		assert(origins.count == 5 && std::fabs(origins.points[1].y - 64.0f) < 0.01f && std::fabs(origins.points[2].y + idle) < 0.01f);
 		player.movement_buttons = k_visibility_button_right;
 		origins = visibility_origins(open, player, tuning);
-		assert(origins.count == 5 && std::fabs(origins.points[1].y - 32.0f) < 0.01f && std::fabs(origins.points[2].y + 64.0f) < 0.01f);
+		assert(origins.count == 5 && std::fabs(origins.points[1].y - idle) < 0.01f && std::fabs(origins.points[2].y + 64.0f) < 0.01f);
 
 		const float diagonal = 64.0f / std::sqrt(2.0f);
 		const std::array<std::pair<uint64_t, vec3>, 4> diagonals {
@@ -512,7 +528,7 @@ namespace
 		assert(origins.count == 4);
 
 		const bvh8_data ceiling =
-			test_world({{{-100, -100, 72}, {100, -100, 72}, {-100, 100, 72}}, {{100, 100, 72}, {-100, 100, 72}, {100, -100, 72}}});
+			test_world({{{-100, -100, 66}, {100, -100, 66}, {-100, 100, 66}}, {{100, 100, 66}, {-100, 100, 66}, {100, -100, 66}}});
 		player.movement_buttons = 0;
 		origins = visibility_origins(ceiling, player, tuning);
 		assert(origins.count == 4);
@@ -731,6 +747,15 @@ namespace
 			assert(origins.points[index].x < 98.0f);
 		}
 
+		// A shoulder that would end inside the door is dropped, not placed there.
+		player.eye = {99.0f - 4.0f, 0.0f, 64.0f};
+		const visibility_origin_points short_origins = visibility_origins(open, player, {8.0f, 0.0f, 0.0f}, doors);
+		for (uint32_t index = 0; index < short_origins.count; ++index)
+		{
+			assert(!occluders_contain(doors, short_origins.points[index]));
+		}
+		assert(occluders_contain(doors, {100.0f, 0.0f, 50.0f}) && !occluders_contain(doors, {100.0f, 40.0f, 50.0f}));
+
 		// Only occluders near the sightline are kept per query.
 		std::array<visibility_occluder, 4> nearby {};
 		const std::array<visibility_occluder, 2> both {door, open_door};
@@ -766,7 +791,8 @@ namespace
 					const float fx = static_cast<float>(ix) / k_steps;
 					const float fy = static_cast<float>(iy) / k_steps;
 					const float fz = static_cast<float>(iz) / k_steps;
-					const vec3 point {origin.x + mins.x + (maxs.x - mins.x) * fx, origin.y + mins.y + (maxs.y - mins.y) * fy,
+					// The body covers the hull less 4 units on each side (the model's width).
+					const vec3 point {origin.x + mins.x + 4.0f + (maxs.x - mins.x - 8.0f) * fx, origin.y + mins.y + 4.0f + (maxs.y - mins.y - 8.0f) * fy,
 									  origin.z + mins.z + (maxs.z - mins.z) * fz};
 					// The lowest band (one radius) is only covered near column centres.
 					if (point.z < origin.z + mins.z + capsules[0].radius + 0.5f)
@@ -786,6 +812,9 @@ namespace
 		{
 			assert(valid_visibility_capsule(capsules[index]) && capsules[index].radius <= 9.0f);
 			assert(capsules[index].end.z == origin.z + maxs.z);
+			// Nothing reaches more than 2 units past the model's 24-unit width.
+			assert(std::fabs(capsules[index].start.x - origin.x) + capsules[index].radius <= 14.5f);
+			assert(std::fabs(capsules[index].start.y - origin.y) + capsules[index].radius <= 14.5f);
 			// Nothing reaches below the feet, where a thin floor would not hide it.
 			assert(capsules[index].start.z - capsules[index].radius >= origin.z + mins.z + 0.49f);
 		}

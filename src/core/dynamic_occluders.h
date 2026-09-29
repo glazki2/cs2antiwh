@@ -41,6 +41,9 @@ namespace cs2glaz
 	// end points outside it.
 	bool occluder_blocks_segment(const visibility_occluder& occluder, vec3 start, vec3 end);
 	bool occluders_block_segment(std::span<const visibility_occluder> occluders, vec3 start, vec3 end);
+	// Whether a point lies inside any box (a viewing origin there would see
+	// through it).
+	bool occluders_contain(std::span<const visibility_occluder> occluders, vec3 point);
 
 	// Keeps the occluders that can lie between an origin and a sphere (a target's
 	// bounds); writes at most output.size() and returns how many, or returns

@@ -23,6 +23,7 @@ namespace cs2glaz
 	inline constexpr uint32_t k_visibility_pixel_count = k_visibility_pixel_grid_size * k_visibility_pixel_grid_size;
 	inline constexpr uint32_t k_visibility_debug_beam_count_max = k_visibility_capsule_count + 1 + k_visibility_aabb_point_count;
 
+	inline constexpr uint64_t k_visibility_button_jump = 0x2;
 	inline constexpr uint64_t k_visibility_button_forward = 0x8;
 	inline constexpr uint64_t k_visibility_button_back = 0x10;
 	inline constexpr uint64_t k_visibility_button_left = 0x200;
@@ -120,10 +121,11 @@ namespace cs2glaz
 	float weapon_muzzle_length(weapon_muzzle_class value);
 	bool visibility_transform_point(const visibility_bone_transform& transform, vec3 local, vec3& world);
 	bool valid_visibility_capsule(const visibility_capsule& capsule);
-	// Conservative body for builds without verified bone access: vertical capsules
-	// on a 3x3 grid whose union contains the collision hull above its lowest band
-	// and never reaches below the feet. Returns 0 when the bounds are unusable,
-	// which leaves the target visible.
+	// Body for builds without verified bone access: vertical capsules on a 3x3
+	// grid whose union contains the collision hull, less 4 units on each side
+	// (the model is narrower than the hull), above its lowest band, and never
+	// reaches below the feet. Returns 0 when the bounds are unusable, which
+	// leaves the target visible.
 	uint32_t visibility_hull_capsules(vec3 origin, vec3 mins, vec3 maxs, std::array<visibility_capsule, k_visibility_capsule_count>& capsules);
 	visibility_origin_points visibility_origins(const bvh8_data& data, const visibility_player& player, const visibility_tuning& tuning,
 												std::span<const visibility_occluder> occluders = {});

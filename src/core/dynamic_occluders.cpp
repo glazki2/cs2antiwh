@@ -149,6 +149,20 @@ namespace cs2glaz
 		return false;
 	}
 
+	bool occluders_contain(std::span<const visibility_occluder> occluders, vec3 point)
+	{
+		for (const visibility_occluder& occluder : occluders)
+		{
+			const vec3 offset = subtract(point, occluder.center);
+			if (dot(offset, offset) <= occluder.radius * occluder.radius && std::fabs(dot(offset, occluder.axes[0])) < occluder.half.x
+				&& std::fabs(dot(offset, occluder.axes[1])) < occluder.half.y && std::fabs(dot(offset, occluder.axes[2])) < occluder.half.z)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	uint32_t occluders_between(std::span<const visibility_occluder> occluders, vec3 origin, vec3 target_center, float target_radius,
 							   std::span<visibility_occluder> output)
 	{

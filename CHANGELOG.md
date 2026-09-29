@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.17
+
+A live `cs2glaz_why` session on Dust II (two players at corners, limited mode) showed every reveal coming from a single viewing origin to the side or above, with the eye, feet and every other origin blocked: the walls were right, the peek allowances were wider than a standing player needs.
+
+- A standing player's shoulders now cover only what he can accelerate through from rest before his first step reaches the server and the moving shoulder's sighting comes back: 687.5 * (ping + 0.08 s)^2 units (1375 u/s^2 acceleration), at least 4 and at most half the base. About 17 units at 77 ms ping instead of 24, 7 at 20 ms. Strafing or sliding shoulders are unchanged.
+- The origin above the eye is 16 units only while jumping, moving vertically or crouched (standing up lifts the eye); a player on the ground gets 4.
+- Without bones (limited mode) the body is built from the collision hull less 4 units on each side: the hull is 32 units wide, a model's shoulders about 24. The capsules used to reach 18.7 units from the centre, now 14.2.
+- A viewing origin never ends inside a door or box occluder; one that would is dropped (shoulder, above, feet) or pulled back out (movement origin). A point inside a box used to see straight through it.
+
 ## 0.5.16
 
 - Idle viewing shoulders no longer get the ping allowance. A live `cs2glaz_why` on Dust II showed `rtt=77ms shoulders idle=54`: a player standing still had viewing origins 54 units to each side, enough to look around a corner and receive an enemy nobody could see. The ping allowance now applies to a shoulder only while its key is held or the player still slides that way (lateral speed above 30 u/s, from the pawn velocity); a standing player's shoulders are half the base (24 units by default) at any ping. A player starting to strafe covers only a few units before the next sighting reaches him.
