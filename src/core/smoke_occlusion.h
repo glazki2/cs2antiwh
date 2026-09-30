@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -75,6 +76,9 @@ namespace cs2glaz
 
 	struct smoke_snapshot
 	{
+		// When the volumes were copied (their ages are as of then); a copy may be
+		// reused by several visibility snapshots.
+		std::chrono::steady_clock::time_point copied {};
 		std::vector<smoke_volume_snapshot> volumes;
 		std::array<he_smoke_clearance, k_max_he_clearances> he_clearances {};
 		uint32_t he_clearance_count {};
@@ -104,5 +108,13 @@ namespace cs2glaz
 
 	bool smoke_line_blocked(const smoke_snapshot& snapshot, vec3 origin, vec3 target, float age_advance_seconds = 0.0f,
 							const bvh8_data* geometry = nullptr);
+
+	// Whether the point lies in an opaque cell of a volume that no HE grenade is
+	// clearing: then smoke_line_blocked is true for every line from it.
+	bool smoke_point_opaque(const smoke_snapshot& snapshot, vec3 point, float age_advance_seconds = 0.0f);
+
+	// Whether every cell overlapping the box is opaque in one such volume: a
+	// body wholly inside dense smoke.
+	bool smoke_box_opaque(const smoke_snapshot& snapshot, vec3 minimum, vec3 maximum, float age_advance_seconds = 0.0f);
 
 } // namespace cs2glaz

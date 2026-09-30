@@ -159,6 +159,11 @@ namespace
 		const float down = std::atan2(64.0f + 300.0f - k_decoy_center_height, 500.0f) * 57.29578f;
 		assert(aim_on_decoy(eye, down, 0.0f, below));
 		assert(!aim_on_decoy(eye, std::nanf(""), 0.0f, decoy));
+		// Walking straight at a decoy needs no turn; strafing past it does.
+		assert(decoy_tracking_degrees({0, 0, 64}, {100, 0, 64}, decoy) < 0.01f);
+		const float strafe = decoy_tracking_degrees({0, 0, 64}, {0, 50, 64}, decoy);
+		assert(strafe > 5.0f && strafe < 6.5f);
+		assert(decoy_tracking_degrees({0, 0, 64}, {0, 0, 64}, decoy) < 0.01f);
 		const vec3 forward = view_forward(0.0f, 90.0f);
 		assert(std::fabs(forward.x) < 1.0e-5f && std::fabs(forward.y - 1.0f) < 1.0e-5f);
 	}

@@ -46,6 +46,15 @@ namespace cs2glaz
 		constexpr uint32_t k_max_teleport_vtable_index = 1024;
 		constexpr uint8_t k_solid_none = 0;
 		constexpr uint8_t k_solid_flag_not_solid = 0x04;
+		// A decoy's health: a hit lowers it without killing it, which is how a
+		// decoy that traces still reach is noticed.
+		constexpr int32_t k_decoy_health = 1000000;
+		// A reported aim: on the decoy for k_aim_report_ms while the viewer moved
+		// enough that the direction to it changed by this much. Holding a fixed
+		// angle, sweeping across it, or walking straight at it does not count;
+		// tracking it while moving does.
+		constexpr float k_aim_min_tracking_degrees = 3.0f;
+
 
 #if defined(_WIN32)
 		constexpr std::string_view k_platform_suffix = "_windows";
@@ -255,14 +264,23 @@ namespace cs2glaz
 		{
 			return fail(entity, "the Teleport vtable index does not point into the server");
 		}
-		// Not solid and (mode 1) not rendered before and after spawning. The model
-		// is set only after spawning, so the prop never gets a physics object;
-		// nothing has been sent yet, so the first send carries these values.
+		// Not solid, touched by no trace, (mode 1) not rendered, before and after
+		// the model and the spawn; nothing has been sent yet, so the first send
+		// carries these values. The model is set before spawning (a prop spawned
+		// without one logs "has no model name"); being not solid, it gets no
+		// physics object, which is checked right after the spawn.
 		void* collision = reinterpret_cast<std::byte*>(entity) + fields.model_collision;
 		const auto apply = [&]
 		{
 			field<uint8_t>(collision, fields.solid_type) = k_solid_none;
 			field<uint8_t>(collision, fields.solid_flags) |= k_solid_flag_not_solid;
+			if (compatibility_.collision_attribute_available())
+			{
+				void* attribute = reinterpret_cast<std::byte*>(collision) + fields.collision_attribute;
+				field<uint64_t>(attribute, fields.interacts_as) = 0;
+				field<uint64_t>(attribute, fields.interacts_with) = 0;
+			}
+			field<int32_t>(entity, fields.health) = k_decoy_health;
 			if (mode == 1)
 			{
 				field<uint8_t>(entity, fields.render_mode) = compatibility_.render_none_value();
@@ -270,13 +288,14 @@ namespace cs2glaz
 			}
 		};
 		apply();
-		reinterpret_cast<dispatch_spawn_fn>(functions.dispatch_spawn)(entity, nullptr);
-		apply();
 		reinterpret_cast<set_model_fn>(functions.set_model)(entity, model.c_str());
+		apply();
+		reinterpret_cast<dispatch_spawn_fn>(functions.dispatch_spawn)(entity, nullptr);
 		if (field<uint8_t>(collision, fields.solid_type) != k_solid_none || (field<uint8_t>(collision, fields.solid_flags) & k_solid_flag_not_solid) == 0)
 		{
 			return fail(entity, "a spawned decoy was solid");
 		}
+		apply();
 		if (mode == 1 && field<uint8_t>(entity, fields.render_mode) != compatibility_.render_none_value())
 		{
 			return fail(entity, "a spawned decoy was rendered");
@@ -361,6 +380,7 @@ namespace cs2glaz
 
 	void plugin::update_decoys(CGameEntitySystem* system, visibility_snapshot& value, std::chrono::steady_clock::time_point now)
 	{
+		const std::array<view_sample, k_max_players> previous_view = last_view_;
 		for (uint32_t slot = 0; slot < k_max_players; ++slot)
 		{
 			const player_state& player = value.players[slot];
@@ -446,11 +466,20 @@ namespace cs2glaz
 					continue;
 				}
 				bool drop = !eligible || !enemies_of(viewer, viewer_slot, slot.target) || now >= slot.expires;
-				if (!drop && slot.spawned && system->GetEntityInstance(slot.handle) == nullptr)
+				CEntityInstance* entity = slot.spawned ? system->GetEntityInstance(slot.handle) : nullptr;
+				if (slot.spawned && entity == nullptr)
 				{
 					// Removed by the game (round restart cleanup).
 					slot = {};
 					continue;
+				}
+				if (entity != nullptr && field<int32_t>(entity, compatibility_.fields().health) < k_decoy_health)
+				{
+					// A shot or a knife reached it: it would absorb honest players' shots.
+					decoy_functions_.ready = false;
+					decoy_functions_.error = "a decoy was hit by a shot or a knife";
+					META_CONPRINTF("[CS2GLAZ] decoys turned off: a decoy was hit by a shot or a knife; they stay off until the plugin reloads\n");
+					break;
 				}
 				const bool checked = !drop && fresh && result->decoys[viewer_slot][index].id == slot.id;
 				if (checked && result->visible[viewer_slot][slot.target])
@@ -481,8 +510,13 @@ namespace cs2glaz
 				{
 					if (aim_on_decoy(viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, slot.origin))
 					{
-						slot.aim_ms += elapsed_ms;
-						if (slot.aim_ms >= k_aim_report_ms && !slot.aim_reported)
+						const view_sample& before = previous_view[viewer_slot];
+						if (slot.aim_ms > 0.0f && before.valid)
+						{
+							slot.aim_turn += decoy_tracking_degrees(before.eye, viewer.eye, slot.origin);
+						}
+						slot.aim_ms += std::max(elapsed_ms, 0.001f);
+						if (slot.aim_ms >= k_aim_report_ms && slot.aim_turn >= k_aim_min_tracking_degrees && !slot.aim_reported)
 						{
 							slot.aim_reported = true;
 							report_decoy(system, viewer_slot, slot, false, distance_units(viewer.eye, slot.origin));
@@ -491,6 +525,7 @@ namespace cs2glaz
 					else
 					{
 						slot.aim_ms = 0.0f;
+						slot.aim_turn = 0.0f;
 					}
 				}
 				if (drop)

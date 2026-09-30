@@ -188,6 +188,56 @@ namespace cs2glaz
 			return value * value;
 		}
 
+		bool cell_opaque(const smoke_volume_snapshot& volume, uint32_t x, uint32_t y, uint32_t z)
+		{
+			const uint32_t index = morton_index(x, y, z);
+			return (volume.opaque_cells[index >> 3u] & static_cast<uint8_t>(1u << (index & 7u))) != 0
+				   || std::clamp(volume.density[index] / k_density_scale, 0.0f, 1.0f) >= k_opaque_density;
+		}
+
+		// A volume dense enough to block on its own, with no HE grenade near it
+		// (a clearance could open any line through it).
+		bool volume_solid_now(const smoke_snapshot& snapshot, const smoke_volume_snapshot& volume, float age_advance)
+		{
+			if (age_scale(volume.age_seconds + std::max(age_advance, 0.0f)) < k_block_density)
+			{
+				return false;
+			}
+			for (uint32_t index = 0; index < snapshot.he_clearance_count && index < snapshot.he_clearances.size(); ++index)
+			{
+				const he_smoke_clearance& clearance = snapshot.he_clearances[index];
+				const float age = clearance.age_seconds + std::max(age_advance, 0.0f);
+				if (snapshot.he_clear_radius_units <= 0.0f || snapshot.he_clear_seconds <= 0.0f || age < 0.0f || age >= snapshot.he_clear_seconds)
+				{
+					continue;
+				}
+				const float box_dx = std::max(std::fabs(clearance.center.x - volume.center.x) - k_half_extent, 0.0f);
+				const float box_dy = std::max(std::fabs(clearance.center.y - volume.center.y) - k_half_extent, 0.0f);
+				const float box_dz = std::max(std::fabs(clearance.center.z - volume.center.z) - k_half_extent, 0.0f);
+				if (square(box_dx) + square(box_dy) + square(box_dz) <= square(snapshot.he_clear_radius_units))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
+		// Cell coordinates of a point strictly inside the volume, or false.
+		bool inside_cell(const smoke_volume_snapshot& volume, vec3 point, int (&cell)[3])
+		{
+			const float values[3] {point.x - (volume.center.x - k_half_extent), point.y - (volume.center.y - k_half_extent),
+								   point.z - (volume.center.z - k_half_extent)};
+			for (int axis = 0; axis < 3; ++axis)
+			{
+				if (!(values[axis] >= 0.0f) || !(values[axis] < 2.0f * k_half_extent))
+				{
+					return false;
+				}
+				cell[axis] = std::min(static_cast<int>(values[axis] / k_cell_size), static_cast<int>(k_smoke_axis_cells) - 1);
+			}
+			return true;
+		}
+
 		bool clearance_opens_volume(const he_smoke_clearance& clearance, const smoke_volume_snapshot& volume, vec3 origin, vec3 target, float radius,
 									float duration, float age_advance, const bvh8_data* geometry)
 		{
@@ -284,6 +334,57 @@ namespace cs2glaz
 			}
 			total += volume_density(volume, origin, target) * scale;
 			if (total >= k_block_density)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool smoke_point_opaque(const smoke_snapshot& snapshot, vec3 point, float age_advance_seconds)
+	{
+		if (!finite(point))
+		{
+			return false;
+		}
+		for (const smoke_volume_snapshot& volume : snapshot.volumes)
+		{
+			int cell[3] {};
+			if (inside_cell(volume, point, cell) && volume_solid_now(snapshot, volume, age_advance_seconds)
+				&& cell_opaque(volume, static_cast<uint32_t>(cell[0]), static_cast<uint32_t>(cell[1]), static_cast<uint32_t>(cell[2])))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool smoke_box_opaque(const smoke_snapshot& snapshot, vec3 minimum, vec3 maximum, float age_advance_seconds)
+	{
+		if (!finite(minimum) || !finite(maximum) || minimum.x > maximum.x || minimum.y > maximum.y || minimum.z > maximum.z)
+		{
+			return false;
+		}
+		for (const smoke_volume_snapshot& volume : snapshot.volumes)
+		{
+			int low[3] {};
+			int high[3] {};
+			if (!inside_cell(volume, minimum, low) || !inside_cell(volume, maximum, high) || !volume_solid_now(snapshot, volume, age_advance_seconds))
+			{
+				continue;
+			}
+			bool opaque = true;
+			for (int x = low[0]; opaque && x <= high[0]; ++x)
+			{
+				for (int y = low[1]; opaque && y <= high[1]; ++y)
+				{
+					for (int z = low[2]; opaque && z <= high[2]; ++z)
+					{
+						opaque = cell_opaque(volume, static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(z));
+					}
+				}
+			}
+			if (opaque)
 			{
 				return true;
 			}

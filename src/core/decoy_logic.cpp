@@ -152,6 +152,19 @@ namespace cs2glaz
 		return true;
 	}
 
+	float decoy_tracking_degrees(vec3 eye_before, vec3 eye_now, vec3 decoy_origin)
+	{
+		const vec3 center = body_center(decoy_origin);
+		const vec3 a {center.x - eye_before.x, center.y - eye_before.y, center.z - eye_before.z};
+		const vec3 b {center.x - eye_now.x, center.y - eye_now.y, center.z - eye_now.z};
+		const float lengths = std::sqrt((a.x * a.x + a.y * a.y + a.z * a.z) * (b.x * b.x + b.y * b.y + b.z * b.z));
+		if (!std::isfinite(lengths) || !(lengths > 0.0f))
+		{
+			return 0.0f;
+		}
+		return std::acos(std::clamp((a.x * b.x + a.y * b.y + a.z * b.z) / lengths, -1.0f, 1.0f)) / k_degrees_to_radians;
+	}
+
 	vec3 view_forward(float pitch_degrees, float yaw_degrees)
 	{
 		const float pitch = pitch_degrees * k_degrees_to_radians;

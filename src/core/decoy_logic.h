@@ -90,6 +90,10 @@ namespace cs2glaz
 	// size plus a small tolerance.
 	bool aim_on_decoy(vec3 eye, float pitch_degrees, float yaw_degrees, vec3 decoy_origin);
 
+	// How far the direction from the eye to a decoy's body turned between two
+	// eye positions, in degrees: what keeping the aim on it while moving takes.
+	float decoy_tracking_degrees(vec3 eye_before, vec3 eye_now, vec3 decoy_origin);
+
 	// Small deterministic generator for spots and lifetimes.
 	inline uint32_t decoy_random(uint32_t& state)
 	{

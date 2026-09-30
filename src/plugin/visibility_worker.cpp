@@ -7,10 +7,29 @@
 #include <algorithm>
 #include <system_error>
 
+#if defined(_WIN32)
+#include <Windows.h>
+#else
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+
 namespace cs2glaz
 {
 	namespace
 	{
+
+		// The game thread must win any contention for the CPU: on small hosts a
+		// busy worker used to delay server frames ("Unaccounted" frame spikes).
+		void lower_worker_priority()
+		{
+#if defined(_WIN32)
+			SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#else
+			setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 5);
+#endif
+		}
 
 		constexpr auto k_worker_budget = std::chrono::milliseconds(75);
 		constexpr uint32_t k_worker_count_max = 4;
@@ -206,6 +225,7 @@ namespace cs2glaz
 
 	void visibility_worker::run_coordinator()
 	{
+		lower_worker_priority();
 		for (;;)
 		{
 			visibility_snapshot snapshot;
@@ -230,7 +250,11 @@ namespace cs2glaz
 			current->tuning = tuning;
 			current->started = std::chrono::steady_clock::now();
 			current->deadline = current->started + k_worker_budget;
-			current->smoke_age_advance = std::max(0.0f, std::chrono::duration<float>(current->started - current->snapshot.captured).count());
+			// Smoke ages are as of the copy, which may be older than the snapshot.
+			const auto smoke_copied = current->snapshot.smokes != nullptr && current->snapshot.smokes->copied != std::chrono::steady_clock::time_point {}
+										  ? current->snapshot.smokes->copied
+										  : current->snapshot.captured;
+			current->smoke_age_advance = std::max(0.0f, std::chrono::duration<float>(current->started - smoke_copied).count());
 			current->recipient_start = static_cast<uint32_t>(current->snapshot.sequence % k_max_players);
 			current->target_start = static_cast<uint32_t>((current->snapshot.sequence * 17u) % k_max_players);
 			current->result = std::make_shared<visibility_result>();
@@ -300,6 +324,7 @@ namespace cs2glaz
 
 	void visibility_worker::run_helper(uint32_t worker_index)
 	{
+		lower_worker_priority();
 		uint64_t observed_generation = 0;
 		for (;;)
 		{
@@ -429,11 +454,15 @@ namespace cs2glaz
 					}
 					for (const vec3& point : aabb_points)
 					{
+						// Smoke first: it is much cheaper than the map trace.
+						if (active_smokes != nullptr && smoke_line_blocked(*active_smokes, origin, point, current.smoke_age_advance, data_))
+						{
+							continue;
+						}
 						const ray_hit hit = segment_blocked(*data_, origin, point, cached_packet);
 						cached_packet = hit.packet_index;
 						++totals.traced_rays;
-						if (!hit.blocked && !occluders_block_segment(current.snapshot.occluders, origin, point)
-							&& (active_smokes == nullptr || !smoke_line_blocked(*active_smokes, origin, point, current.smoke_age_advance, data_)))
+						if (!hit.blocked && !occluders_block_segment(current.snapshot.occluders, origin, point))
 						{
 							blocked = false;
 							reveal = visibility_reveal::corner;
@@ -445,13 +474,12 @@ namespace cs2glaz
 					{
 						break;
 					}
-					if (has_muzzle)
+					if (has_muzzle && (active_smokes == nullptr || !smoke_line_blocked(*active_smokes, origin, muzzle, current.smoke_age_advance, data_)))
 					{
 						const ray_hit hit = segment_blocked(*data_, origin, muzzle, cached_packet);
 						cached_packet = hit.packet_index;
 						++totals.traced_rays;
-						if (!hit.blocked && !occluders_block_segment(current.snapshot.occluders, origin, muzzle)
-							&& (active_smokes == nullptr || !smoke_line_blocked(*active_smokes, origin, muzzle, current.smoke_age_advance, data_)))
+						if (!hit.blocked && !occluders_block_segment(current.snapshot.occluders, origin, muzzle))
 						{
 							blocked = false;
 							reveal = visibility_reveal::muzzle;

@@ -50,6 +50,7 @@ namespace cs2glaz
 	inline constexpr uint8_t k_team_t = 2;
 	inline constexpr uint8_t k_team_ct = 3;
 	inline constexpr auto k_lifecycle_fail_open = std::chrono::milliseconds(1000);
+	inline constexpr auto k_smoke_copy_interval = std::chrono::milliseconds(100);
 	inline constexpr auto k_hidden_entity_quarantine = std::chrono::milliseconds(3000);
 	inline constexpr uint32_t k_limited_validation_attempts = 256;
 	static_assert(MAX_EDICTS == 16384);
@@ -198,6 +199,7 @@ namespace cs2glaz
 		bool spawned {};
 		std::chrono::steady_clock::time_point expires;
 		float aim_ms {};
+		float aim_turn {}; // degrees the direction to it changed while aimed at
 		bool aim_reported {};
 		bool shot_reported {};
 	};
@@ -423,6 +425,13 @@ namespace cs2glaz
 		automatic_baker automatic_baker_;
 		bool he_event_available_ {};
 		he_clearance_history he_clearance_history_;
+		// The last smoke copy, reused for up to k_smoke_copy_interval while the same
+		// smokes and HE clearances exist (copying every volume every tick was
+		// megabytes per tick on the game thread).
+		std::shared_ptr<const smoke_snapshot> smoke_cache_;
+		std::chrono::steady_clock::time_point smoke_cache_copied_ {};
+		std::vector<std::pair<const void*, float>> smoke_cache_key_;
+		uint32_t smoke_cache_he_count_ {};
 		// Limited mode: the gamedata smoke layout is proven on live smokes first.
 		enum class smoke_layout_state
 		{

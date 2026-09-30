@@ -833,8 +833,9 @@ namespace cs2glaz
 					return capsule_query_result::blocked;
 				}
 			}
+			// Geometry alone proves most bodies hidden; smoke can only add blocking,
+			// so this runs whether or not there is smoke on the map.
 			bool needs_exact_rays = false;
-			if (smokes == nullptr)
 			{
 				for (size_t index = 0; index < capsules.size(); ++index)
 				{
@@ -872,7 +873,6 @@ namespace cs2glaz
 			scratch.moc->ComputePixelDepthBuffer(scratch.pixel_depth.data(), false);
 
 			const float grid = static_cast<float>(k_visibility_pixel_grid_size);
-			bool geometry_visible_sample = false;
 			uint32_t exact_cache = k_invalid_ref;
 			// The projected AABB contains its capsule. If even this larger, slightly
 			// nearer rectangle is hidden, the capsule is proven hidden without sampling.
@@ -902,6 +902,7 @@ namespace cs2glaz
 				first_y = std::min(first_y, capsule_projection.first_y);
 				last_y = std::max(last_y, capsule_projection.last_y);
 			}
+			bool smoke_hidden_sample = false;
 			// One ray per pixel to the nearest capsule surface: if that point is
 			// hidden, every farther point on the same ray is hidden too.
 			for (uint32_t ordered_y = 0; ordered_y < k_visibility_pixel_grid_size; ++ordered_y)
@@ -951,8 +952,14 @@ namespace cs2glaz
 						continue;
 					}
 					// The depth buffer keeps one conservative depth per tile, so a
-					// pixel it does not hide is traced exactly against the map.
+					// pixel it does not hide is traced exactly against the map. The
+					// smoke test is far cheaper than the trace, so it goes first.
 					const vec3 target = add(origin, scale(direction, nearest));
+					if (smokes != nullptr && smoke_line_blocked(*smokes, origin, target, smoke_age_advance, &geometry))
+					{
+						smoke_hidden_sample = true;
+						continue;
+					}
 					if (stats != nullptr)
 					{
 						++stats->traced_rays;
@@ -963,17 +970,14 @@ namespace cs2glaz
 					{
 						continue;
 					}
-					geometry_visible_sample = true;
-					if (smokes == nullptr || !smoke_line_blocked(*smokes, origin, target, smoke_age_advance, &geometry))
-					{
-						return capsule_query_result::visible;
-					}
+					return capsule_query_result::visible;
 				}
 			}
-			// A pixel the depth buffer proved open whose line to the body is smoked
-			// hides the body as before. Pixels only exact rays closed go through the
-			// sub-pixel check below, since an opening can lie between pixel centres.
-			if (geometry_visible_sample)
+			// Smoke cells are 20 units, far coarser than a pixel: a body whose pixel
+			// lines smoke closes is hidden, as before. Pixels only exact map rays
+			// closed go through the sub-pixel check below, since a map opening can
+			// lie between pixel centres.
+			if (smoke_hidden_sample)
 			{
 				if (stats != nullptr)
 				{
@@ -1040,14 +1044,17 @@ namespace cs2glaz
 						}
 						uncertain_reached = true;
 						const vec3 target = add(origin, scale(direction, nearest));
+						if (smokes != nullptr && smoke_line_blocked(*smokes, origin, target, smoke_age_advance, &geometry))
+						{
+							continue;
+						}
 						if (stats != nullptr)
 						{
 							++stats->traced_rays;
 						}
 						const ray_hit hit = segment_blocked(geometry, origin, target, exact_cache);
 						exact_cache = hit.packet_index;
-						if (!hit.blocked && !occluders_block_segment(dynamic_occluders, origin, target)
-							&& (smokes == nullptr || !smoke_line_blocked(*smokes, origin, target, smoke_age_advance, &geometry)))
+						if (!hit.blocked && !occluders_block_segment(dynamic_occluders, origin, target))
 						{
 							return capsule_query_result::visible;
 						}
@@ -1098,6 +1105,14 @@ namespace cs2glaz
 				body.max.y = std::max(body.max.y, point.y + capsule.radius);
 				body.max.z = std::max(body.max.z, point.z + capsule.radius);
 			}
+		}
+
+		// Every line from an origin inside dense smoke, and every line into a body
+		// wholly inside dense smoke, is blocked: no rays needed.
+		if (smokes != nullptr
+			&& (smoke_point_opaque(*smokes, origin, smoke_age_advance) || smoke_box_opaque(*smokes, body.min, body.max, smoke_age_advance)))
+		{
+			return capsule_query_result::blocked;
 		}
 
 		// Only the few dynamic occluders near the sightlines are tested per ray.

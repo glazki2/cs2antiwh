@@ -233,6 +233,71 @@ namespace
 		assert(!rtti_names_class_at_offset(owner, payload, "rtti_test_payload", refuse));
 	}
 
+	// Dense smoke answers whole sightline sets at once, and a body behind or
+	// in smoke is decided without per-pixel map rays.
+	void test_dense_smoke_shortcuts()
+	{
+		smoke_snapshot smoke;
+		smoke.volumes.emplace_back();
+		smoke_volume_snapshot& volume = smoke.volumes.back();
+		volume.age_seconds = 5.0f;
+		volume.density.fill(50.0f);
+		assert(smoke_point_opaque(smoke, {0, 0, 0}));
+		assert(!smoke_point_opaque(smoke, {400, 0, 0}));
+		assert(smoke_box_opaque(smoke, {-16, -16, 0}, {16, 16, 72}));
+		assert(!smoke_box_opaque(smoke, {300, -16, 0}, {340, 16, 72}));
+		for (const vec3 target : {vec3 {500, 0, 0}, vec3 {-3, 7, 900}, vec3 {0, -1000, -1000}, vec3 {1, 0, 0}})
+		{
+			assert(smoke_line_blocked(smoke, {0, 0, 0}, target));
+		}
+		// A young smoke is not solid yet.
+		volume.age_seconds = 0.2f;
+		assert(!smoke_point_opaque(smoke, {0, 0, 0}) && !smoke_box_opaque(smoke, {-16, -16, 0}, {16, 16, 72}));
+		volume.age_seconds = 5.0f;
+		// An HE grenade near the smoke may clear any line: no shortcut.
+		smoke.he_clear_radius_units = 200.0f;
+		smoke.he_clear_seconds = 3.0f;
+		smoke.he_clearances[0] = {{0, 0, 0}, 1.0f, 10.0f};
+		smoke.he_clearance_count = 1;
+		assert(!smoke_point_opaque(smoke, {0, 0, 0}) && !smoke_box_opaque(smoke, {-16, -16, 0}, {16, 16, 72}));
+		smoke.he_clearance_count = 0;
+		// One thin cell inside the box and the box is not wholly opaque.
+		volume.density[test_morton(16, 16, 16)] = 0.0f;
+		assert(!smoke_box_opaque(smoke, {-10, -10, -10}, {10, 10, 10}));
+		assert(!smoke_point_opaque(smoke, {5, 5, 5}));
+		volume.density.fill(50.0f);
+
+		const bvh8_data open = test_world({{{5000, 5000, -10}, {5010, 5000, -10}, {5000, 5010, -10}}});
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		const auto body = [](vec3 origin)
+		{
+			std::array<visibility_capsule, k_visibility_capsule_count> capsules {};
+			const uint32_t count = visibility_hull_capsules(origin, {-16, -16, 0}, {16, 16, 72}, capsules);
+			assert(count != 0);
+			return std::pair {capsules, count};
+		};
+		volume.center = {300, 0, 36};
+		// Behind a dense smoke wall with no map in between: hidden.
+		const auto [behind, behind_count] = body({800, 0, 0});
+		assert(capsule_visible_from_origin(open, {-200, 0, 64}, std::span(behind.data(), behind_count), &smoke, 0.0f, deadline)
+			   == capsule_query_result::blocked);
+		// Beside the smoke, on a line that never enters it: seen.
+		const auto [beside, beside_count] = body({-200, 1200, 0});
+		assert(capsule_visible_from_origin(open, {-200, 0, 64}, std::span(beside.data(), beside_count), &smoke, 0.0f, deadline)
+			   == capsule_query_result::visible);
+		// From inside the smoke nothing is seen; a body inside it is not seen.
+		assert(capsule_visible_from_origin(open, {300, 0, 64}, std::span(beside.data(), beside_count), &smoke, 0.0f, deadline)
+			   == capsule_query_result::blocked);
+		const auto [inside, inside_count] = body({300, 100, 0});
+		assert(capsule_visible_from_origin(open, {-900, 100, 64}, std::span(inside.data(), inside_count), &smoke, 0.0f, deadline)
+			   == capsule_query_result::blocked);
+		// Half of the body sticks out of the smoke's side: seen.
+		volume.center = {300, -330, 36};
+		const auto [edge, edge_count] = body({800, 0, 0});
+		assert(capsule_visible_from_origin(open, {-200, 0, 64}, std::span(edge.data(), edge_count), &smoke, 0.0f, deadline)
+			   == capsule_query_result::visible);
+	}
+
 	void test_smoke_occlusion()
 	{
 		he_clearance_history history;
@@ -1696,6 +1761,7 @@ void run_visibility_and_transmit_tests()
 	test_radar_entry_filter();
 	test_rtti_check();
 	test_smoke_occlusion();
+	test_dense_smoke_shortcuts();
 	test_smoke_layout_check();
 	test_visibility_sampling();
 	test_capsule_visibility();

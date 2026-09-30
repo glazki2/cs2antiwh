@@ -62,6 +62,9 @@ namespace cs2glaz
 		uint32_t render_color {};
 		uint32_t render_mode {};
 		uint32_t model_collision {};
+		uint32_t collision_attribute {};
+		uint32_t interacts_as {};
+		uint32_t interacts_with {};
 		uint32_t scene_node_owner {};
 		uint32_t scene_node_child {};
 		uint32_t scene_node_next_sibling {};
@@ -255,6 +258,12 @@ namespace cs2glaz
 			return decoy_schema_available_ && dynamic_occluder_schema_available_ && render_none_value_ >= 0;
 		}
 
+		// Zeroing what a decoy "interacts as" keeps traces (bullets, knives) off it.
+		bool collision_attribute_available() const
+		{
+			return collision_attribute_available_;
+		}
+
 		uint8_t render_none_value() const
 		{
 			return static_cast<uint8_t>(render_none_value_);
@@ -302,6 +311,7 @@ namespace cs2glaz
 		bool smoke_runtime_verified_ {};
 		bool debug_beam_schema_available_ {};
 		bool decoy_schema_available_ {};
+		bool collision_attribute_available_ {};
 		int render_none_value_ {-1};
 		bool scene_hierarchy_schema_available_ {};
 		bool smoke_gamedata_available_ {};

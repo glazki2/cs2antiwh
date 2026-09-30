@@ -531,8 +531,29 @@ namespace cs2glaz
 		if (count == 0 && snapshot.he_clearance_count == 0)
 		{
 			value.smokes.reset();
+			smoke_cache_.reset();
 			return true;
 		}
+		std::vector<std::pair<const void*, float>> key;
+		key.reserve(count);
+		for (size_t index = 0; index < count; ++index)
+		{
+			CEntityInstance* entity = entities[index];
+			if (entity == nullptr || (compatibility_.limited() && !smoke_header_readable(entity)))
+			{
+				return false;
+			}
+			auto* volume = reinterpret_cast<std::byte*>(entity) + compatibility_.smoke_layout().volume;
+			key.emplace_back(entity, field<float>(volume, compatibility_.smoke_layout().start_time));
+		}
+		const auto now = value.captured;
+		if (smoke_cache_ != nullptr && key == smoke_cache_key_ && snapshot.he_clearance_count == smoke_cache_he_count_
+			&& now - smoke_cache_copied_ < k_smoke_copy_interval)
+		{
+			value.smokes = smoke_cache_;
+			return true;
+		}
+		snapshot.copied = now;
 		snapshot.volumes.reserve(count);
 		for (size_t index = 0; index < count; ++index)
 		{
@@ -557,7 +578,11 @@ namespace cs2glaz
 			}
 			snapshot.volumes.back().start_time = start_time;
 		}
-		value.smokes = std::make_shared<smoke_snapshot>(std::move(snapshot));
+		smoke_cache_ = std::make_shared<smoke_snapshot>(std::move(snapshot));
+		smoke_cache_copied_ = now;
+		smoke_cache_key_ = std::move(key);
+		smoke_cache_he_count_ = smoke_cache_->he_clearance_count;
+		value.smokes = smoke_cache_;
 		return true;
 	}
 
