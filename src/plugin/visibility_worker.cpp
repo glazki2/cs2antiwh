@@ -58,6 +58,7 @@ namespace cs2glaz
 		std::array<visibility_target_points, k_max_players> target_points {};
 		std::shared_ptr<visibility_result> result;
 		std::atomic<uint32_t> next_recipient {};
+		std::atomic<uint32_t> next_decoy_recipient {};
 		std::atomic_bool budget_exhausted {};
 		std::array<job_totals, k_worker_count_max> totals {};
 	};
@@ -490,17 +491,36 @@ namespace cs2glaz
 					break;
 				}
 			}
-			// A decoy is sent only once proven hidden; a deadline leaves it unsent.
+			if (current.budget_exhausted.load())
+			{
+				break;
+			}
+		}
+		// Decoys get only what is left of the budget once every player pair has
+		// been taken, so they can never make a real enemy fail open. A decoy not
+		// proven hidden in time is simply not sent.
+		for (;;)
+		{
+			if (stopping_.load())
+			{
+				return;
+			}
+			const uint32_t recipient = current.next_decoy_recipient.fetch_add(1u);
+			if (recipient >= k_max_players || current.budget_exhausted.load())
+			{
+				break;
+			}
+			if (!current.snapshot.players[recipient].valid)
+			{
+				continue;
+			}
 			for (uint32_t index = 0; index < k_max_decoys_per_viewer; ++index)
 			{
 				const decoy_probe& decoy = current.snapshot.decoys[recipient][index];
 				current.result->decoy_hidden[recipient][index] =
 					decoy.id != 0 && !current.budget_exhausted.load()
-					&& decoy_hidden_from_origins(*data_, ray_origins, decoy.origin, current.snapshot.occluders, current.deadline);
-			}
-			if (current.budget_exhausted.load())
-			{
-				break;
+					&& decoy_hidden_from_origins(*data_, current.recipient_origins[recipient], decoy.origin, current.snapshot.occluders,
+												 current.deadline);
 			}
 		}
 		totals.active_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - active_started).count();

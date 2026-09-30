@@ -9,7 +9,6 @@
 #include "map_source.h"
 #include "runtime_compatibility.h"
 #include "settings.h"
-#include "transmit_debug.h"
 #include "transmit_masks.h"
 #include "updater.h"
 #include "visibility_worker.h"
@@ -42,7 +41,6 @@ namespace cs2glaz
 	inline constexpr uint32_t k_max_weapons = 64;
 	inline constexpr uint32_t k_max_wearables = 32;
 	inline constexpr uint32_t k_entity_scan_hard_limit = MAX_TOTAL_ENTITIES;
-	inline constexpr uint32_t k_max_entity_name = 64;
 	inline constexpr uint32_t k_max_hidden_player_entities = 1 + 2 + k_max_weapons + k_max_wearables + 1;
 	// Other networked entities attached below a player's scene node. More than
 	// this, or a hierarchy deeper than the walk budget, reveals the player.
@@ -169,7 +167,6 @@ namespace cs2glaz
 
 	int entity_index(CEntityInstance* entity);
 	CEntityHandle entity_handle(CEntityInstance* entity);
-	void copy_entity_name(CEntityInstance* entity, char (&name)[k_max_entity_name]);
 	bool valid_networked_edict_index(int index);
 	int resolve_entity_index(CGameEntitySystem* system, CEntityHandle handle);
 	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats);
@@ -498,7 +495,7 @@ namespace cs2glaz
 		std::atomic_bool decoys_live_ {};
 		// Removed decoys stay withheld from everyone until the game deletes them.
 		std::vector<CEntityHandle> decoy_graveyard_;
-		std::array<CEntityHandle, 2 * k_max_players> decoy_graveyard_transmit_ {};
+		std::array<CEntityHandle, k_max_players * k_max_decoys_per_viewer> decoy_graveyard_transmit_ {};
 		uint32_t decoy_graveyard_count_ {};
 		decoy_spot_history decoy_spots_;
 		std::chrono::steady_clock::time_point decoy_spots_next_ {};

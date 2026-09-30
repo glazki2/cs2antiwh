@@ -64,11 +64,13 @@ It explains the intent of the code. The engine and file-format details are still
 | `src/core/map_source.*` | Find direct or nested map physics sources and validate safe map subpaths. |
 | `src/core/lifecycle_guard.h` | Fixed-size rules for player lifetimes, pair warmup, visual-group identity, and quarantine. |
 | `src/core/transmit_masks.h` | Parse gamedata numbers, read the private full-update flag, and apply the selected withhold mode to one entity bit. |
-| `src/core/transmit_debug.h` | Aggregate entity bits actually hidden by CS2GLAZ without allocating in `CheckTransmit`. |
+| `src/core/decoy_logic.*` | Decoy floor-spot history and choice, the hidden-from-every-origin proof, and the aim test. |
+| `src/core/signature_scan.*` | Parse byte patterns and find exactly-once matches in the server's code (decoys only). |
+| `src/plugin/decoys.cpp` | Experimental decoys: entity lifecycle, per-viewer transmit, aim/shot reports (`cs2glaz_decoys`). |
 | `src/core/subprocess.*` | Start external tools with argument lists, timeouts, cancellation, and captured output. |
 | `src/baker/` | Command-line bake sequence, the native binary-KV3 and map-physics reader (`kv3.*`, `physics_import.*`), the shared bake recipe (`physics_recipe.*`), and the optional GLB parity reader. |
 | `tests/` | Small assert-based tests grouped into map/BVH and visibility/transmit responsibilities. |
-| `cfg/`, `gamedata/`, `data/` | Shipped settings, platform offsets, and optional map bakes. |
+| `cfg/`, `gamedata/`, `data/` | Shipped settings, platform offsets, decoy byte patterns (`cs2glaz.signatures.txt`), and optional map bakes. |
 
 ## Bake flow
 
@@ -160,8 +162,8 @@ Those are the only two lists CS2GLAZ changes. The `IsBitSet` checks always run b
 
 1. The first time decoys are enabled, `resolve_decoy_functions` reads `gamedata/cs2glaz.signatures.txt` and searches the server's executable ranges (`runtime_compatibility::server_code_ranges`) for `UTIL_CreateEntityByName`, `DispatchSpawn`, `UTIL_Remove` and `SetModel`; each must match exactly once. The Teleport vtable slot is checked to point into the server before first use. `kRenderNone` comes from the schema enum `RenderMode_t`.
 2. `update_decoys` runs on the game thread after each capture. It records floor spots players stood on, drops decoys that expired, were exposed, whose enemy came into view, or whose viewer died, spawns candidates the last result proved hidden, and picks new candidates (`choose_decoy_spot`: a used floor spot behind geometry from the eye, 400+ units from every real enemy of the viewer). Candidates and live decoys go into `visibility_snapshot::decoys`.
-3. The worker proves each decoy hidden from every viewing origin of its viewer (`decoy_hidden_from_origins`: the exact hull body test, then padded corners; smoke does not count) into `visibility_result::decoy_hidden`.
-4. `withhold_decoys` runs first in CheckTransmit, even while filtering is off: a decoy's bits are cleared for every recipient except its viewer, and for him too unless the fresh result proved exactly this decoy hidden and its enemy is still not in view. Removed decoys stay withheld from everyone until the game deletes them.
+3. After every player pair has been taken, the worker uses the remaining budget to prove each decoy hidden from every viewing origin of its viewer (`decoy_hidden_from_origins`: the exact hull body test, then padded corners; smoke does not count) into `visibility_result::decoy_hidden`. Decoys never delay player pairs; an unchecked decoy counts as seen.
+4. `withhold_decoys` runs first in CheckTransmit, even while filtering is off: a decoy's bits are cleared for every recipient except its viewer, and for him too unless the fresh result proved exactly this decoy hidden and its enemy is still not in view; when allowed, its primary bit is set, since behind walls it may be outside his PVS. Removed decoys stay withheld from everyone until the game deletes them.
 5. Spawning sets no collision (`SOLID_NONE`, not-solid flag) and, in mode 1, `kRenderNone` before and after `DispatchSpawn`; the model is set afterwards so no physics object exists. A decoy found solid or rendered after spawning is removed and turns decoys off until the plugin reloads.
 6. Aim (0.5 s on the body) and gun `weapon_fire` at a proven-hidden decoy are reported to the console and `addons/cs2glaz/logs/decoys.log`, never acted on.
 

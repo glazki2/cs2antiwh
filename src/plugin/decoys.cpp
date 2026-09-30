@@ -221,8 +221,8 @@ namespace cs2glaz
 		{
 			if (entity != nullptr)
 			{
-				reinterpret_cast<remove_entity_fn>(functions.remove_entity)(entity);
 				const CEntityHandle handle = entity_handle(entity);
+				reinterpret_cast<remove_entity_fn>(functions.remove_entity)(entity);
 				if (handle.IsValid() && decoy_graveyard_.size() < decoy_graveyard_transmit_.size())
 				{
 					decoy_graveyard_.push_back(handle);
@@ -586,7 +586,7 @@ namespace cs2glaz
 				indices[viewer][index] = valid_networked_edict_index(edict) ? edict : -1;
 			}
 		}
-		std::array<int, 2 * k_max_players> removed {};
+		std::array<int, k_max_players * k_max_decoys_per_viewer> removed {};
 		for (uint32_t index = 0; index < decoy_graveyard_count_; ++index)
 		{
 			const int edict = entity_index(system->GetEntityInstance(decoy_graveyard_transmit_[index]));
@@ -624,6 +624,11 @@ namespace cs2glaz
 					if (!allowed)
 					{
 						apply_transmit_mode(info->m_pTransmitEntity, info->m_pTransmitAlways, edict, transmit_mode::clear_both);
+					}
+					else
+					{
+						// Behind walls it may be outside the viewer's PVS; send it anyway.
+						info->m_pTransmitEntity->Set(edict);
 					}
 				}
 			}

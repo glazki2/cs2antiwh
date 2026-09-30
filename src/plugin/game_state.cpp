@@ -51,16 +51,6 @@ namespace cs2glaz
 		return entity != nullptr && entity->m_pEntity != nullptr ? entity->m_pEntity->GetRefEHandle() : CEntityHandle {};
 	}
 
-	void copy_entity_name(CEntityInstance* entity, char (&name)[k_max_entity_name])
-	{
-		const char* source = entity != nullptr && entity->m_pEntity != nullptr ? entity->m_pEntity->GetClassname() : nullptr;
-		if (source == nullptr || source[0] == '\0')
-		{
-			source = "<unknown>";
-		}
-		std::snprintf(name, sizeof(name), "%s", source);
-	}
-
 	bool valid_networked_edict_index(int index)
 	{
 		return index > 0 && index < MAX_EDICTS;

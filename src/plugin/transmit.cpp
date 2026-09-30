@@ -288,8 +288,7 @@ namespace cs2glaz
 			record_timing();
 			return;
 		}
-		const auto note = [&](uint64_t transmit_decision_stats::*reason)
-{ ++(transmit_decisions_.*reason); };
+		const auto note = [&](uint64_t transmit_decision_stats::*reason) { ++(transmit_decisions_.*reason); };
 		const bool filter_full_updates = cs2glaz_filter_full_updates.Get();
 		for (int i = 0; i < count; ++i)
 		{

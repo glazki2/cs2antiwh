@@ -10,7 +10,6 @@
 #include "rtti_check.h"
 #include "smoke_layout_check.h"
 #include "smoke_occlusion.h"
-#include "transmit_debug.h"
 #include "transmit_masks.h"
 #include "visibility_sampling.h"
 #include "visibility_worker.h"
@@ -1310,51 +1309,6 @@ namespace
 		assert(!union_primary.set && !union_second.set);
 	}
 
-	void test_transmit_debug()
-	{
-		using clock = std::chrono::steady_clock;
-		const auto start = clock::time_point {} + std::chrono::seconds(10);
-		transmit_debug_log<2, 16> log;
-		transmit_debug_event first {10, 100, 1, 1, k_transmit_reason_current, start};
-		test_transmit_mask primary {true};
-		test_transmit_mask dont_transmit;
-		const auto clear_and_record = [&](bool debug)
-		{
-			if (withhold_transmit_bit(&primary, &dont_transmit, 10) && debug)
-			{
-				log.record(first, "player");
-			}
-		};
-		clear_and_record(true);
-		clear_and_record(true);
-		primary.set = true;
-		clear_and_record(false);
-		assert(log.records()[0].clears == 1);
-		primary.set = true;
-		first.recipient_slot = 3;
-		first.reason = k_transmit_reason_quarantine;
-		first.when += std::chrono::milliseconds(5);
-		clear_and_record(true);
-		const auto& records = log.records();
-		assert(records[0].valid && records[0].clears == 2 && records[0].recipients == ((uint64_t {1} << 1) | (uint64_t {1} << 3)));
-		assert(records[0].reasons == (k_transmit_reason_current | k_transmit_reason_quarantine));
-		assert(records[0].first_seen == start && records[0].last_seen == start + std::chrono::milliseconds(5));
-
-		transmit_debug_log<2, 16> distinct_sources;
-		distinct_sources.record({10, 100, 1, 1, k_transmit_reason_current, start}, "player");
-		distinct_sources.record({10, 100, 2, 1, k_transmit_reason_current, start}, "player");
-		assert(distinct_sources.records()[0].valid && distinct_sources.records()[1].valid);
-		assert(distinct_sources.records()[0].source != distinct_sources.records()[1].source);
-
-		transmit_debug_event second {20, 200, 2, 2, k_transmit_reason_current, start};
-		transmit_debug_event third {30, 300, 3, 3, k_transmit_reason_current, start};
-		log.record(second, "weapon");
-		log.record(third, "wearable");
-		assert(records[0].handle == 300 && records[1].handle == 200);
-		log.clear();
-		assert(!records[0].valid && !records[1].valid);
-	}
-
 	void test_hidden_entity_group()
 	{
 		using clock = std::chrono::steady_clock;
@@ -1752,7 +1706,6 @@ void run_visibility_and_transmit_tests()
 	test_visual_group_key();
 	test_pair_guard();
 	test_checktransmit_private_offsets();
-	test_transmit_debug();
 	test_hidden_entity_group();
 }
 
