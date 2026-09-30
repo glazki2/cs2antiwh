@@ -329,6 +329,9 @@ namespace cs2glaz
 		void stop();
 		void submit(visibility_snapshot value, uint32_t hold_ms, visibility_tuning tuning);
 		std::shared_ptr<const visibility_result> result() const;
+		// The latest result, waiting until deadline for one of at least this
+		// snapshot sequence (the one submitted this tick) to be published.
+		std::shared_ptr<const visibility_result> wait_for_result(uint64_t sequence, std::chrono::steady_clock::time_point deadline) const;
 		worker_stats stats() const;
 
 	private:
@@ -350,6 +353,8 @@ namespace cs2glaz
 		uint64_t job_generation_ {};
 		std::vector<std::thread> threads_;
 		std::shared_ptr<job> active_job_;
+		mutable std::mutex published_mutex_;
+		mutable std::condition_variable published_condition_;
 #if defined(__cpp_lib_atomic_shared_ptr) && __cpp_lib_atomic_shared_ptr >= 201711L
 		std::atomic<std::shared_ptr<const visibility_result>> published_;
 #else

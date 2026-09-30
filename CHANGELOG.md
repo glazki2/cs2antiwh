@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.11
+
+- Hides and reveals a tick sooner. CheckTransmit runs right after the game frame that captured the tick's snapshot, usually before the worker has finished it, so it always used the previous tick's result (`snapshot_age` around 15 ms in `cs2glaz_status`). It now waits for this tick's result, up to `cs2glaz_result_wait_ms` (3 ms by default; 0 is the old behaviour), and only when the previous result took no longer than that, so a slow worker is not waited on every tick. The worker wakes it the moment the result is published. `cs2glaz_metrics` shows `same-tick results: waited=… in_time=…`.
+- `cs2glaz_visibility_hold_ms` defaults to 150 (was 300): an enemy who goes behind cover disappears from a wallhack 150 ms sooner. `cs2glaz.cfg` ships both values; a server that keeps its old cfg keeps 300.
+
 ## 0.7.10
 
 - The first HE into a smoke opened nothing; a second one a few seconds later seemed to work. Without the HE event (limited mode on the tested server), a detonation was recorded when the HE projectile disappeared, and CS2 keeps it for 4-5 seconds after the blast (`cs2glaz_status` put the last detonation that long after the log's `threw hegrenade`), so the channel opened after the real hole had closed; the second grenade only landed in the first one's late channel. The blast is now recorded on the tick the projectile's `m_nExplodeEffectTickBegin` is set, at `m_vecExplodeEffectOrigin`; disappearance stays the fallback when those schema fields are missing. The `HE:` line names the source (`projectile explosion tick`).

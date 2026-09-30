@@ -158,6 +158,10 @@ namespace cs2glaz
 			pending_.reset();
 		}
 		condition_.notify_all();
+		{
+			std::lock_guard lock(published_mutex_);
+		}
+		published_condition_.notify_all();
 		for (std::thread& thread : threads_)
 		{
 			if (thread.joinable())
@@ -201,6 +205,23 @@ namespace cs2glaz
 #else
 		return std::atomic_load(&published_);
 #endif
+	}
+
+	std::shared_ptr<const visibility_result> visibility_worker::wait_for_result(uint64_t sequence, std::chrono::steady_clock::time_point deadline) const
+	{
+		std::shared_ptr<const visibility_result> latest = result();
+		if (latest != nullptr && latest->sequence >= sequence)
+		{
+			return latest;
+		}
+		std::unique_lock lock(published_mutex_);
+		published_condition_.wait_until(lock, deadline,
+										[&]
+										{
+											latest = result();
+											return stopping_.load() || (latest != nullptr && latest->sequence >= sequence);
+										});
+		return result();
 	}
 
 	worker_stats visibility_worker::stats() const
@@ -641,11 +662,16 @@ namespace cs2glaz
 			recent_worker_next_ = (recent_worker_next_ + 1u) % static_cast<uint32_t>(recent_worker_ms_.size());
 			recent_worker_count_ = std::min(recent_worker_count_ + 1u, static_cast<uint32_t>(recent_worker_ms_.size()));
 		}
+		{
+			// Under the lock so a CheckTransmit about to wait cannot miss it.
+			std::lock_guard lock(published_mutex_);
 #if defined(__cpp_lib_atomic_shared_ptr) && __cpp_lib_atomic_shared_ptr >= 201711L
-		published_.store(std::shared_ptr<const visibility_result> {std::move(current.result)});
+			published_.store(std::shared_ptr<const visibility_result> {std::move(current.result)});
 #else
-		std::atomic_store(&published_, std::shared_ptr<const visibility_result> {std::move(current.result)});
+			std::atomic_store(&published_, std::shared_ptr<const visibility_result> {std::move(current.result)});
 #endif
+		}
+		published_condition_.notify_all();
 	}
 
 } // namespace cs2glaz

@@ -492,7 +492,7 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_why [name|slot] - Why each enemy is or is not sent, from every viewing origin.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_props [radius] - Solid entities near each player and whether they block sight.\n");
 		META_CONPRINTF("[CS2GLAZ] runtime switches (reset on restart): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
-					   "cs2glaz_dynamic_occluders, cs2glaz_decoys (experimental, 0/1/2).\n");
+					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2).\n");
 	}
 
 	void plugin::check_update()
@@ -749,6 +749,7 @@ namespace cs2glaz
 		}
 		last_snapshot_ = now;
 		update_decoys(system, value, now);
+		submitted_sequence_.store(value.sequence);
 		worker_.submit(std::move(value), static_cast<uint32_t>(configuration.visibility_hold_ms),
 					   {configuration.shoulder_base_units, configuration.shoulder_rtt_scale, configuration.max_shoulder_units,
 						configuration.bounds_padding_units});
@@ -921,6 +922,8 @@ namespace cs2glaz
 					   "maximum=%.3fms snapshot_age=%.1fms\n",
 					   stats.thread_count, stats.latest_ms, stats.latest_active_ms, stats.recent_p95_ms, stats.recent_p99_ms, stats.average_ms,
 					   stats.maximum_ms, age_ms);
+		META_CONPRINTF("[CS2GLAZ] same-tick results: waited=%llu in_time=%llu (cs2glaz_result_wait_ms)\n",
+					   static_cast<unsigned long long>(result_waits_.load()), static_cast<unsigned long long>(result_waits_met_.load()));
 		META_CONPRINTF(
 			"[CS2GLAZ] workload pairs=%u visible=%u hidden=%u hold=%u pixels=%u rays=%u nodes=%u triangles=%u cache=%u/%u budget=%llu cycles=%llu\n",
 			stats.evaluated_pairs, stats.visible_pairs, stats.hidden_pairs, stats.hold_reuses, stats.sampled_pixels, stats.traced_rays,

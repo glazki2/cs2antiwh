@@ -33,6 +33,16 @@ namespace cs2glaz
 		CConVar<bool> cs2glaz_filter_full_updates("cs2glaz_filter_full_updates", FCVAR_NONE,
 												  "Filter enemies in client full updates too (0 sends everyone in them, the old behaviour)", true);
 
+		// CheckTransmit runs right after the game frame that captured this tick's
+		// snapshot, usually before the worker has finished it, so it used the
+		// previous tick's result (one tick late to reveal and to hide). It now
+		// waits for this tick's result up to this long, and only when the
+		// previous result took no longer than this (a slow worker is not waited
+		// on every tick). 0 turns the wait off.
+		CConVar<float> cs2glaz_result_wait_ms("cs2glaz_result_wait_ms", FCVAR_NONE,
+											  "Wait up to this many ms in CheckTransmit for this tick's visibility result (0 = use the previous one)",
+											  3.0f, true, 0.0f, true, 10.0f);
+
 		visual_group_key make_current_visual_group_key(const visual_entity_group& group)
 		{
 			std::array<uint32_t, k_max_hidden_player_entities> values {};
@@ -361,7 +371,18 @@ namespace cs2glaz
 		const auto timing_started = std::chrono::steady_clock::now();
 		const auto record_timing = [&]
 		{ transmit_timing_.record(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timing_started).count()); };
-		const std::shared_ptr<const visibility_result> result = worker_.result();
+		std::shared_ptr<const visibility_result> result = worker_.result();
+		const float wait_ms = cs2glaz_result_wait_ms.Get();
+		const uint64_t submitted = submitted_sequence_.load();
+		if (filtering && wait_ms > 0.0f && result != nullptr && result->sequence < submitted && result->worker_ms <= wait_ms)
+		{
+			++result_waits_;
+			result = worker_.wait_for_result(submitted, timing_started + std::chrono::microseconds(static_cast<int64_t>(wait_ms * 1000.0f)));
+			if (result != nullptr && result->sequence >= submitted)
+			{
+				++result_waits_met_;
+			}
+		}
 		const auto now = std::chrono::steady_clock::now();
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
 		withhold_decoys(entity_system(), infos, count, result.get(), now);

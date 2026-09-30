@@ -37,7 +37,7 @@ namespace cs2glaz
 											 on_convar_changed<float>);
 	CConVar<float> cs2glaz_max_shoulder_units("cs2glaz_max_shoulder_units", FCVAR_NONE, "Maximum sideways shoulder origin distance; 0 disables the cap",
 											 128.0f, true, 0.0f, true, 256.0f, on_convar_changed<float>);
-	CConVar<int> cs2glaz_visibility_hold_ms("cs2glaz_visibility_hold_ms", FCVAR_NONE, "Minimum revealed duration", 300, true, 0, true, 1000,
+	CConVar<int> cs2glaz_visibility_hold_ms("cs2glaz_visibility_hold_ms", FCVAR_NONE, "Minimum revealed duration", 150, true, 0, true, 1000,
 										   on_convar_changed<int>);
 	CConVar<bool> cs2glaz_auto_update("cs2glaz_auto_update", FCVAR_NONE, "Automatically download verified compatible stable updates", false,
 									 on_convar_changed<bool>);

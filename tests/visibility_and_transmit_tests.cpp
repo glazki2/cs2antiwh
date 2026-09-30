@@ -1117,8 +1117,13 @@ namespace
 			return result;
 		};
 		worker->submit(value, 100, tuning);
-		auto result = wait_for(1);
-		assert(result && !result->visible[0][1]);
+		// CheckTransmit's bounded wait returns this tick's result once published.
+		auto result = worker->wait_for_result(1, std::chrono::steady_clock::now() + std::chrono::seconds(2));
+		assert(result && result->sequence == 1 && !result->visible[0][1]);
+		// A sequence never submitted times out and returns the latest result.
+		const auto waited_from = std::chrono::steady_clock::now();
+		assert(worker->wait_for_result(99, waited_from + std::chrono::milliseconds(20))->sequence == 1);
+		assert(std::chrono::steady_clock::now() - waited_from >= std::chrono::milliseconds(20));
 
 		value.sequence = 2;
 		value.players[1].eye.x = 16;

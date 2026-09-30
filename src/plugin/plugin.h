@@ -516,6 +516,12 @@ namespace cs2glaz
 		// HE detonations recorded this map from the hegrenade_detonate event, and
 		// the game time of the last one from either source (for cs2glaz_status).
 		uint64_t he_event_detonations_ {};
+		// The sequence of the last snapshot submitted to the worker (game thread).
+		std::atomic<uint64_t> submitted_sequence_ {};
+		// CheckTransmit ticks that waited for this tick's result, and those that
+		// got it in time.
+		std::atomic<uint64_t> result_waits_ {};
+		std::atomic<uint64_t> result_waits_met_ {};
 		float he_last_detonation_ {std::numeric_limits<float>::quiet_NaN()};
 		std::array<lifecycle_guard, k_max_players> lifecycle_;
 		std::array<std::array<pair_guard, k_max_players>, k_max_players> pair_guards_;
