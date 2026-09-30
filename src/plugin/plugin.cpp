@@ -218,6 +218,8 @@ namespace cs2glaz
 		remove_all_decoys(false);
 		decoy_spots_.clear();
 		decoy_records_ = {};
+		smoke_cache_.reset();
+		smoke_cache_key_.clear();
 		automatic_baker_.stop();
 		worker_.stop();
 		data_ = {};

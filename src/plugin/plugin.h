@@ -199,9 +199,16 @@ namespace cs2glaz
 		bool spawned {};
 		std::chrono::steady_clock::time_point expires;
 		float aim_ms {};
-		float aim_turn {}; // degrees the direction to it changed while aimed at
+		float aim_turn {}; // degrees the aim followed it while on it
+		vec3 aim_origin;   // where it stood at the previous on-target sample
 		bool aim_reported {};
 		bool shot_reported {};
+		// Walking: legs between recorded floor spots, with pauses.
+		void* teleport {}; // this entity's Teleport, checked when spawned
+		vec3 goal;
+		float speed {};
+		bool moving {};
+		std::chrono::steady_clock::time_point pause_until;
 	};
 
 	// What CheckTransmit needs about a live decoy; guarded by the transmit lock.
@@ -369,6 +376,8 @@ namespace cs2glaz
 		void resolve_decoy_functions();
 		void update_decoys(CGameEntitySystem* system, visibility_snapshot& value, std::chrono::steady_clock::time_point now);
 		bool spawn_decoy(CGameEntitySystem* system, decoy_slot& slot, const std::string& model, int mode);
+		void walk_decoy(CEntityInstance* entity, decoy_slot& slot, const player_state& viewer, std::span<const vec3> enemies, std::span<const vec3> living,
+						std::span<const vec3> taken, std::chrono::steady_clock::time_point now, float elapsed_ms, const visibility_snapshot& value);
 		void remove_decoy(CGameEntitySystem* system, decoy_slot& slot);
 		void remove_all_decoys(bool remove_entities);
 		void prune_decoy_graveyard(CGameEntitySystem* system);

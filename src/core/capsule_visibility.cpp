@@ -903,6 +903,7 @@ namespace cs2glaz
 				last_y = std::max(last_y, capsule_projection.last_y);
 			}
 			bool smoke_hidden_sample = false;
+			bool map_hidden_sample = false;
 			// One ray per pixel to the nearest capsule surface: if that point is
 			// hidden, every farther point on the same ray is hidden too.
 			for (uint32_t ordered_y = 0; ordered_y < k_visibility_pixel_grid_size; ++ordered_y)
@@ -968,16 +969,17 @@ namespace cs2glaz
 					exact_cache = hit.packet_index;
 					if (hit.blocked || occluders_block_segment(dynamic_occluders, origin, target))
 					{
+						map_hidden_sample = true;
 						continue;
 					}
 					return capsule_query_result::visible;
 				}
 			}
 			// Smoke cells are 20 units, far coarser than a pixel: a body whose pixel
-			// lines smoke closes is hidden, as before. Pixels only exact map rays
-			// closed go through the sub-pixel check below, since a map opening can
-			// lie between pixel centres.
-			if (smoke_hidden_sample)
+			// lines only smoke closes is hidden. If exact map rays closed some pixel
+			// lines, the sub-pixel check below runs, since a map opening can lie
+			// between pixel centres.
+			if (smoke_hidden_sample && !map_hidden_sample)
 			{
 				if (stats != nullptr)
 				{

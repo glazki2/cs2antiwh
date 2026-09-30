@@ -122,6 +122,47 @@ namespace
 		assert(!choose_decoy_spot(wall, {}, history, {eye, enemies, players, {}, 1}, spot));
 	}
 
+	void test_decoy_steps()
+	{
+		// A floor over x < 700, the wall at x = 200 and a second wall at y = 320
+		// behind it.
+		std::vector<triangle> triangles = wall_at_200();
+		triangles.push_back({{-2000, -2000, 0}, {700, -2000, 0}, {-2000, 2000, 0}});
+		triangles.push_back({{700, 2000, 0}, {-2000, 2000, 0}, {700, -2000, 0}});
+		triangles.push_back({{250, 320, -100}, {800, 320, -100}, {250, 320, 300}});
+		triangles.push_back({{800, 320, 300}, {250, 320, 300}, {800, 320, -100}});
+		const bvh8_data world = decoy_world(triangles);
+		decoy_spot_history history;
+		for (const vec3 spot : {vec3 {400, 200, 0}, vec3 {500, 200, 0}, vec3 {600, 200, 0}, vec3 {400, 450, 0}, vec3 {900, 200, 0},
+								vec3 {500, 100, 250}})
+		{
+			history.record(spot);
+		}
+		const vec3 eye {0, 0, 64};
+		std::vector<vec3> none;
+		bool moved = false;
+		for (uint32_t seed = 1; seed < 200; ++seed)
+		{
+			vec3 next;
+			if (!choose_decoy_step(world, {}, history, {eye, none, none, none, seed}, {400, 200, 0}, next))
+			{
+				continue;
+			}
+			moved = true;
+			// Only the spots along the floor behind the first wall: never through
+			// the second wall, off the floor, or up a cliff.
+			assert(next.y == 200.0f && next.z == 0.0f && (next.x == 500.0f || next.x == 600.0f));
+		}
+		assert(moved);
+		// A real enemy next to those spots: no step towards him.
+		std::vector<vec3> enemy {{550, 200, 0}};
+		for (uint32_t seed = 1; seed < 100; ++seed)
+		{
+			vec3 next;
+			assert(!choose_decoy_step(world, {}, history, {eye, enemy, none, none, seed}, {400, 200, 0}, next));
+		}
+	}
+
 	void test_decoy_hidden_proof()
 	{
 		const bvh8_data wall = decoy_world(wall_at_200());
@@ -159,11 +200,27 @@ namespace
 		const float down = std::atan2(64.0f + 300.0f - k_decoy_center_height, 500.0f) * 57.29578f;
 		assert(aim_on_decoy(eye, down, 0.0f, below));
 		assert(!aim_on_decoy(eye, std::nanf(""), 0.0f, decoy));
-		// Walking straight at a decoy needs no turn; strafing past it does.
-		assert(decoy_tracking_degrees({0, 0, 64}, {100, 0, 64}, decoy) < 0.01f);
-		const float strafe = decoy_tracking_degrees({0, 0, 64}, {0, 50, 64}, decoy);
+		// Following: the aim has to turn with the direction to the decoy.
+		const vec3 ahead {1, 0, 0};
+		const auto towards = [](vec3 eye, vec3 origin)
+		{
+			const vec3 d {origin.x - eye.x, origin.y - eye.y, origin.z + k_decoy_center_height - eye.z};
+			const float length = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+			return vec3 {d.x / length, d.y / length, d.z / length};
+		};
+		// Strafing 50 units while keeping the crosshair on it: about 5.7 degrees.
+		const float strafe = decoy_follow_degrees({0, 0, 64}, ahead, decoy, {0, 50, 64}, towards({0, 50, 64}, decoy), decoy);
 		assert(strafe > 5.0f && strafe < 6.5f);
-		assert(decoy_tracking_degrees({0, 0, 64}, {0, 0, 64}, decoy) < 0.01f);
+		// Strafing with a fixed crosshair, sweeping over a still decoy, a decoy
+		// walking through a still crosshair, walking straight at it: nothing.
+		assert(decoy_follow_degrees({0, 0, 64}, ahead, decoy, {0, 50, 64}, ahead, decoy) < 0.01f);
+		assert(decoy_follow_degrees({0, 0, 64}, ahead, decoy, {0, 0, 64}, towards({0, 0, 64}, {500, 40, 24}), decoy) < 0.01f);
+		assert(decoy_follow_degrees({0, 0, 64}, ahead, {500, -20, 24}, {0, 0, 64}, ahead, {500, 20, 24}) < 0.01f);
+		assert(decoy_follow_degrees({0, 0, 64}, ahead, decoy, {100, 0, 64}, ahead, decoy) < 0.01f);
+		// A walking decoy followed by the crosshair.
+		const vec3 walked {500, 50, 24};
+		const float follow = decoy_follow_degrees({0, 0, 64}, ahead, decoy, {0, 0, 64}, towards({0, 0, 64}, walked), walked);
+		assert(follow > 5.0f && follow < 6.5f);
 		const vec3 forward = view_forward(0.0f, 90.0f);
 		assert(std::fabs(forward.x) < 1.0e-5f && std::fabs(forward.y - 1.0f) < 1.0e-5f);
 	}
@@ -210,6 +267,7 @@ void run_decoy_tests()
 {
 	test_byte_patterns();
 	test_decoy_spots();
+	test_decoy_steps();
 	test_decoy_hidden_proof();
 	test_decoy_aim();
 	test_worker_checks_decoys();

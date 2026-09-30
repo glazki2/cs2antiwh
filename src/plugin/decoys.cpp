@@ -49,11 +49,20 @@ namespace cs2glaz
 		// A decoy's health: a hit lowers it without killing it, which is how a
 		// decoy that traces still reach is noticed.
 		constexpr int32_t k_decoy_health = 1000000;
-		// A reported aim: on the decoy for k_aim_report_ms while the viewer moved
-		// enough that the direction to it changed by this much. Holding a fixed
-		// angle, sweeping across it, or walking straight at it does not count;
-		// tracking it while moving does.
+		// A reported aim: on the decoy for k_aim_report_ms while the aim followed
+		// it (see decoy_follow_degrees) by at least this much. Holding a fixed
+		// angle it walks through, sweeping across it, or walking straight at it
+		// does not count; keeping the crosshair on it while it or the viewer
+		// moves does.
 		constexpr float k_aim_min_tracking_degrees = 3.0f;
+		// Walking decoys: player walking to running speed, pauses between legs.
+		constexpr float k_walk_speed_min = 130.0f;
+		constexpr uint32_t k_walk_speed_spread = 121;
+		constexpr uint32_t k_pause_min_ms = 400;
+		constexpr uint32_t k_pause_spread_ms = 2100;
+		// Dropped when a real enemy or its viewer comes this close.
+		constexpr float k_decoy_enemy_drop = 200.0f;
+		constexpr float k_decoy_viewer_drop = 128.0f;
 
 
 #if defined(_WIN32)
@@ -308,6 +317,7 @@ namespace cs2glaz
 		{
 			return fail(entity, nullptr);
 		}
+		slot.teleport = teleport;
 		slot.spawned = true;
 		++decoy_counters_.spawned;
 		return true;
@@ -458,6 +468,26 @@ namespace cs2glaz
 		{
 			const player_state& viewer = value.players[viewer_slot];
 			const bool eligible = viewer.valid && human_player(viewer_slot);
+			std::vector<vec3> enemies;
+			for (uint32_t target = 0; eligible && target < k_max_players; ++target)
+			{
+				if (enemies_of(viewer, viewer_slot, target))
+				{
+					enemies.push_back(value.players[target].origin);
+				}
+			}
+			const auto too_close = [&](vec3 point)
+			{
+				const auto near = [&](vec3 other, float distance)
+				{
+					const float x = point.x - other.x;
+					const float y = point.y - other.y;
+					const float z = point.z - other.z;
+					return x * x + y * y + z * z < distance * distance;
+				};
+				return near(viewer.origin, k_decoy_viewer_drop)
+					   || std::any_of(enemies.begin(), enemies.end(), [&](vec3 enemy) { return near(enemy, k_decoy_enemy_drop); });
+			};
 			for (uint32_t index = 0; index < k_max_decoys_per_viewer; ++index)
 			{
 				decoy_slot& slot = decoys_[viewer_slot][index];
@@ -465,7 +495,7 @@ namespace cs2glaz
 				{
 					continue;
 				}
-				bool drop = !eligible || !enemies_of(viewer, viewer_slot, slot.target) || now >= slot.expires;
+				bool drop = !eligible || !enemies_of(viewer, viewer_slot, slot.target) || now >= slot.expires || too_close(slot.origin);
 				CEntityInstance* entity = slot.spawned ? system->GetEntityInstance(slot.handle) : nullptr;
 				if (slot.spawned && entity == nullptr)
 				{
@@ -505,6 +535,11 @@ namespace cs2glaz
 						++decoy_counters_.spawn_failures;
 						drop = true;
 					}
+					else
+					{
+						// A new decoy stands a moment before it starts walking.
+						slot.pause_until = now + std::chrono::milliseconds(k_pause_min_ms + decoy_random(decoy_seed_) % k_pause_spread_ms);
+					}
 				}
 				if (!drop && checked && slot.spawned)
 				{
@@ -513,8 +548,10 @@ namespace cs2glaz
 						const view_sample& before = previous_view[viewer_slot];
 						if (slot.aim_ms > 0.0f && before.valid)
 						{
-							slot.aim_turn += decoy_tracking_degrees(before.eye, viewer.eye, slot.origin);
+							slot.aim_turn += decoy_follow_degrees(before.eye, view_forward(before.pitch, before.yaw), slot.aim_origin, viewer.eye,
+																  view_forward(viewer.eye_pitch_degrees, viewer.eye_yaw_degrees), slot.origin);
 						}
+						slot.aim_origin = slot.origin;
 						slot.aim_ms += std::max(elapsed_ms, 0.001f);
 						if (slot.aim_ms >= k_aim_report_ms && slot.aim_turn >= k_aim_min_tracking_degrees && !slot.aim_reported)
 						{
@@ -528,6 +565,18 @@ namespace cs2glaz
 						slot.aim_turn = 0.0f;
 					}
 				}
+				if (!drop && slot.spawned && entity != nullptr && slot.teleport != nullptr)
+				{
+					std::vector<vec3> taken;
+					for (const decoy_slot& other : decoys_[viewer_slot])
+					{
+						if (&other != &slot && other.id != 0)
+						{
+							taken.push_back(other.origin);
+						}
+					}
+					walk_decoy(entity, slot, viewer, enemies, living, taken, now, elapsed_ms, value);
+				}
 				if (drop)
 				{
 					remove_decoy(system, slot);
@@ -539,14 +588,6 @@ namespace cs2glaz
 			}
 			if (eligible && slow_tick && fresh && result->players[viewer_slot].valid)
 			{
-				std::vector<vec3> enemies;
-				for (uint32_t target = 0; target < k_max_players; ++target)
-				{
-					if (enemies_of(viewer, viewer_slot, target))
-					{
-						enemies.push_back(value.players[target].origin);
-					}
-				}
 				for (uint32_t target = 0; target < k_max_players && candidate_budget > 0; ++target)
 				{
 					auto& row = decoys_[viewer_slot];
@@ -600,6 +641,51 @@ namespace cs2glaz
 			return;
 		}
 		publish_decoy_transmit();
+	}
+
+	void plugin::walk_decoy(CEntityInstance* entity, decoy_slot& slot, const player_state& viewer, std::span<const vec3> enemies,
+							std::span<const vec3> living, std::span<const vec3> taken, std::chrono::steady_clock::time_point now, float elapsed_ms,
+							const visibility_snapshot& value)
+	{
+		if (!slot.moving)
+		{
+			if (now < slot.pause_until)
+			{
+				return;
+			}
+			vec3 goal;
+			const decoy_spot_query query {viewer.eye, enemies, living, taken, decoy_random(decoy_seed_)};
+			if (!choose_decoy_step(data_, value.occluders, decoy_spots_, query, slot.origin, goal))
+			{
+				slot.pause_until = now + std::chrono::milliseconds(k_pause_min_ms);
+				return;
+			}
+			slot.goal = goal;
+			slot.speed = k_walk_speed_min + static_cast<float>(decoy_random(decoy_seed_) % k_walk_speed_spread);
+			slot.moving = true;
+		}
+		const float dx = slot.goal.x - slot.origin.x;
+		const float dy = slot.goal.y - slot.origin.y;
+		const float dz = slot.goal.z - slot.origin.z;
+		const float length = std::sqrt(dx * dx + dy * dy + dz * dz);
+		const float step = slot.speed * elapsed_ms / 1000.0f;
+		if (length <= step || length < 1.0f)
+		{
+			slot.origin = slot.goal;
+			slot.moving = false;
+			slot.pause_until = now + std::chrono::milliseconds(k_pause_min_ms + decoy_random(decoy_seed_) % k_pause_spread_ms);
+		}
+		else
+		{
+			slot.origin = {slot.origin.x + dx / length * step, slot.origin.y + dy / length * step, slot.origin.z + dz / length * step};
+		}
+		if (dx * dx + dy * dy > 1.0f)
+		{
+			slot.yaw = std::atan2(dy, dx) * 57.29578f;
+		}
+		const Vector origin(slot.origin.x, slot.origin.y, slot.origin.z);
+		const QAngle angles(0.0f, slot.yaw, 0.0f);
+		reinterpret_cast<teleport_fn>(slot.teleport)(entity, &origin, &angles, nullptr);
 	}
 
 	void plugin::withhold_decoys(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count, const visibility_result* result,

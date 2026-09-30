@@ -41,6 +41,29 @@ namespace cs2glaz
 			return {origin.x, origin.y, origin.z + k_decoy_center_height};
 		}
 
+		float angle_degrees(vec3 a, vec3 b)
+		{
+			const float lengths = std::sqrt((a.x * a.x + a.y * a.y + a.z * a.z) * (b.x * b.x + b.y * b.y + b.z * b.z));
+			if (!std::isfinite(lengths) || !(lengths > 0.0f))
+			{
+				return 0.0f;
+			}
+			return std::acos(std::clamp((a.x * b.x + a.y * b.y + a.z * b.z) / lengths, -1.0f, 1.0f)) / k_degrees_to_radians;
+		}
+
+		bool hidden_from_eye(const bvh8_data& data, std::span<const visibility_occluder> occluders, vec3 eye, vec3 point)
+		{
+			return segment_blocked(data, eye, point).blocked || occluders_block_segment(occluders, eye, point);
+		}
+
+		bool spot_rules(const decoy_spot_query& query, vec3 candidate)
+		{
+			const float distance = distance_sq(candidate, query.viewer_eye);
+			return distance >= k_decoy_min_distance * k_decoy_min_distance && distance <= k_decoy_max_distance * k_decoy_max_distance
+				   && far_from_all(candidate, query.enemies, k_decoy_enemy_clearance) && far_from_all(candidate, query.players, k_decoy_player_clearance)
+				   && far_from_all(candidate, query.taken, k_decoy_spacing);
+		}
+
 	} // namespace
 
 	void decoy_spot_history::clear()
@@ -90,14 +113,7 @@ namespace cs2glaz
 		{
 			const vec3 candidate = points[decoy_random(state) % points.size()];
 			const float distance = distance_sq(candidate, query.viewer_eye);
-			if (distance < k_decoy_min_distance * k_decoy_min_distance || distance > k_decoy_max_distance * k_decoy_max_distance
-				|| distance >= best || !far_from_all(candidate, query.enemies, k_decoy_enemy_clearance)
-				|| !far_from_all(candidate, query.players, k_decoy_player_clearance) || !far_from_all(candidate, query.taken, k_decoy_spacing))
-			{
-				continue;
-			}
-			const vec3 center = body_center(candidate);
-			if (!segment_blocked(data, query.viewer_eye, center).blocked && !occluders_block_segment(occluders, query.viewer_eye, center))
+			if (distance >= best || !spot_rules(query, candidate) || !hidden_from_eye(data, occluders, query.viewer_eye, body_center(candidate)))
 			{
 				continue;
 			}
@@ -106,6 +122,54 @@ namespace cs2glaz
 			found = true;
 		}
 		return found;
+	}
+
+	bool choose_decoy_step(const bvh8_data& data, std::span<const visibility_occluder> occluders, const decoy_spot_history& history,
+						   const decoy_spot_query& query, vec3 from, vec3& next)
+	{
+		const std::span<const vec3> points = history.points();
+		if (points.empty() || !finite(from) || !finite(query.viewer_eye))
+		{
+			return false;
+		}
+		uint32_t state = query.seed == 0 ? 0x85ebca6bu : query.seed;
+		for (uint32_t attempt = 0; attempt < k_spot_attempts; ++attempt)
+		{
+			const vec3 candidate = points[decoy_random(state) % points.size()];
+			const float dx = candidate.x - from.x;
+			const float dy = candidate.y - from.y;
+			const float run = std::sqrt(dx * dx + dy * dy);
+			const float rise = std::fabs(candidate.z - from.z);
+			if (run < k_decoy_step_min || run > k_decoy_step_max || rise > 0.5f * run + 8.0f || !spot_rules(query, candidate))
+			{
+				continue;
+			}
+			const vec3 middle {0.5f * (from.x + candidate.x), 0.5f * (from.y + candidate.y), 0.5f * (from.z + candidate.z)};
+			if (!hidden_from_eye(data, occluders, query.viewer_eye, body_center(candidate))
+				|| !hidden_from_eye(data, occluders, query.viewer_eye, body_center(middle)))
+			{
+				continue;
+			}
+			bool walkable = true;
+			for (const float height : {18.0f, 54.0f})
+			{
+				const vec3 start {from.x, from.y, from.z + height};
+				const vec3 end {candidate.x, candidate.y, candidate.z + height};
+				walkable = walkable && !segment_blocked(data, start, end).blocked && !occluders_block_segment(occluders, start, end);
+			}
+			for (const float fraction : {0.25f, 0.5f, 0.75f})
+			{
+				const vec3 point {from.x + dx * fraction, from.y + dy * fraction, from.z + (candidate.z - from.z) * fraction};
+				walkable = walkable && segment_blocked(data, {point.x, point.y, point.z + 24.0f}, {point.x, point.y, point.z - 48.0f}).blocked;
+			}
+			if (!walkable)
+			{
+				continue;
+			}
+			next = candidate;
+			return true;
+		}
+		return false;
 	}
 
 	bool decoy_hidden_from_origins(const bvh8_data& data, const visibility_origin_points& origins, vec3 origin,
@@ -152,17 +216,14 @@ namespace cs2glaz
 		return true;
 	}
 
-	float decoy_tracking_degrees(vec3 eye_before, vec3 eye_now, vec3 decoy_origin)
+	float decoy_follow_degrees(vec3 eye_before, vec3 forward_before, vec3 decoy_before, vec3 eye_now, vec3 forward_now, vec3 decoy_now)
 	{
-		const vec3 center = body_center(decoy_origin);
-		const vec3 a {center.x - eye_before.x, center.y - eye_before.y, center.z - eye_before.z};
-		const vec3 b {center.x - eye_now.x, center.y - eye_now.y, center.z - eye_now.z};
-		const float lengths = std::sqrt((a.x * a.x + a.y * a.y + a.z * a.z) * (b.x * b.x + b.y * b.y + b.z * b.z));
-		if (!std::isfinite(lengths) || !(lengths > 0.0f))
-		{
-			return 0.0f;
-		}
-		return std::acos(std::clamp((a.x * b.x + a.y * b.y + a.z * b.z) / lengths, -1.0f, 1.0f)) / k_degrees_to_radians;
+		const vec3 center_before = body_center(decoy_before);
+		const vec3 center_now = body_center(decoy_now);
+		const float direction_turn = angle_degrees({center_before.x - eye_before.x, center_before.y - eye_before.y, center_before.z - eye_before.z},
+												   {center_now.x - eye_now.x, center_now.y - eye_now.y, center_now.z - eye_now.z});
+		const float view_turn = angle_degrees(forward_before, forward_now);
+		return std::min(direction_turn, view_turn);
 	}
 
 	vec3 view_forward(float pitch_degrees, float yaw_degrees)

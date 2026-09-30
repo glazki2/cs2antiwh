@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.3
+
+- Decoys walk like players: after standing 0.4-2.5 s a decoy walks at 130-250 u/s, facing where it goes, to another floor spot players have used 64-320 units away, then stands again. A leg is taken only on a straight path clear of the map and occluders at knee and chest height, with floor under it and a slope a player can walk, whose end and middle are hidden from the viewer's eye and that keeps every placement rule (400+ units from the viewer's real enemies). A decoy a real enemy comes within 200 units of, or its viewer within 128, is removed.
+- An aim report now measures following: while the crosshair stays on the decoy, the smaller of how far the direction to it turned (the viewer or the decoy moved) and how far the view turned must reach 3 degrees within the 0.5 s. A decoy walking through a still crosshair, a crosshair sweeping over a decoy, or walking straight at it counts nothing.
+- Smoke: when exact map rays closed some of a body's pixel lines and smoke closed the rest, the sub-pixel check for openings in the map runs again (0.7.1 skipped it whenever smoke closed any pixel line, which could hide a body seen through a narrow gap next to a smoke). A body behind smoke alone still skips it.
+- The smoke copy cache is cleared with the map.
+
 ## 0.7.2
 
 - Fixed a client crash with decoys on: `FATAL ERROR: CopyExistingEntity: missing client entity`. Since the review after 0.7.0, a proven-hidden decoy was forced into its viewer's transmit list even outside his PVS. The engine packs only entities in the union of all lists, which CS2GLAZ did not change, so the client was told about an entity it never received and aborted. CS2GLAZ again only ever clears transmit bits, as it does for players; a decoy outside its viewer's PVS is simply not sent.
