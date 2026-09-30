@@ -749,6 +749,10 @@ namespace cs2glaz
 					{
 						apply_transmit_mode(info->m_pTransmitEntity, info->m_pTransmitAlways, edict, transmit_mode::clear_both);
 					}
+					else
+					{
+						info->m_pTransmitEntity->IsBitSet(edict) ? ++decoy_counters_.ticks_sent : ++decoy_counters_.ticks_outside_pvs;
+					}
 				}
 			}
 		}
@@ -827,7 +831,11 @@ namespace cs2glaz
 				slot.spawned ? ++live : (slot.id != 0 ? ++pending : 0u);
 			}
 		}
-		const decoy_counters& counters = decoy_counters_;
+		decoy_counters counters;
+		{
+			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+			counters = decoy_counters_;
+		}
 		META_CONPRINTF("[CS2GLAZ] decoys mode=%d (%s) %s live=%u pending=%u spots=%zu created=%llu exposed=%llu failed=%llu aims=%llu shots=%llu\n",
 					   mode, mode == 0 ? "off" : mode == 1 ? "invisible" : "drawn",
 					   !decoy_functions_resolved_ ? "not checked yet" : decoy_functions_.ready ? "ready" : "unavailable", live, pending,
@@ -837,6 +845,12 @@ namespace cs2glaz
 		if (decoy_functions_resolved_ && !decoy_functions_.ready)
 		{
 			META_CONPRINTF("[CS2GLAZ] decoys: %s\n", decoy_functions_.error.c_str());
+		}
+		if (mode != 0)
+		{
+			// A decoy reaches its viewer only while the engine counts it in his PVS.
+			META_CONPRINTF("[CS2GLAZ] decoy transmit ticks this map: sent=%llu outside_pvs=%llu (outside the PVS a decoy is not sent)\n",
+						   static_cast<unsigned long long>(counters.ticks_sent), static_cast<unsigned long long>(counters.ticks_outside_pvs));
 		}
 		CGameEntitySystem* system = entity_system();
 		for (uint32_t slot = 0; slot < k_max_players; ++slot)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.4
+
+- `cs2glaz_status` counts, per map, the transmit ticks a proven-hidden decoy reached its viewer (`sent`) and those it was outside his PVS (`outside_pvs`), where the engine does not send a prop and CS2GLAZ cannot add it without crashing the client. This tells whether decoys can reach anyone on a given map and server.
+
 ## 0.7.3
 
 - Decoys walk like players: after standing 0.4-2.5 s a decoy walks at 130-250 u/s, facing where it goes, to another floor spot players have used 64-320 units away, then stands again. A leg is taken only on a straight path clear of the map and occluders at knee and chest height, with floor under it and a slope a player can walk, whose end and middle are hidden from the viewer's eye and that keeps every placement rule (400+ units from the viewer's real enemies). A decoy a real enemy comes within 200 units of, or its viewer within 128, is removed.

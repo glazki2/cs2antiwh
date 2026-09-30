@@ -228,6 +228,11 @@ namespace cs2glaz
 
 	struct decoy_counters
 	{
+		// Transmit ticks, guarded by the transmit lock: a proven-hidden decoy the
+		// engine had in its viewer's list (so it reached him), or not (outside
+		// his PVS; CS2GLAZ never adds entities, so it was not sent).
+		uint64_t ticks_sent {};
+		uint64_t ticks_outside_pvs {};
 		uint64_t candidates {};
 		uint64_t spawned {};
 		uint64_t exposed {};

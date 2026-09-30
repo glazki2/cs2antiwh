@@ -218,6 +218,11 @@ namespace cs2glaz
 		remove_all_decoys(false);
 		decoy_spots_.clear();
 		decoy_records_ = {};
+		{
+			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+			decoy_counters_.ticks_sent = 0;
+			decoy_counters_.ticks_outside_pvs = 0;
+		}
 		smoke_cache_.reset();
 		smoke_cache_key_.clear();
 		automatic_baker_.stop();
