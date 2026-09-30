@@ -49,6 +49,8 @@ namespace cs2glaz
 		// A decoy's health: a hit lowers it without killing it, which is how a
 		// decoy that traces still reach is noticed.
 		constexpr int32_t k_decoy_health = 1000000;
+		// Parked decoys kept for reuse.
+		constexpr size_t k_decoy_pool_size = 16;
 		// A reported aim: on the decoy for k_aim_report_ms while the aim followed
 		// it (see decoy_follow_degrees) by at least this much. Holding a fixed
 		// angle it walks through, sweeping across it, or walking straight at it
@@ -232,20 +234,26 @@ namespace cs2glaz
 		functions.ready = functions.error.empty();
 	}
 
+	void plugin::discard_decoy_entity(CEntityInstance* entity)
+	{
+		if (entity == nullptr || decoy_functions_.remove_entity == nullptr)
+		{
+			return;
+		}
+		const CEntityHandle handle = entity_handle(entity);
+		reinterpret_cast<remove_entity_fn>(decoy_functions_.remove_entity)(entity);
+		if (handle.IsValid() && decoy_graveyard_.size() + decoy_pool_.size() < decoy_graveyard_transmit_.size())
+		{
+			decoy_graveyard_.push_back(handle);
+		}
+	}
+
 	bool plugin::spawn_decoy(CGameEntitySystem* system, decoy_slot& slot, const std::string& model, int mode)
 	{
 		decoy_functions& functions = decoy_functions_;
 		const auto fail = [&](CEntityInstance* entity, const char* reason)
 		{
-			if (entity != nullptr)
-			{
-				const CEntityHandle handle = entity_handle(entity);
-				reinterpret_cast<remove_entity_fn>(functions.remove_entity)(entity);
-				if (handle.IsValid() && decoy_graveyard_.size() < decoy_graveyard_transmit_.size())
-				{
-					decoy_graveyard_.push_back(handle);
-				}
-			}
+			discard_decoy_entity(entity);
 			if (reason != nullptr)
 			{
 				// A decoy that could collide or be seen must never exist: stop for good.
@@ -259,28 +267,13 @@ namespace cs2glaz
 		{
 			return false;
 		}
-		CEntityInstance* entity = reinterpret_cast<create_entity_fn>(functions.create_entity_by_name)("prop_dynamic", -1);
-		if (entity == nullptr)
-		{
-			return false;
-		}
 		const schema_offsets& fields = compatibility_.fields();
-		void** vtable = nullptr;
-		void* teleport = nullptr;
-		if (!runtime_compatibility::safe_read(entity, &vtable, sizeof(vtable)) || vtable == nullptr
-			|| !runtime_compatibility::safe_read(vtable + functions.teleport_vtable_index, &teleport, sizeof(teleport))
-			|| !compatibility_.address_in_server_module(teleport))
-		{
-			return fail(entity, "the Teleport vtable index does not point into the server");
-		}
 		// Not solid, touched by no trace, (mode 1) not rendered, before and after
-		// the model and the spawn; nothing has been sent yet, so the first send
-		// carries these values. The model is set before spawning (a prop spawned
-		// without one logs "has no model name"); being not solid, it gets no
-		// physics object, which is checked right after the spawn.
-		void* collision = reinterpret_cast<std::byte*>(entity) + fields.model_collision;
-		const auto apply = [&]
+		// the spawn and the model; nothing has been sent yet, so the first send
+		// carries these values.
+		const auto apply = [&](CEntityInstance* entity)
 		{
+			void* collision = reinterpret_cast<std::byte*>(entity) + fields.model_collision;
 			field<uint8_t>(collision, fields.solid_type) = k_solid_none;
 			field<uint8_t>(collision, fields.solid_flags) |= k_solid_flag_not_solid;
 			if (compatibility_.collision_attribute_available())
@@ -296,15 +289,66 @@ namespace cs2glaz
 				field<uint8_t>(entity, fields.render_color + 3) = 0; // alpha
 			}
 		};
-		apply();
-		reinterpret_cast<set_model_fn>(functions.set_model)(entity, model.c_str());
-		apply();
-		reinterpret_cast<dispatch_spawn_fn>(functions.dispatch_spawn)(entity, nullptr);
+		CEntityInstance* entity = nullptr;
+		void* teleport = nullptr;
+		bool reused = false;
+		while (entity == nullptr && !decoy_pool_.empty())
+		{
+			parked_decoy parked = std::move(decoy_pool_.back());
+			decoy_pool_.pop_back();
+			CEntityInstance* candidate = system->GetEntityInstance(parked.handle);
+			if (candidate == nullptr)
+			{
+				continue;
+			}
+			if (field<int32_t>(candidate, fields.health) < k_decoy_health)
+			{
+				return fail(candidate, "a decoy was hit by a shot or a knife");
+			}
+			if (parked.mode != mode)
+			{
+				discard_decoy_entity(candidate);
+				continue;
+			}
+			entity = candidate;
+			teleport = parked.teleport;
+			reused = true;
+			apply(entity);
+			if (parked.model != model)
+			{
+				reinterpret_cast<set_model_fn>(functions.set_model)(entity, model.c_str());
+			}
+		}
+		if (entity == nullptr)
+		{
+			entity = reinterpret_cast<create_entity_fn>(functions.create_entity_by_name)("prop_dynamic", -1);
+			if (entity == nullptr)
+			{
+				return false;
+			}
+			void** vtable = nullptr;
+			if (!runtime_compatibility::safe_read(entity, &vtable, sizeof(vtable)) || vtable == nullptr
+				|| !runtime_compatibility::safe_read(vtable + functions.teleport_vtable_index, &teleport, sizeof(teleport))
+				|| !compatibility_.address_in_server_module(teleport))
+			{
+				return fail(entity, "the Teleport vtable index does not point into the server");
+			}
+			// Spawned before its model, so the prop never gets a physics object
+			// (spawning with the model made it solid on 1.41.8); this logs "has
+			// no model name" once per new prop, which reuse keeps rare.
+			apply(entity);
+			reinterpret_cast<dispatch_spawn_fn>(functions.dispatch_spawn)(entity, nullptr);
+			apply(entity);
+			reinterpret_cast<set_model_fn>(functions.set_model)(entity, model.c_str());
+		}
+		// Checked straight after the model is set, before anything is applied
+		// again: a model that brought collision back must never be used.
+		void* collision = reinterpret_cast<std::byte*>(entity) + fields.model_collision;
 		if (field<uint8_t>(collision, fields.solid_type) != k_solid_none || (field<uint8_t>(collision, fields.solid_flags) & k_solid_flag_not_solid) == 0)
 		{
 			return fail(entity, "a spawned decoy was solid");
 		}
-		apply();
+		apply(entity);
 		if (mode == 1 && field<uint8_t>(entity, fields.render_mode) != compatibility_.render_none_value())
 		{
 			return fail(entity, "a spawned decoy was rendered");
@@ -318,22 +362,28 @@ namespace cs2glaz
 			return fail(entity, nullptr);
 		}
 		slot.teleport = teleport;
+		slot.model = model;
 		slot.spawned = true;
-		++decoy_counters_.spawned;
+		reused ? ++decoy_counters_.reused : ++decoy_counters_.spawned;
 		return true;
 	}
 
 	void plugin::remove_decoy(CGameEntitySystem* system, decoy_slot& slot)
 	{
-		if (slot.spawned && system != nullptr && decoy_functions_.remove_entity != nullptr && slot.handle.IsValid())
+		CEntityInstance* entity = slot.spawned && system != nullptr && slot.handle.IsValid() ? system->GetEntityInstance(slot.handle) : nullptr;
+		if (entity != nullptr)
 		{
-			if (CEntityInstance* entity = system->GetEntityInstance(slot.handle); entity != nullptr)
+			// Parked for the next decoy while there is room; withheld from everyone
+			// meanwhile.
+			const int mode = decoy_mode();
+			if (decoy_functions_.ready && mode != 0 && slot.teleport != nullptr && decoy_pool_.size() < k_decoy_pool_size
+				&& decoy_graveyard_.size() + decoy_pool_.size() < decoy_graveyard_transmit_.size())
 			{
-				reinterpret_cast<remove_entity_fn>(decoy_functions_.remove_entity)(entity);
-				if (decoy_graveyard_.size() < decoy_graveyard_transmit_.size())
-				{
-					decoy_graveyard_.push_back(slot.handle);
-				}
+				decoy_pool_.push_back({slot.handle, slot.teleport, slot.model, mode});
+			}
+			else
+			{
+				discard_decoy_entity(entity);
 			}
 		}
 		slot = {};
@@ -352,8 +402,21 @@ namespace cs2glaz
 			{
 				if (slot.id != 0)
 				{
-					remove_decoy(system, slot);
+					if (system != nullptr && slot.spawned && slot.handle.IsValid())
+					{
+						discard_decoy_entity(system->GetEntityInstance(slot.handle));
+					}
+					slot = {};
 				}
+			}
+		}
+		std::vector<parked_decoy> pool = std::move(decoy_pool_);
+		decoy_pool_.clear();
+		for (const parked_decoy& parked : pool)
+		{
+			if (system != nullptr)
+			{
+				discard_decoy_entity(system->GetEntityInstance(parked.handle));
 			}
 		}
 		publish_decoy_transmit();
@@ -364,9 +427,11 @@ namespace cs2glaz
 		if (system == nullptr)
 		{
 			decoy_graveyard_.clear();
+			decoy_pool_.clear();
 			return;
 		}
 		std::erase_if(decoy_graveyard_, [&](CEntityHandle handle) { return system->GetEntityInstance(handle) == nullptr; });
+		std::erase_if(decoy_pool_, [&](const parked_decoy& parked) { return system->GetEntityInstance(parked.handle) == nullptr; });
 	}
 
 	void plugin::publish_decoy_transmit()
@@ -383,8 +448,22 @@ namespace cs2glaz
 				live = live || slot.spawned;
 			}
 		}
-		decoy_graveyard_count_ = static_cast<uint32_t>(std::min(decoy_graveyard_.size(), decoy_graveyard_transmit_.size()));
-		std::copy_n(decoy_graveyard_.begin(), decoy_graveyard_count_, decoy_graveyard_transmit_.begin());
+		uint32_t count = 0;
+		for (const parked_decoy& parked : decoy_pool_)
+		{
+			if (count < decoy_graveyard_transmit_.size())
+			{
+				decoy_graveyard_transmit_[count++] = parked.handle;
+			}
+		}
+		for (const CEntityHandle& handle : decoy_graveyard_)
+		{
+			if (count < decoy_graveyard_transmit_.size())
+			{
+				decoy_graveyard_transmit_[count++] = handle;
+			}
+		}
+		decoy_graveyard_count_ = count;
 		decoys_live_.store(live || decoy_graveyard_count_ != 0);
 	}
 
@@ -836,11 +915,12 @@ namespace cs2glaz
 			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
 			counters = decoy_counters_;
 		}
-		META_CONPRINTF("[CS2GLAZ] decoys mode=%d (%s) %s live=%u pending=%u spots=%zu created=%llu exposed=%llu failed=%llu aims=%llu shots=%llu\n",
+		META_CONPRINTF("[CS2GLAZ] decoys mode=%d (%s) %s live=%u pending=%u parked=%zu spots=%zu created=%llu reused=%llu exposed=%llu failed=%llu "
+					   "aims=%llu shots=%llu\n",
 					   mode, mode == 0 ? "off" : mode == 1 ? "invisible" : "drawn",
 					   !decoy_functions_resolved_ ? "not checked yet" : decoy_functions_.ready ? "ready" : "unavailable", live, pending,
-					   decoy_spots_.points().size(), static_cast<unsigned long long>(counters.spawned),
-					   static_cast<unsigned long long>(counters.exposed), static_cast<unsigned long long>(counters.spawn_failures),
+					   decoy_pool_.size(), decoy_spots_.points().size(), static_cast<unsigned long long>(counters.spawned),
+					   static_cast<unsigned long long>(counters.reused), static_cast<unsigned long long>(counters.exposed), static_cast<unsigned long long>(counters.spawn_failures),
 					   static_cast<unsigned long long>(counters.aims), static_cast<unsigned long long>(counters.shots));
 		if (decoy_functions_resolved_ && !decoy_functions_.ready)
 		{

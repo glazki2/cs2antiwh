@@ -7,6 +7,7 @@
 
 #include "smoke_occlusion.h"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -19,7 +20,7 @@ namespace cs2glaz
 	// A smoke older than this has spread enough to judge its voxels.
 	inline constexpr float k_smoke_check_min_age = 2.0f;
 	inline constexpr float k_smoke_check_max_age = 20.0f;
-	// The voxel grid is centred on the detonation point (snapped to the grid).
+	// The voxel grid is centred near the detonation point.
 	inline constexpr float k_smoke_check_center_tolerance = 64.0f;
 
 	struct smoke_volume_header
@@ -46,38 +47,68 @@ namespace cs2glaz
 			   && age <= k_smoke_check_max_age;
 	}
 
-	// mask: k_smoke_mask_bytes of the occupancy mask. density: one frame of
+	// What one copied frame of a candidate smoke storage holds. mask:
+	// k_smoke_mask_bytes of the cell mask (may be null). density: one frame of
 	// k_smoke_cell_count cells, k_smoke_storage_cell_stride bytes apart, with
-	// the density float first. A real spread smoke has finite, bounded densities,
-	// a plausible share of dense and marked cells, and a mask that mostly marks
-	// dense cells; zeroed, random or shifted memory fails at least one of these.
-	inline bool smoke_voxels_plausible(const uint8_t* mask, const std::byte* density)
+	// the density float first.
+	struct smoke_voxel_stats
 	{
-		if (mask == nullptr || density == nullptr)
+		uint32_t filled {};		  // cells with any density
+		uint32_t dense {};		  // cells at 2.5 or more (about 5% of the blocking scale)
+		uint32_t marked {};		  // mask bits set
+		uint32_t marked_filled {}; // mask bits set on cells with any density
+		uint32_t non_finite {};
+		uint32_t out_of_range {};
+		float peak {};
+	};
+
+	inline smoke_voxel_stats smoke_voxel_statistics(const uint8_t* mask, const std::byte* density)
+	{
+		smoke_voxel_stats stats;
+		if (density == nullptr)
 		{
-			return false;
+			return stats;
 		}
-		uint32_t dense = 0;
-		uint32_t marked = 0;
-		uint32_t marked_dense = 0;
 		for (uint32_t cell = 0; cell < k_smoke_cell_count; ++cell)
 		{
 			float value = 0.0f;
 			std::memcpy(&value, density + static_cast<size_t>(cell) * k_smoke_storage_cell_stride, sizeof(value));
-			// Raw densities are about 0-50 (smoke_line_blocked divides by 50).
-			if (!std::isfinite(value) || value < -0.01f || value > 1000.0f)
+			const bool is_marked = mask != nullptr && ((mask[cell >> 3] >> (cell & 7u)) & 1u) != 0;
+			stats.marked += is_marked ? 1u : 0u;
+			if (!std::isfinite(value))
 			{
-				return false;
+				++stats.non_finite;
+				continue;
 			}
-			const bool is_dense = value >= 2.5f;
-			const bool is_marked = ((mask[cell >> 3] >> (cell & 7u)) & 1u) != 0;
-			dense += is_dense ? 1u : 0u;
-			marked += is_marked ? 1u : 0u;
-			marked_dense += is_dense && is_marked ? 1u : 0u;
+			if (value < -1.0f || value > 10000.0f)
+			{
+				++stats.out_of_range;
+				continue;
+			}
+			const bool is_filled = value > 0.01f;
+			stats.filled += is_filled ? 1u : 0u;
+			stats.dense += value >= 2.5f ? 1u : 0u;
+			stats.marked_filled += is_marked && is_filled ? 1u : 0u;
+			stats.peak = std::max(stats.peak, value);
 		}
+		return stats;
+	}
+
+	// A real spread smoke has finite, bounded densities and fills a plausible
+	// share of the grid; zeroed, random or shifted memory fails at least one of
+	// these. The mask is not judged: what it marks (dense cells or cells the
+	// map blocks) is not known for every build, and smoke_line_blocked treats
+	// a marked cell as blocking either way, as CS2FOW does on verified builds.
+	inline bool smoke_voxels_plausible(const smoke_voxel_stats& stats)
+	{
 		constexpr uint32_t minimum = 64;
 		constexpr uint32_t maximum = k_smoke_cell_count * 6u / 10u;
-		return dense >= minimum && dense <= maximum && marked >= minimum && marked <= maximum && marked_dense * 2u >= marked;
+		return stats.non_finite == 0 && stats.out_of_range == 0 && stats.filled >= minimum && stats.filled <= maximum && stats.peak > 0.0f;
+	}
+
+	inline bool smoke_voxels_plausible(const uint8_t* mask, const std::byte* density)
+	{
+		return mask != nullptr && density != nullptr && smoke_voxels_plausible(smoke_voxel_statistics(mask, density));
 	}
 
 } // namespace cs2glaz

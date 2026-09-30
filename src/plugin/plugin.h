@@ -9,6 +9,7 @@
 #include "map_source.h"
 #include "runtime_compatibility.h"
 #include "settings.h"
+#include "smoke_layout_check.h"
 #include "transmit_masks.h"
 #include "updater.h"
 #include "visibility_worker.h"
@@ -205,10 +206,22 @@ namespace cs2glaz
 		bool shot_reported {};
 		// Walking: legs between recorded floor spots, with pauses.
 		void* teleport {}; // this entity's Teleport, checked when spawned
+		std::string model;
 		vec3 goal;
 		float speed {};
 		bool moving {};
 		std::chrono::steady_clock::time_point pause_until;
+	};
+
+	// A spawned decoy kept for reuse: withheld from everyone like a removed one.
+	// Each new prop logs "has no model name" once (it is spawned before its
+	// model so it never gets a physics object); a reused one logs nothing.
+	struct parked_decoy
+	{
+		CEntityHandle handle;
+		void* teleport {};
+		std::string model;
+		int mode {};
 	};
 
 	// What CheckTransmit needs about a live decoy; guarded by the transmit lock.
@@ -235,6 +248,7 @@ namespace cs2glaz
 		uint64_t ticks_outside_pvs {};
 		uint64_t candidates {};
 		uint64_t spawned {};
+		uint64_t reused {};
 		uint64_t exposed {};
 		uint64_t spawn_failures {};
 		uint64_t aims {};
@@ -361,7 +375,23 @@ namespace cs2glaz
 		void collect_smoke_entities(CGameEntitySystem* system, float game_time, bool include_candidates,
 									std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t& smoke_count, bool& smoke_overflow);
 		void verify_runtime_smoke_layout(const std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t count, float game_time);
-		bool smoke_layout_matches(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation, float game_time) const;
+		// What the smoke layout check read at one volume offset of a live smoke.
+		struct smoke_layout_probe
+		{
+			bool readable {};
+			bool header_ok {};
+			bool voxels_read {};
+			bool voxels_ok {};
+			vec3 center;
+			float center_distance {};
+			float age {};
+			int32_t frame {-1};
+			const std::byte* storage {};
+			smoke_voxel_stats voxels;
+		};
+		smoke_layout_probe probe_smoke_layout(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation, float game_time) const;
+		void write_smoke_layout_report(const CEntityInstance* smoke, vec3 detonation, float game_time, const smoke_layout_probe& probe,
+									   uint32_t matches);
 		bool smoke_header_readable(const CEntityInstance* smoke) const;
 		void print_smoke_layout() const;
 		const char* smoke_layout_summary() const;
@@ -381,6 +411,7 @@ namespace cs2glaz
 		void resolve_decoy_functions();
 		void update_decoys(CGameEntitySystem* system, visibility_snapshot& value, std::chrono::steady_clock::time_point now);
 		bool spawn_decoy(CGameEntitySystem* system, decoy_slot& slot, const std::string& model, int mode);
+		void discard_decoy_entity(CEntityInstance* entity);
 		void walk_decoy(CEntityInstance* entity, decoy_slot& slot, const player_state& viewer, std::span<const vec3> enemies, std::span<const vec3> living,
 						std::span<const vec3> taken, std::chrono::steady_clock::time_point now, float elapsed_ms, const visibility_snapshot& value);
 		void remove_decoy(CGameEntitySystem* system, decoy_slot& slot);
@@ -464,6 +495,9 @@ namespace cs2glaz
 		uint32_t smoke_layout_failures_ {};
 		uint32_t smoke_layout_judged_ {};
 		int64_t smoke_layout_shift_ {};
+		// addons/cs2glaz/logs/smoke_layout.txt is started over once per plugin
+		// load and then appended to, one entry per failed check.
+		bool smoke_report_started_ {};
 		// Without the HE event listener, an HE grenade projectile that disappears
 		// is taken as its detonation at the last position seen.
 		struct tracked_grenade
@@ -516,8 +550,11 @@ namespace cs2glaz
 		std::array<std::array<decoy_slot, k_max_decoys_per_viewer>, k_max_players> decoys_ {};
 		std::array<std::array<decoy_transmit_entry, k_max_decoys_per_viewer>, k_max_players> decoy_transmit_ {};
 		std::atomic_bool decoys_live_ {};
-		// Removed decoys stay withheld from everyone until the game deletes them.
+		// Removed decoys stay withheld from everyone until the game deletes them;
+		// parked ones for as long as they are parked. Both go to CheckTransmit
+		// through decoy_graveyard_transmit_.
 		std::vector<CEntityHandle> decoy_graveyard_;
+		std::vector<parked_decoy> decoy_pool_;
 		std::array<CEntityHandle, k_max_players * k_max_decoys_per_viewer> decoy_graveyard_transmit_ {};
 		uint32_t decoy_graveyard_count_ {};
 		decoy_spot_history decoy_spots_;

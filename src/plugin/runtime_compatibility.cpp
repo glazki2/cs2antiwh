@@ -27,6 +27,9 @@ namespace cs2glaz
 	{
 
 		constexpr uint32_t k_max_gamedata_offset = 4096;
+		// Schema field offsets inside one entity class (the smoke projectile is
+		// about 12.5 KB) and a smoke volume moved along with them.
+		constexpr uint32_t k_max_entity_offset = 65536;
 		constexpr uint32_t k_max_vtable_index = 1024;
 		constexpr uint32_t k_max_module_rva = 512u * 1024u * 1024u;
 #if defined(_WIN32)
@@ -219,6 +222,8 @@ namespace cs2glaz
 		constexpr std::string_view smoke_frame_key = "smoke_frame_offset_windows";
 		constexpr std::string_view smoke_center_key = "smoke_center_offset_windows";
 		constexpr std::string_view smoke_start_time_key = "smoke_start_time_offset_windows";
+		constexpr std::string_view smoke_anchor_key = "smoke_schema_anchor_windows";
+		constexpr std::string_view smoke_anchor_end_key = "smoke_schema_anchor_end_windows";
 		constexpr std::string_view game_event_vtable_key = "game_event_manager_vtable_rva_windows";
 		constexpr std::string_view lookup_bone_key = "lookup_bone_rva_windows";
 		constexpr std::string_view get_bone_transform_key = "get_bone_transform_rva_windows";
@@ -237,6 +242,8 @@ namespace cs2glaz
 		constexpr std::string_view smoke_frame_key = "smoke_frame_offset_linux";
 		constexpr std::string_view smoke_center_key = "smoke_center_offset_linux";
 		constexpr std::string_view smoke_start_time_key = "smoke_start_time_offset_linux";
+		constexpr std::string_view smoke_anchor_key = "smoke_schema_anchor_linux";
+		constexpr std::string_view smoke_anchor_end_key = "smoke_schema_anchor_end_linux";
 		constexpr std::string_view game_event_vtable_key = "game_event_manager_vtable_rva_linux";
 		constexpr std::string_view lookup_bone_key = "lookup_bone_rva_linux";
 		constexpr std::string_view get_bone_transform_key = "get_bone_transform_rva_linux";
@@ -256,6 +263,17 @@ namespace cs2glaz
 			const std::string key = line.substr(0, equals);
 			const bool smoke_key = key == smoke_volume_key || key == smoke_storage_key || key == smoke_frame_key || key == smoke_center_key
 								   || key == smoke_start_time_key;
+			if (key == smoke_anchor_key || key == smoke_anchor_end_key)
+			{
+				// Optional: without them the gamedata offset is the only candidate.
+				uint32_t anchor {};
+				const std::string_view text(line.data() + equals + 1u, line.size() - equals - 1u);
+				if (parse_gamedata_uint32(text, anchor) && anchor <= k_max_entity_offset)
+				{
+					(key == smoke_anchor_key ? smoke_anchor_gamedata_ : smoke_anchor_end_gamedata_) = anchor;
+				}
+				continue;
+			}
 			const bool debug_key = key == create_entity_key || key == dispatch_spawn_key || key == remove_entity_key || key == teleport_key;
 			if (key != server_size_key && key != server_crc_key && key != recipient_key && key != entity_system_key && key != full_update_key
 				&& key != game_event_vtable_key && key != lookup_bone_key && key != get_bone_transform_key && !debug_key && !smoke_key)
@@ -300,6 +318,7 @@ namespace cs2glaz
 			if (key == smoke_volume_key)
 			{
 				smoke_layout_.volume = value;
+				smoke_gamedata_volume_ = value;
 			}
 			if (key == smoke_storage_key)
 			{
@@ -515,6 +534,40 @@ namespace cs2glaz
 											&& optional(fields_.scene_node_next_sibling, "CGameSceneNode", "m_pNextSibling");
 		smoke_schema_available_ = optional(fields_.did_smoke_effect, "CSmokeGrenadeProjectile", "m_bDidSmokeEffect");
 		smoke_detonation_schema_available_ = optional(fields_.smoke_detonation_pos, "CSmokeGrenadeProjectile", "m_vSmokeDetonationPos");
+		smoke_layout_.volume = smoke_gamedata_volume_;
+		smoke_anchor_shift_ = 0;
+		smoke_anchor_matched_ = false;
+		uint32_t smoke_anchor = 0;
+		uint32_t smoke_anchor_end = 0;
+		if (smoke_anchor_gamedata_ == 0 || smoke_anchor_end_gamedata_ <= smoke_anchor_gamedata_)
+		{
+			smoke_anchor_summary_ = "no anchor in gamedata";
+		}
+		else if (!optional(smoke_anchor, "CSmokeGrenadeProjectile", "m_fllastSimulationTime")
+				 || !optional(smoke_anchor_end, "CSmokeGrenadeProjectile", "m_bExplodeFromInferno"))
+		{
+			smoke_anchor_summary_ = "anchor fields missing";
+		}
+		else if (smoke_anchor_end <= smoke_anchor || smoke_anchor_end - smoke_anchor != smoke_anchor_end_gamedata_ - smoke_anchor_gamedata_)
+		{
+			smoke_anchor_summary_ = "private block size changed";
+		}
+		else
+		{
+			const int64_t shift = static_cast<int64_t>(smoke_anchor) - static_cast<int64_t>(smoke_anchor_gamedata_);
+			const int64_t moved = static_cast<int64_t>(smoke_gamedata_volume_) + shift;
+			if (moved <= 0 || moved > static_cast<int64_t>(k_max_entity_offset) || moved % static_cast<int64_t>(alignof(void*)) != 0)
+			{
+				smoke_anchor_summary_ = "moved offset out of range";
+			}
+			else
+			{
+				smoke_layout_.volume = static_cast<uint32_t>(moved);
+				smoke_anchor_shift_ = shift;
+				smoke_anchor_matched_ = true;
+				smoke_anchor_summary_ = shift == 0 ? "matched" : "matched, moved";
+			}
+		}
 		player_name_schema_available_ = optional(fields_.player_name, "CBasePlayerController", "m_iszPlayerName");
 		velocity_schema_available_ = optional(fields_.abs_velocity, "CBaseEntity", "m_vecAbsVelocity");
 		observer_schema_available_ = optional(fields_.observer_pawn, "CCSPlayerController", "m_hObserverPawn")

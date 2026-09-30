@@ -14,7 +14,10 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <limits>
+#include <string>
+#include <vector>
 
 namespace cs2glaz
 {
@@ -338,10 +341,12 @@ namespace cs2glaz
 		he_tracked_count_ = grenade_count;
 	}
 
-	bool plugin::smoke_layout_matches(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation, float game_time) const
+	plugin::smoke_layout_probe plugin::probe_smoke_layout(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation,
+														   float game_time) const
 	{
 		const smoke_private_layout& layout = compatibility_.smoke_layout();
 		const auto* volume = reinterpret_cast<const std::byte*>(smoke) + volume_offset;
+		smoke_layout_probe probe;
 		Vector center;
 		smoke_volume_header header;
 		if (!runtime_compatibility::safe_read(volume + layout.center, &center, sizeof(center))
@@ -349,20 +354,35 @@ namespace cs2glaz
 			|| !runtime_compatibility::safe_read(volume + layout.frame, &header.frame, sizeof(header.frame))
 			|| !runtime_compatibility::safe_read(volume + layout.storage, &header.storage, sizeof(header.storage)))
 		{
-			return false;
+			return probe;
 		}
+		probe.readable = true;
 		header.center = to_vec3(center);
-		if (!smoke_header_plausible(header, detonation, game_time))
+		probe.center = header.center;
+		const float dx = header.center.x - detonation.x;
+		const float dy = header.center.y - detonation.y;
+		const float dz = header.center.z - detonation.z;
+		probe.center_distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+		probe.age = game_time - header.start_time;
+		probe.frame = header.frame;
+		probe.storage = header.storage;
+		probe.header_ok = smoke_header_plausible(header, detonation, game_time);
+		if (!probe.header_ok)
 		{
-			return false;
+			return probe;
 		}
 		std::vector<uint8_t> mask(k_smoke_mask_bytes);
 		std::vector<std::byte> density(k_smoke_storage_frame_stride);
-		return runtime_compatibility::safe_read(header.storage + k_smoke_storage_mask_offset, mask.data(), mask.size())
-			   && runtime_compatibility::safe_read(header.storage + k_smoke_storage_density_offset
-													   + static_cast<size_t>(header.frame) * k_smoke_storage_frame_stride,
-												   density.data(), density.size())
-			   && smoke_voxels_plausible(mask.data(), density.data());
+		probe.voxels_read = runtime_compatibility::safe_read(header.storage + k_smoke_storage_mask_offset, mask.data(), mask.size())
+							&& runtime_compatibility::safe_read(header.storage + k_smoke_storage_density_offset
+																	+ static_cast<size_t>(header.frame) * k_smoke_storage_frame_stride,
+																density.data(), density.size());
+		if (probe.voxels_read)
+		{
+			probe.voxels = smoke_voxel_statistics(mask.data(), density.data());
+			probe.voxels_ok = smoke_voxels_plausible(probe.voxels);
+		}
+		return probe;
 	}
 
 	void plugin::verify_runtime_smoke_layout(const std::array<CEntityInstance*, k_max_smoke_volumes>& smokes, size_t count, float game_time)
@@ -404,9 +424,10 @@ namespace cs2glaz
 			++smoke_layout_judged_;
 			const vec3 detonation = to_vec3(field<Vector>(smoke, compatibility_.fields().smoke_detonation_pos));
 			const uint32_t base = compatibility_.smoke_layout().volume;
+			const smoke_layout_probe probe = probe_smoke_layout(smoke, base, detonation, game_time);
 			uint32_t matches = 0;
 			uint32_t matched_offset = 0;
-			if (smoke_layout_matches(smoke, base, detonation, game_time))
+			if (probe.header_ok && probe.voxels_ok)
 			{
 				matches = 1;
 				matched_offset = base;
@@ -422,7 +443,8 @@ namespace cs2glaz
 					{
 						continue;
 					}
-					if (smoke_layout_matches(smoke, static_cast<uint32_t>(offset), detonation, game_time))
+					const smoke_layout_probe other = probe_smoke_layout(smoke, static_cast<uint32_t>(offset), detonation, game_time);
+					if (other.header_ok && other.voxels_ok)
 					{
 						++matches;
 						matched_offset = static_cast<uint32_t>(offset);
@@ -434,14 +456,160 @@ namespace cs2glaz
 				smoke_layout_shift_ = static_cast<int64_t>(matched_offset) - static_cast<int64_t>(base);
 				compatibility_.accept_runtime_smoke_layout(matched_offset);
 				smoke_layout_state_ = smoke_layout_state::verified;
-				META_CONPRINTF("[CS2GLAZ] smoke layout verified on a live smoke (volume offset %u, %+lld from gamedata); smoke occlusion is on\n",
+				META_CONPRINTF("[CS2GLAZ] smoke layout verified on a live smoke (volume offset %u, %+lld from the candidate); smoke occlusion is on\n",
 							   matched_offset, static_cast<long long>(smoke_layout_shift_));
+				continue;
 			}
-			else if (++smoke_layout_failures_ >= 3)
+			++smoke_layout_failures_;
+			if (!probe.readable)
+			{
+				META_CONPRINTF("[CS2GLAZ] smoke check %u failed at volume offset %u: unreadable\n", smoke_layout_failures_, base);
+			}
+			else
+			{
+				META_CONPRINTF("[CS2GLAZ] smoke check %u failed at volume offset %u: centre %.1f units from the detonation, age %.2f s, frame %d, "
+							   "storage %s; voxels %s filled=%u dense=%u marked=%u marked_filled=%u peak=%.2f bad=%u; other offsets matching=%u\n",
+							   smoke_layout_failures_, base, probe.center_distance, probe.age, probe.frame, probe.storage == nullptr ? "null" : "set",
+							   !probe.header_ok ? "not read" : !probe.voxels_read ? "unreadable" : probe.voxels_ok ? "ok" : "rejected",
+							   probe.voxels.filled, probe.voxels.dense, probe.voxels.marked, probe.voxels.marked_filled, probe.voxels.peak,
+							   probe.voxels.non_finite + probe.voxels.out_of_range, matches);
+			}
+			write_smoke_layout_report(smoke, detonation, game_time, probe, matches);
+			if (smoke_layout_failures_ >= 3)
 			{
 				smoke_layout_state_ = smoke_layout_state::failed;
-				META_CONPRINTF("[CS2GLAZ] smoke layout not recognised on %u live smokes; smoke occlusion stays off for this map\n",
+				META_CONPRINTF("[CS2GLAZ] smoke layout not recognised on %u live smokes; smoke occlusion stays off for this map "
+							   "(details: addons/cs2glaz/logs/smoke_layout.txt)\n",
 							   smoke_layout_failures_);
+			}
+		}
+	}
+
+	void plugin::write_smoke_layout_report(const CEntityInstance* smoke, vec3 detonation, float game_time, const smoke_layout_probe& probe,
+										   uint32_t matches)
+	{
+		// Everything needed to find the layout of a new build by hand, read
+		// through guarded copies: the candidate volume and its neighbourhood,
+		// vectors near the detonation point, and voxel statistics behind every
+		// pointer near the volume.
+		if (api_ == nullptr || smoke == nullptr)
+		{
+			return;
+		}
+		std::error_code error;
+		const std::filesystem::path directory = std::filesystem::path(api_->GetBaseDir()) / "addons" / "cs2glaz" / "logs";
+		std::filesystem::create_directories(directory, error);
+		std::ofstream report(directory / "smoke_layout.txt", smoke_report_started_ ? std::ios::app : std::ios::trunc);
+		if (!report)
+		{
+			return;
+		}
+		smoke_report_started_ = true;
+		const smoke_private_layout& layout = compatibility_.smoke_layout();
+		const server_binary_fingerprint binary = compatibility_.detected_server_binary_fingerprint();
+		const auto* entity = reinterpret_cast<const std::byte*>(smoke);
+		char line[512];
+		const auto put = [&](const char* format, auto... values)
+		{
+			std::snprintf(line, sizeof(line), format, values...);
+			report << line << '\n';
+		};
+		put("== cs2glaz %s smoke check %u, map %s, game time %.3f", CS2GLAZ_VERSION, smoke_layout_failures_, map_.c_str(), game_time);
+		put("server binary size=%u crc=0x%08x; anchor %s (shift %+lld); schema detonation=%u did_smoke=%u", binary.size, binary.crc32,
+			compatibility_.smoke_anchor_summary(), static_cast<long long>(compatibility_.smoke_anchor_shift()),
+			compatibility_.fields().smoke_detonation_pos, compatibility_.fields().did_smoke_effect);
+		put("layout volume=%u storage=+%u frame=+%u centre=+%u start=+%u; other offsets matching=%u", layout.volume, layout.storage, layout.frame,
+			layout.center, layout.start_time, matches);
+		put("detonation (%.2f %.2f %.2f)", detonation.x, detonation.y, detonation.z);
+		put("probe readable=%d header=%d centre (%.2f %.2f %.2f) %.2f away, age %.3f, frame %d, storage %p", probe.readable ? 1 : 0,
+			probe.header_ok ? 1 : 0, probe.center.x, probe.center.y, probe.center.z, probe.center_distance, probe.age, probe.frame,
+			static_cast<const void*>(probe.storage));
+		put("voxels read=%d ok=%d filled=%u dense=%u marked=%u marked_filled=%u peak=%.3f non_finite=%u out_of_range=%u",
+			probe.voxels_read ? 1 : 0, probe.voxels_ok ? 1 : 0, probe.voxels.filled, probe.voxels.dense, probe.voxels.marked,
+			probe.voxels.marked_filled, probe.voxels.peak, probe.voxels.non_finite, probe.voxels.out_of_range);
+		// Entity bytes around the candidate volume.
+		constexpr uint32_t k_before = 128;
+		constexpr uint32_t k_after = 512;
+		const uint32_t first = layout.volume > k_before ? layout.volume - k_before : 0;
+		std::vector<std::byte> bytes(layout.volume + k_after - first);
+		if (runtime_compatibility::safe_read(entity + first, bytes.data(), bytes.size()))
+		{
+			put("entity bytes from %u:", first);
+			for (size_t row = 0; row < bytes.size(); row += 16)
+			{
+				std::string text;
+				for (size_t column = 0; column < 16 && row + column < bytes.size(); ++column)
+				{
+					char hex[4];
+					std::snprintf(hex, sizeof(hex), "%02x ", static_cast<unsigned>(bytes[row + column]));
+					text += hex;
+				}
+				put("  %5u: %s", static_cast<unsigned>(first + row), text.c_str());
+			}
+		}
+		// Float vectors within 96 units of the detonation point in the first 16 KB.
+		std::vector<std::byte> window(16384);
+		size_t readable = 0;
+		while (readable < window.size() && runtime_compatibility::safe_read(entity + readable, window.data() + readable, 256))
+		{
+			readable += 256;
+		}
+		uint32_t listed = 0;
+		for (size_t offset = 0; offset + 12 <= readable && listed < 48; offset += 4)
+		{
+			float value[3];
+			std::memcpy(value, window.data() + offset, sizeof(value));
+			const float dx = value[0] - detonation.x;
+			const float dy = value[1] - detonation.y;
+			const float dz = value[2] - detonation.z;
+			if (std::isfinite(dx) && std::isfinite(dy) && std::isfinite(dz) && dx * dx + dy * dy + dz * dz <= 96.0f * 96.0f)
+			{
+				put("vector near the detonation at %u: (%.3f %.3f %.3f)", static_cast<unsigned>(offset), value[0], value[1], value[2]);
+				++listed;
+			}
+		}
+		// Every pointer near the volume, read as a smoke storage with both frames.
+		listed = 0;
+		for (size_t offset = first & ~size_t {7}; offset + 8 <= std::min<size_t>(readable, layout.volume + k_after) && listed < 12; offset += 8)
+		{
+			uintptr_t pointer = 0;
+			std::memcpy(&pointer, window.data() + offset, sizeof(pointer));
+			if (pointer < 0x10000 || pointer > 0x7fffffffffffull || (pointer & 7u) != 0)
+			{
+				continue;
+			}
+			const auto* storage = reinterpret_cast<const std::byte*>(pointer);
+			std::vector<uint8_t> mask(k_smoke_mask_bytes);
+			std::vector<std::byte> density(k_smoke_storage_frame_stride);
+			if (!runtime_compatibility::safe_read(storage + k_smoke_storage_mask_offset, mask.data(), mask.size()))
+			{
+				continue;
+			}
+			++listed;
+			for (uint32_t frame = 0; frame < 2; ++frame)
+			{
+				if (!runtime_compatibility::safe_read(storage + k_smoke_storage_density_offset + frame * k_smoke_storage_frame_stride, density.data(),
+													  density.size()))
+				{
+					put("pointer at %u: frame %u unreadable", static_cast<unsigned>(offset), frame);
+					continue;
+				}
+				const smoke_voxel_stats stats = smoke_voxel_statistics(mask.data(), density.data());
+				put("pointer at %u: frame %u filled=%u dense=%u marked=%u marked_filled=%u peak=%.3f non_finite=%u out_of_range=%u",
+					static_cast<unsigned>(offset), frame, stats.filled, stats.dense, stats.marked, stats.marked_filled, stats.peak, stats.non_finite,
+					stats.out_of_range);
+			}
+			std::array<std::byte, 64> head {};
+			if (runtime_compatibility::safe_read(storage, head.data(), head.size()))
+			{
+				std::string text;
+				for (const std::byte value : head)
+				{
+					char hex[4];
+					std::snprintf(hex, sizeof(hex), "%02x ", static_cast<unsigned>(value));
+					text += hex;
+				}
+				put("  head: %s", text.c_str());
 			}
 		}
 	}
@@ -499,9 +667,10 @@ namespace cs2glaz
 							: smoke_layout_state_ == smoke_layout_state::failed ? "failed"
 																				: "unchecked";
 		META_CONPRINTF("[CS2GLAZ] smoke layout limited=%d candidate=%d state=%s judged=%u failures=%u volume_offset=%u shift=%lld "
-					   "he_tracking=%d he_tracked_detonations=%llu\n",
+					   "anchor=\"%s\" anchor_shift=%lld he_tracking=%d he_tracked_detonations=%llu\n",
 					   compatibility_.limited() ? 1 : 0, compatibility_.smoke_layout_candidate() ? 1 : 0, state, smoke_layout_judged_,
 					   smoke_layout_failures_, compatibility_.smoke_layout().volume, static_cast<long long>(smoke_layout_shift_),
+					   compatibility_.smoke_anchor_summary(), static_cast<long long>(compatibility_.smoke_anchor_shift()),
 					   !he_event_available_ && compatibility_.smoke_available() ? 1 : 0, static_cast<unsigned long long>(he_tracked_detonations_));
 	}
 

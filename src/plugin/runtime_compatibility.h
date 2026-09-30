@@ -226,6 +226,26 @@ namespace cs2glaz
 			return smoke_runtime_verified_;
 		}
 
+		// The smoke volume follows CSmokeGrenadeProjectile::m_fllastSimulationTime
+		// and ends at m_bExplodeFromInferno. When a build moves that private
+		// block but keeps its size, the gamedata volume offset is moved with it
+		// (1.41.8 grew CBaseModelEntity by 224 bytes); the result is still only
+		// a candidate proven on a live smoke.
+		bool smoke_anchor_matched() const
+		{
+			return smoke_anchor_matched_;
+		}
+
+		int64_t smoke_anchor_shift() const
+		{
+			return smoke_anchor_shift_;
+		}
+
+		const char* smoke_anchor_summary() const
+		{
+			return smoke_anchor_summary_;
+		}
+
 		void accept_runtime_smoke_layout(uint32_t volume_offset)
 		{
 			smoke_layout_.volume = volume_offset;
@@ -288,6 +308,12 @@ namespace cs2glaz
 		compatibility_report report_;
 		schema_offsets fields_;
 		smoke_private_layout smoke_layout_;
+		uint32_t smoke_gamedata_volume_ {};
+		uint32_t smoke_anchor_gamedata_ {};
+		uint32_t smoke_anchor_end_gamedata_ {};
+		int64_t smoke_anchor_shift_ {};
+		bool smoke_anchor_matched_ {};
+		const char* smoke_anchor_summary_ {"not checked"};
 		checktransmit_private_offsets transmit_offsets_;
 		uint32_t recipient_slot_offset_ {};
 		uint32_t entity_system_offset_ {};

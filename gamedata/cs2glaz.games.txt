@@ -47,3 +47,10 @@ smoke_center_offset_windows=212
 smoke_center_offset_linux=212
 smoke_start_time_offset_windows=12
 smoke_start_time_offset_linux=12
+
+// Where that private block sits among the schema fields in the verified
+// build: right after CSmokeGrenadeProjectile::m_fllastSimulationTime, up to
+// m_bExplodeFromInferno (Linux schema dumps of 1.41.6.9 and 1.41.7.7). A
+// build that moves the block but keeps its size moves the volume with it.
+smoke_schema_anchor_linux=3500
+smoke_schema_anchor_end_linux=12336

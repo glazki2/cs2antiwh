@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.5
+
+- Smoke occlusion on CS2 1.41.8 (limited mode). The live-smoke check turned it off on every map (`smoke layout not recognised on 3 live smokes`), so a wallhack saw enemies in and behind smokes. Two causes: 1.41.8 grew `CBaseModelEntity` by 224 bytes, moving the private smoke volume from 3504 to 3728 on Linux; and the check demanded that the voxel mask mostly mark dense cells, which it need not (it may mark cells the map blocks). The volume offset now moves with the public schema fields around the private block (`m_fllastSimulationTime` to `m_bExplodeFromInferno`, new gamedata keys `smoke_schema_anchor_*`) whenever the block's size is unchanged, and the voxel check judges only the densities (finite, bounded, a plausible share of the grid filled); the mask is used as before. The offset is still proven on a live smoke before smoke hides anything.
+- Every failed smoke check prints why (`smoke check N failed at volume offset …: centre … units from the detonation, age …, frame …, voxels …`) and appends the neighbourhood of the smoke entity, vectors near the detonation point and voxel statistics behind nearby pointers to `addons/cs2glaz/logs/smoke_layout.txt`. `cs2glaz_metrics` shows the anchor state.
+- Decoys: 0.7.3 turned decoys off on the first spawn (`a spawned decoy was solid`): a `prop_dynamic` spawned with its model set picks up collision. A new decoy is spawned first and given its model after, as in 0.7.0, so it gets no physics object; solidity is checked right after the model is set, before anything is re-applied. A removed decoy is parked (up to 16, withheld from everyone) and reused for the next one, so the engine's `has no model name` line for each new prop stays rare; a parked decoy that lost health turns decoys off like a live one. `cs2glaz_status` shows `parked`, `created` and `reused`.
+
 ## 0.7.4
 
 - `cs2glaz_status` counts, per map, the transmit ticks a proven-hidden decoy reached its viewer (`sent`) and those it was outside his PVS (`outside_pvs`), where the engine does not send a prop and CS2GLAZ cannot add it without crashing the client. This tells whether decoys can reach anyone on a given map and server.

@@ -456,7 +456,7 @@ namespace
 			}
 		}
 		assert(smoke_voxels_plausible(mask.data(), density.data()));
-		// Zeroed memory, a NaN, a huge value, or a mask unrelated to the density fail.
+		// Zeroed memory, a NaN or a huge value fail.
 		std::vector<uint8_t> empty_mask(k_smoke_mask_bytes);
 		std::vector<std::byte> empty_density(k_smoke_storage_frame_stride);
 		assert(!smoke_voxels_plausible(empty_mask.data(), empty_density.data()));
@@ -469,19 +469,32 @@ namespace
 		const float huge = 1.0e9f;
 		std::memcpy(broken.data(), &huge, sizeof(huge));
 		assert(!smoke_voxels_plausible(mask.data(), broken.data()));
-		std::vector<uint8_t> shifted_mask(k_smoke_mask_bytes);
-		for (uint32_t x = 0; x < 8; ++x)
+		// The mask is not judged: one marking the cells the map blocks (the
+		// lower half, all empty) still passes, and its statistics show it.
+		std::vector<uint8_t> floor_mask(k_smoke_mask_bytes);
+		for (uint32_t x = 0; x < k_smoke_axis_cells; ++x)
 		{
-			for (uint32_t y = 0; y < 8; ++y)
+			for (uint32_t y = 0; y < k_smoke_axis_cells; ++y)
 			{
-				for (uint32_t z = 0; z < 4; ++z)
+				for (uint32_t z = 0; z < 12; ++z)
 				{
 					const uint32_t cell = test_morton(x, y, z);
-					shifted_mask[cell >> 3] |= static_cast<uint8_t>(1u << (cell & 7u));
+					floor_mask[cell >> 3] |= static_cast<uint8_t>(1u << (cell & 7u));
 				}
 			}
 		}
-		assert(!smoke_voxels_plausible(shifted_mask.data(), density.data()));
+		assert(smoke_voxels_plausible(floor_mask.data(), density.data()));
+		const smoke_voxel_stats floor_stats = smoke_voxel_statistics(floor_mask.data(), density.data());
+		assert(floor_stats.filled == 256 && floor_stats.dense == 256 && floor_stats.marked == 32u * 32u * 12u && floor_stats.marked_filled == 0);
+		assert(floor_stats.peak == 40.0f && floor_stats.non_finite == 0 && floor_stats.out_of_range == 0);
+		// Too little filled: a few scattered values in otherwise empty memory.
+		std::vector<std::byte> sparse(k_smoke_storage_frame_stride);
+		for (uint32_t cell = 0; cell < 16; ++cell)
+		{
+			const float value = 30.0f;
+			std::memcpy(sparse.data() + static_cast<size_t>(cell) * 997u * k_smoke_storage_cell_stride, &value, sizeof(value));
+		}
+		assert(!smoke_voxels_plausible(mask.data(), sparse.data()));
 	}
 
 	void test_visibility_sampling()
