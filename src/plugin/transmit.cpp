@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <memory>
 
 namespace cs2glaz
@@ -178,6 +179,9 @@ namespace cs2glaz
 			row.fill(CEntityHandle());
 		}
 		he_clearance_history_.clear();
+		he_event_detonations_ = 0;
+		he_tracked_detonations_ = 0;
+		he_last_detonation_ = std::numeric_limits<float>::quiet_NaN();
 		// A verified smoke layout belongs to the server binary and stays; a failed
 		// check is retried on the next map.
 		if (smoke_layout_state_ == smoke_layout_state::failed)

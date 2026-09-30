@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.9
+
+- HE grenades open smoke wider and longer: the default channel through a smoke that already existed is 180 units around the blast for 3 seconds (was 100 units for 2.5 s, which kept enemies hidden that the real hole showed). The channel is open if the line is in sight of the grenade or of a point 16 units above it, so a kerb or step next to a grenade on the floor no longer closes it. Opening too much only reveals. `cs2glaz.cfg` ships the new values; a server that keeps its old cfg keeps 100 and 2.5.
+- `cs2glaz_status` has an `HE:` line: where detonations come from (the `hegrenade_detonate` event, or projectile tracking), how many were seen on this map from each, when the last one was, and the channel size. The counters reset with the map.
+- The first smoke after a start on a build whose smoke volume moved (on the tested 1.41.8 server it is at 3736, 232 bytes from the gamedata offset, 8 more than the schema anchor predicts) was found only by the wider search at the 4 s deadline, so it hid nobody until then. The wider search now runs on every 100 ms probe, and the verified line names the schema anchor state.
+
 ## 0.7.8
 
 - A client crash, `FATAL ERROR: CopyExistingEntity: missing client entity`, after killing enemies CS2GLAZ was hiding (bots in a smoke killed with an HE or through it). The dump named entity 188, which survived the round restart, like a player pawn and unlike a decoy. When an enemy died while hidden, his body was sent to the recipient at once; CS2Fixes documents that the body of a player a client never had can crash it and keeps every dead player hidden for that reason. Now an enemy who dies while hidden from a recipient (the previous decision for the pair was "hidden") stays hidden from him, with what hangs on his body, until he respawns or the pawn is gone. The recipient could not see him die, so nothing he could see goes missing; dropped weapons are separate entities and are sent as usual. `cs2glaz_metrics` counts it as `dead_kept_hidden`.

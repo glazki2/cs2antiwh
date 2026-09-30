@@ -377,6 +377,13 @@ namespace
 		volume.start_time = 2.0f;
 		assert(!smoke_line_blocked(smoke, {-100, 0, 0}, {100, 0, 0}, 0.0f, &open));
 		assert(smoke_line_blocked(smoke, {-100, 0, 0}, {100, 0, 0}, 0.0f, &blast_wall));
+		// A low kerb between the grenade and the line: the point above the
+		// grenade still sees the line, so the channel stays open.
+		const bvh8_data kerb =
+			test_world({{{-100, 25, -100}, {100, 25, -100}, {100, 25, 24}}, {{-100, 25, -100}, {100, 25, 24}, {-100, 25, 24}}});
+		smoke.he_clearances[0].center = {0, 50, 0};
+		assert(segment_blocked(kerb, {0, 50, 0}, {0, 0, 40}).blocked); // the grenade itself does not see the line
+		assert(!smoke_line_blocked(smoke, {-100, 0, 40}, {100, 0, 40}, 0.0f, &kerb));
 		smoke.he_clearances[0].age_seconds = 3.0f;
 		assert(smoke_line_blocked(smoke, {-100, 0, 0}, {100, 0, 0}, 0.0f, &open));
 		smoke.he_clearances[0].age_seconds = 2.0f;

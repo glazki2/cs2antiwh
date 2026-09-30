@@ -201,7 +201,11 @@ namespace cs2glaz
 		CGlobalVars* globals = network_server == nullptr ? nullptr : network_server->GetGlobals();
 		const float game_time = globals == nullptr ? missing : globals->curtime;
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
-		he_clearance_history_.record(center, game_time);
+		if (he_clearance_history_.record(center, game_time))
+		{
+			++he_event_detonations_;
+			he_last_detonation_ = game_time;
+		}
 	}
 
 	void plugin::OnLevelInit(char const* map_name, char const*, char const*, char const*, bool, bool)
@@ -859,6 +863,17 @@ namespace cs2glaz
 					   playerid_safe ? "safe" : "unrestricted");
 		META_CONPRINTF("[CS2GLAZ] Runtime: players=%u pairs=%u recent_p99=%.3fms snapshot_age=%.1fms\n", players, stats.evaluated_pairs,
 					   stats.recent_p99_ms, age_ms);
+		{
+			// Whether HE detonations reach the smoke model at all.
+			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+			INetworkGameServer* network_server = g_pNetworkServerService == nullptr ? nullptr : g_pNetworkServerService->GetIGameServer();
+			CGlobalVars* globals = network_server == nullptr ? nullptr : network_server->GetGlobals();
+			const float since = globals == nullptr || !std::isfinite(he_last_detonation_) ? -1.0f : globals->curtime - he_last_detonation_;
+			META_CONPRINTF("[CS2GLAZ] HE: source=%s detonations this map: event=%llu tracked=%llu; last %s%.1f s ago; channel %.0f units for %.1f s\n",
+						   he_event_available_ ? "event" : (compatibility_.smoke_available() ? "projectile tracking" : "none"),
+						   static_cast<unsigned long long>(he_event_detonations_), static_cast<unsigned long long>(he_tracked_detonations_),
+						   since < 0.0f ? "never " : "", since < 0.0f ? 0.0f : since, configuration.he_clear_radius_units, configuration.he_clear_seconds);
+		}
 		if (action != nullptr)
 		{
 			META_CONPRINTF("[CS2GLAZ] Next action: %s\n", action);

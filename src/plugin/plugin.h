@@ -31,6 +31,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <mutex>
 #include <string>
 
@@ -511,6 +512,10 @@ namespace cs2glaz
 		std::array<tracked_grenade, 32> he_tracked_ {};
 		uint32_t he_tracked_count_ {};
 		uint64_t he_tracked_detonations_ {};
+		// HE detonations recorded this map from the hegrenade_detonate event, and
+		// the game time of the last one from either source (for cs2glaz_status).
+		uint64_t he_event_detonations_ {};
+		float he_last_detonation_ {std::numeric_limits<float>::quiet_NaN()};
 		std::array<lifecycle_guard, k_max_players> lifecycle_;
 		std::array<std::array<pair_guard, k_max_players>, k_max_players> pair_guards_;
 		std::array<std::array<visual_entity_group, k_max_players>, k_max_players> hidden_groups_;

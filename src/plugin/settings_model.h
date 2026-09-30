@@ -10,8 +10,8 @@ namespace cs2glaz
 	{
 		bool enable {true};
 		bool smoke_occlusion {true};
-		float he_clear_radius_units {100.0f};
-		float he_clear_seconds {2.5f};
+		float he_clear_radius_units {180.0f};
+		float he_clear_seconds {3.0f};
 		bool filter_teammates {};
 		int update_interval_ms {1};
 		int worker_threads {2};

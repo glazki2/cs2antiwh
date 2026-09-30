@@ -334,6 +334,7 @@ namespace cs2glaz
 				if (he_clearance_history_.record(he_tracked_[previous].position, game_time))
 				{
 					++he_tracked_detonations_;
+					he_last_detonation_ = game_time;
 				}
 			}
 		}
@@ -429,12 +430,6 @@ namespace cs2glaz
 			const uint32_t base = compatibility_.smoke_layout().volume;
 			const smoke_layout_probe probe = probe_smoke_layout(smoke, base, detonation, game_time);
 			const bool last_chance = since >= k_smoke_probe_deadline;
-			if (!(probe.header_ok && probe.voxels_ok) && !last_chance)
-			{
-				continue;
-			}
-			seen->judged = true;
-			++smoke_layout_judged_;
 			uint32_t matches = 0;
 			uint32_t matched_offset = 0;
 			if (probe.header_ok && probe.voxels_ok)
@@ -445,7 +440,9 @@ namespace cs2glaz
 			else
 			{
 				// A new build may have moved the volume inside the entity; its own
-				// layout must still match exactly one nearby offset.
+				// layout must still match exactly one nearby offset. Tried on every
+				// probe (a header read per offset, voxels only where it fits), so a
+				// moved volume is found as early as the candidate would be.
 				for (int64_t shift = -1024; shift <= 1024 && matches < 2; shift += 8)
 				{
 					const int64_t offset = static_cast<int64_t>(base) + shift;
@@ -461,14 +458,20 @@ namespace cs2glaz
 					}
 				}
 			}
+			if (matches != 1 && !last_chance)
+			{
+				continue;
+			}
+			seen->judged = true;
+			++smoke_layout_judged_;
 			if (matches == 1)
 			{
 				smoke_layout_shift_ = static_cast<int64_t>(matched_offset) - static_cast<int64_t>(base);
 				compatibility_.accept_runtime_smoke_layout(matched_offset);
 				smoke_layout_state_ = smoke_layout_state::verified;
-				META_CONPRINTF("[CS2GLAZ] smoke layout verified on a live smoke %.2f s after it appeared (volume offset %u, %+lld from the candidate); "
-							   "smoke occlusion is on\n",
-							   since, matched_offset, static_cast<long long>(smoke_layout_shift_));
+				META_CONPRINTF("[CS2GLAZ] smoke layout verified on a live smoke %.2f s after it appeared (volume offset %u, %+lld from the candidate; "
+							   "schema anchor: %s); smoke occlusion is on\n",
+							   since, matched_offset, static_cast<long long>(smoke_layout_shift_), compatibility_.smoke_anchor_summary());
 				continue;
 			}
 			++smoke_layout_failures_;

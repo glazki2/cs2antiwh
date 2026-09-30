@@ -18,6 +18,7 @@ namespace cs2glaz
 		constexpr float k_block_density = 0.2f;
 		constexpr float k_visual_timing_margin = 0.5f;
 		constexpr uint32_t k_max_steps = 128;
+		constexpr float k_he_lift = 16.0f;
 
 		bool finite(vec3 value)
 		{
@@ -272,7 +273,12 @@ namespace cs2glaz
 			{
 				return false;
 			}
-			return !segment_blocked(*geometry, clearance.center, closest).blocked;
+			// A grenade lies on the floor and its blast opens the smoke above it
+			// too: the channel is open if the line is in sight of the grenade or
+			// of a point a little above it (a kerb or step next to the grenade
+			// must not close it). Opening too much only reveals.
+			const vec3 lifted {clearance.center.x, clearance.center.y, clearance.center.z + k_he_lift};
+			return !segment_blocked(*geometry, clearance.center, closest).blocked || !segment_blocked(*geometry, lifted, closest).blocked;
 		}
 
 	} // namespace
