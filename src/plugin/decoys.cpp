@@ -656,14 +656,12 @@ namespace cs2glaz
 					const bool allowed = slot == static_cast<int>(viewer) && fresh && result->decoys[viewer][index].id == entry.id
 										 && result->decoy_hidden[viewer][index] && result->players[viewer].valid && entry.target < k_max_players
 										 && !result->visible[viewer][entry.target];
+					// Bits are only ever cleared. Setting one for an entity the engine
+					// did not pack this frame makes the client fail with "CopyExistingEntity:
+					// missing client entity" and crash.
 					if (!allowed)
 					{
 						apply_transmit_mode(info->m_pTransmitEntity, info->m_pTransmitAlways, edict, transmit_mode::clear_both);
-					}
-					else
-					{
-						// Behind walls it may be outside the viewer's PVS; send it anyway.
-						info->m_pTransmitEntity->Set(edict);
 					}
 				}
 			}
