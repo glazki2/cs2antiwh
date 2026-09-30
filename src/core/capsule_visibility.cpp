@@ -1117,10 +1117,17 @@ namespace cs2glaz
 			return capsule_query_result::blocked;
 		}
 
-		// Only the few dynamic occluders near the sightlines are tested per ray.
-		std::array<visibility_occluder, k_nearby_occluders_max> nearby_storage;
+		// A slice of dense smoke across the whole cone to the body's bounding
+		// sphere blocks every pixel line to it: no per-pixel smoke lines needed.
 		const vec3 body_center = scale(add(body.min, body.max), 0.5f);
 		const float body_radius = 0.5f * std::sqrt(length_sq(subtract(body.max, body.min)));
+		if (smokes != nullptr && smoke_sphere_hidden(*smokes, origin, body_center, body_radius, smoke_age_advance))
+		{
+			return capsule_query_result::blocked;
+		}
+
+		// Only the few dynamic occluders near the sightlines are tested per ray.
+		std::array<visibility_occluder, k_nearby_occluders_max> nearby_storage;
 		const uint32_t nearby_count = occluders_between(dynamic_occluders, origin, body_center, body_radius, nearby_storage);
 		const std::span<const visibility_occluder> occluders =
 			nearby_count > nearby_storage.size() ? dynamic_occluders : std::span<const visibility_occluder>(nearby_storage.data(), nearby_count);

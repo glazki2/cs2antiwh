@@ -498,6 +498,80 @@ namespace
 		assert(!smoke_voxels_plausible(mask.data(), sparse.data()));
 	}
 
+	// The cone shortcut only ever claims what per-line smoke tests agree with.
+	void test_smoke_sphere_hidden()
+	{
+		smoke_snapshot smoke;
+		smoke.volumes.emplace_back();
+		smoke_volume_snapshot& volume = smoke.volumes.back();
+		volume.age_seconds = 5.0f;
+		volume.center = {300, 0, 36};
+		// A dense wall two cells thick across the whole grid, at x 280..320.
+		const auto wall = [&](int hole_y, int hole_z)
+		{
+			volume.density.fill(0.0f);
+			for (uint32_t x = 15; x <= 16; ++x)
+			{
+				for (uint32_t y = 0; y < k_smoke_axis_cells; ++y)
+				{
+					for (uint32_t z = 0; z < k_smoke_axis_cells; ++z)
+					{
+						const bool hole = static_cast<int>(y) == hole_y && static_cast<int>(z) == hole_z;
+						volume.density[test_morton(x, y, z)] = hole ? 0.0f : 50.0f;
+					}
+				}
+			}
+		};
+		const vec3 origin {-200, 0, 64};
+		const vec3 center {800, 0, 36};
+		constexpr float radius = 45.0f;
+		wall(-1, -1);
+		assert(smoke_sphere_hidden(smoke, origin, center, radius));
+		// Beside the wall's end the cone leaves the grid: not claimed.
+		assert(!smoke_sphere_hidden(smoke, origin, {800, 1500, 36}, radius));
+		// Young smoke, or an HE grenade clearing near it: not claimed.
+		volume.age_seconds = 0.2f;
+		assert(!smoke_sphere_hidden(smoke, origin, center, radius));
+		volume.age_seconds = 5.0f;
+		smoke.he_clear_radius_units = 200.0f;
+		smoke.he_clear_seconds = 3.0f;
+		smoke.he_clearances[0] = {{300, 0, 36}, 1.0f, 10.0f};
+		smoke.he_clearance_count = 1;
+		assert(!smoke_sphere_hidden(smoke, origin, center, radius));
+		smoke.he_clearance_count = 0;
+		// A one-cell hole where the cone crosses the wall: not claimed.
+		wall(16, 17);
+		assert(!smoke_sphere_hidden(smoke, origin, center, radius));
+		// Whatever the holes, a claim holds for every line into the sphere.
+		uint32_t state = 0x1234567u;
+		uint32_t claims = 0;
+		for (uint32_t round = 0; round < 64; ++round)
+		{
+			wall(static_cast<int>(decoy_random(state) % 40u), static_cast<int>(decoy_random(state) % 40u));
+			const vec3 eye {-200.0f + static_cast<float>(decoy_random(state) % 400u), static_cast<float>(decoy_random(state) % 300u) - 150.0f,
+							static_cast<float>(decoy_random(state) % 200u)};
+			const vec3 goal {600.0f + static_cast<float>(decoy_random(state) % 600u), static_cast<float>(decoy_random(state) % 400u) - 200.0f,
+							 static_cast<float>(decoy_random(state) % 200u) - 50.0f};
+			if (!smoke_sphere_hidden(smoke, eye, goal, radius))
+			{
+				continue;
+			}
+			++claims;
+			for (uint32_t line = 0; line < 500; ++line)
+			{
+				vec3 offset {};
+				do
+				{
+					offset = {static_cast<float>(decoy_random(state) % 1000u) / 500.0f - 1.0f, static_cast<float>(decoy_random(state) % 1000u) / 500.0f - 1.0f,
+							  static_cast<float>(decoy_random(state) % 1000u) / 500.0f - 1.0f};
+				} while (offset.x * offset.x + offset.y * offset.y + offset.z * offset.z > 1.0f);
+				const vec3 point {goal.x + offset.x * radius, goal.y + offset.y * radius, goal.z + offset.z * radius};
+				assert(smoke_line_blocked(smoke, eye, point));
+			}
+		}
+		assert(claims > 8);
+	}
+
 	void test_visibility_sampling()
 	{
 		const bvh8_data open = test_world({{{10000, 10000, 10000}, {10001, 10000, 10000}, {10000, 10001, 10000}}});
@@ -1776,6 +1850,7 @@ void run_visibility_and_transmit_tests()
 	test_rtti_check();
 	test_smoke_occlusion();
 	test_dense_smoke_shortcuts();
+	test_smoke_sphere_hidden();
 	test_smoke_layout_check();
 	test_visibility_sampling();
 	test_capsule_visibility();

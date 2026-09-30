@@ -117,4 +117,10 @@ namespace cs2glaz
 	// body wholly inside dense smoke.
 	bool smoke_box_opaque(const smoke_snapshot& snapshot, vec3 minimum, vec3 maximum, float age_advance_seconds = 0.0f);
 
+	// Whether one such volume has, somewhere between the origin and the sphere,
+	// a slice of opaque cells covering the whole cone from the origin to the
+	// sphere: then smoke_line_blocked is true for every line from the origin to
+	// any point in the sphere, and a body inside it needs no per-pixel lines.
+	bool smoke_sphere_hidden(const smoke_snapshot& snapshot, vec3 origin, vec3 center, float radius, float age_advance_seconds = 0.0f);
+
 } // namespace cs2glaz

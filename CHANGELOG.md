@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.7
+
+- Smoke costs the visibility worker far less. A body behind a smoke was proven hidden by one smoke line per pixel of its silhouette from every viewing origin (hundreds of voxel walks per origin), which on a live server raised the worker's `recent_p99` from about 0.5 ms to 8-13 ms with 10 players and a few smokes. Now, before any per-pixel line, one walk along the cone from the viewing origin to the body's bounding sphere looks for a slice where every voxel covering the cone is opaque; if one exists, every line into the body is blocked by the same rule the per-line test uses, so the answer is the same. A body behind a dense smoke in the test scene: 165 us to 0.3 us per query. Bodies at a smoke's edge, and any smoke an HE grenade is clearing, still take the per-pixel path.
+
 ## 0.7.6
 
 - Smoke: the first smoke after a server or plugin start did not hide anyone for its first 2.5 seconds or so. The smoke layout of a new build is proven on a live smoke once per plugin load, and that check ran only 2.5 s after the smoke appeared, while a CS2 smoke is opaque in about one second; until then a wallhack saw players in and behind it. Later smokes were already fine. The candidate is now probed every 100 ms from 0.2 s after the smoke appears and accepted as soon as the smoke has spread enough to judge; a smoke counts as a failed check only if nothing matched 4 s in (the wider offset search and `smoke_layout.txt` happen then). The verified line says how long it took.

@@ -392,4 +392,85 @@ namespace cs2glaz
 		return false;
 	}
 
+	bool smoke_sphere_hidden(const smoke_snapshot& snapshot, vec3 origin, vec3 center, float radius, float age_advance_seconds)
+	{
+		const vec3 axis {center.x - origin.x, center.y - origin.y, center.z - origin.z};
+		const float distance = std::sqrt(square(axis.x) + square(axis.y) + square(axis.z));
+		if (!finite(origin) || !finite(center) || !std::isfinite(radius) || radius < 0.0f || !std::isfinite(distance) || distance <= radius + 1.0f)
+		{
+			return false;
+		}
+		// A line from the origin to a point of the sphere crosses the plane at
+		// depth t (along the axis, t below distance - radius) within
+		// t * spread of the axis: inside a disc facing the axis. If every cell
+		// overlapping that disc's bounding box (plus a margin, so a piece of the
+		// line lies inside) is opaque, the line enters an opaque cell before the
+		// sphere, where volume_density returns 1.
+		constexpr float k_margin = 0.5f;
+		constexpr float k_step = 0.5f * k_cell_size;
+		constexpr int k_max_cells = 216;
+		const vec3 unit {axis.x / distance, axis.y / distance, axis.z / distance};
+		const float spread = radius / std::sqrt((distance - radius) * (distance + radius));
+		const float reach = distance - radius;
+		const vec3 span {unit.x * reach, unit.y * reach, unit.z * reach};
+		// Half extent of a unit disc facing the axis, per world axis.
+		const float disc[3] {std::sqrt(std::max(1.0f - square(unit.x), 0.0f)), std::sqrt(std::max(1.0f - square(unit.y), 0.0f)),
+							 std::sqrt(std::max(1.0f - square(unit.z), 0.0f))};
+		for (const smoke_volume_snapshot& volume : snapshot.volumes)
+		{
+			float first = 0.0f;
+			float last = 1.0f;
+			if (!volume_solid_now(snapshot, volume, age_advance_seconds) || !clip_to_volume(volume, origin, span, first, last) || last < 0.0f
+				|| first > 1.0f)
+			{
+				continue;
+			}
+			const vec3 minimum {volume.center.x - k_half_extent, volume.center.y - k_half_extent, volume.center.z - k_half_extent};
+			const float begin = std::max(first, 0.0f) * reach;
+			const float end = std::min(last, 1.0f) * reach;
+			for (float depth = begin; depth <= end; depth += k_step)
+			{
+				const vec3 point {origin.x + unit.x * depth, origin.y + unit.y * depth, origin.z + unit.z * depth};
+				const float lateral = depth * spread;
+				int low[3] {};
+				int high[3] {};
+				int count = 1;
+				bool inside = true;
+				const float values[3] {point.x - minimum.x, point.y - minimum.y, point.z - minimum.z};
+				for (int index = 0; index < 3 && inside; ++index)
+				{
+					const float from = values[index] - lateral * disc[index] - k_margin;
+					const float to = values[index] + lateral * disc[index] + k_margin;
+					inside = from >= 0.0f && to < 2.0f * k_half_extent;
+					low[index] = inside ? static_cast<int>(from / k_cell_size) : 0;
+					high[index] = inside ? std::min(static_cast<int>(to / k_cell_size), static_cast<int>(k_smoke_axis_cells) - 1) : 0;
+					count *= high[index] - low[index] + 1;
+				}
+				int center_cell[3] {};
+				if (!inside || count > k_max_cells || !inside_cell(volume, point, center_cell)
+					|| !cell_opaque(volume, static_cast<uint32_t>(center_cell[0]), static_cast<uint32_t>(center_cell[1]),
+									static_cast<uint32_t>(center_cell[2])))
+				{
+					continue;
+				}
+				bool opaque = true;
+				for (int x = low[0]; opaque && x <= high[0]; ++x)
+				{
+					for (int y = low[1]; opaque && y <= high[1]; ++y)
+					{
+						for (int z = low[2]; opaque && z <= high[2]; ++z)
+						{
+							opaque = cell_opaque(volume, static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(z));
+						}
+					}
+				}
+				if (opaque)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 } // namespace cs2glaz
