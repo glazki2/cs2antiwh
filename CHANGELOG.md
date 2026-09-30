@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.6
+
+- Smoke: the first smoke after a server or plugin start did not hide anyone for its first 2.5 seconds or so. The smoke layout of a new build is proven on a live smoke once per plugin load, and that check ran only 2.5 s after the smoke appeared, while a CS2 smoke is opaque in about one second; until then a wallhack saw players in and behind it. Later smokes were already fine. The candidate is now probed every 100 ms from 0.2 s after the smoke appears and accepted as soon as the smoke has spread enough to judge; a smoke counts as a failed check only if nothing matched 4 s in (the wider offset search and `smoke_layout.txt` happen then). The verified line says how long it took.
+
 ## 0.7.5
 
 - Smoke occlusion on CS2 1.41.8 (limited mode). The live-smoke check turned it off on every map (`smoke layout not recognised on 3 live smokes`), so a wallhack saw enemies in and behind smokes. Two causes: 1.41.8 grew `CBaseModelEntity` by 224 bytes, moving the private smoke volume from 3504 to 3728 on Linux; and the check demanded that the voxel mask mostly mark dense cells, which it need not (it may mark cells the map blocks). The volume offset now moves with the public schema fields around the private block (`m_fllastSimulationTime` to `m_bExplodeFromInferno`, new gamedata keys `smoke_schema_anchor_*`) whenever the block's size is unchanged, and the voxel check judges only the densities (finite, bounded, a plausible share of the grid filled); the mask is used as before. The offset is still proven on a live smoke before smoke hides anything.

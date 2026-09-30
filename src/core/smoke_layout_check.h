@@ -17,8 +17,15 @@
 namespace cs2glaz
 {
 
-	// A smoke older than this has spread enough to judge its voxels.
-	inline constexpr float k_smoke_check_min_age = 2.0f;
+	// A candidate layout is probed on a live smoke every k_smoke_probe_interval
+	// from k_smoke_probe_start after the smoke appears, and accepted as soon as
+	// the smoke has spread enough to judge (long before it is opaque); it
+	// counts as failed on that smoke only at k_smoke_probe_deadline.
+	inline constexpr float k_smoke_probe_start = 0.2f;
+	inline constexpr float k_smoke_probe_interval = 0.1f;
+	inline constexpr float k_smoke_probe_deadline = 4.0f;
+	// The header's start time must say the smoke has started and not faded.
+	inline constexpr float k_smoke_check_min_age = 0.0f;
 	inline constexpr float k_smoke_check_max_age = 20.0f;
 	// The voxel grid is centred near the detonation point.
 	inline constexpr float k_smoke_check_center_tolerance = 64.0f;

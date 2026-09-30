@@ -413,18 +413,28 @@ namespace cs2glaz
 					slot = std::min_element(smoke_seen_.begin(), smoke_seen_.end(),
 											[](const smoke_seen& left, const smoke_seen& right) { return left.first_seen < right.first_seen; });
 				}
-				*slot = {handle, game_time, false};
+				*slot = {handle, game_time, game_time + k_smoke_probe_start, false};
 				continue;
 			}
-			if (seen->judged || game_time - seen->first_seen < k_smoke_check_min_age + 0.5f)
+			// Probed from the moment the smoke has a few voxels, so the first smoke
+			// after a start hides as soon as it can (a single check 2.5 s in let a
+			// wallhack see through the first smoke until then).
+			const float since = game_time - seen->first_seen;
+			if (seen->judged || game_time < seen->next_probe)
+			{
+				continue;
+			}
+			seen->next_probe = game_time + k_smoke_probe_interval;
+			const vec3 detonation = to_vec3(field<Vector>(smoke, compatibility_.fields().smoke_detonation_pos));
+			const uint32_t base = compatibility_.smoke_layout().volume;
+			const smoke_layout_probe probe = probe_smoke_layout(smoke, base, detonation, game_time);
+			const bool last_chance = since >= k_smoke_probe_deadline;
+			if (!(probe.header_ok && probe.voxels_ok) && !last_chance)
 			{
 				continue;
 			}
 			seen->judged = true;
 			++smoke_layout_judged_;
-			const vec3 detonation = to_vec3(field<Vector>(smoke, compatibility_.fields().smoke_detonation_pos));
-			const uint32_t base = compatibility_.smoke_layout().volume;
-			const smoke_layout_probe probe = probe_smoke_layout(smoke, base, detonation, game_time);
 			uint32_t matches = 0;
 			uint32_t matched_offset = 0;
 			if (probe.header_ok && probe.voxels_ok)
@@ -456,8 +466,9 @@ namespace cs2glaz
 				smoke_layout_shift_ = static_cast<int64_t>(matched_offset) - static_cast<int64_t>(base);
 				compatibility_.accept_runtime_smoke_layout(matched_offset);
 				smoke_layout_state_ = smoke_layout_state::verified;
-				META_CONPRINTF("[CS2GLAZ] smoke layout verified on a live smoke (volume offset %u, %+lld from the candidate); smoke occlusion is on\n",
-							   matched_offset, static_cast<long long>(smoke_layout_shift_));
+				META_CONPRINTF("[CS2GLAZ] smoke layout verified on a live smoke %.2f s after it appeared (volume offset %u, %+lld from the candidate); "
+							   "smoke occlusion is on\n",
+							   since, matched_offset, static_cast<long long>(smoke_layout_shift_));
 				continue;
 			}
 			++smoke_layout_failures_;

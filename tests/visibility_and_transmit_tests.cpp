@@ -425,7 +425,8 @@ namespace
 		const smoke_volume_header header {{100, 200, 30}, 10.0f, 1, &storage_marker};
 		assert(smoke_header_plausible(header, {110, 190, 0}, 14.0f));
 		assert(!smoke_header_plausible(header, {300, 200, 30}, 14.0f)); // centre far from detonation
-		assert(!smoke_header_plausible(header, {100, 200, 30}, 11.0f)); // too young to judge
+		assert(smoke_header_plausible(header, {100, 200, 30}, 10.3f));	 // just started: judged by its voxels
+		assert(!smoke_header_plausible(header, {100, 200, 30}, 9.5f));	 // not started yet
 		assert(!smoke_header_plausible(header, {100, 200, 30}, 40.0f)); // long gone
 		smoke_volume_header bad_frame = header;
 		bad_frame.frame = 7;

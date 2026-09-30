@@ -488,6 +488,7 @@ namespace cs2glaz
 		{
 			uint32_t handle {};
 			float first_seen {};
+			float next_probe {};
 			bool judged {};
 		};
 		smoke_layout_state smoke_layout_state_ {smoke_layout_state::unchecked};
