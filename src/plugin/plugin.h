@@ -508,6 +508,7 @@ namespace cs2glaz
 		{
 			uint32_t handle {};
 			vec3 position;
+			bool recorded {}; // its explosion is already in he_clearance_history_
 		};
 		std::array<tracked_grenade, 32> he_tracked_ {};
 		uint32_t he_tracked_count_ {};

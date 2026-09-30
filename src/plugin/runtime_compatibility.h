@@ -55,6 +55,8 @@ namespace cs2glaz
 		uint32_t carried_hostage_prop {};
 		uint32_t did_smoke_effect {};
 		uint32_t smoke_detonation_pos {};
+		uint32_t explode_effect_tick {};
+		uint32_t explode_effect_origin {};
 		uint32_t player_name {};
 		uint32_t beam_end_position {};
 		uint32_t beam_width {};
@@ -221,6 +223,13 @@ namespace cs2glaz
 			return dynamic_occluder_schema_available_;
 		}
 
+		// An HE projectile outlives its blast by seconds; these schema fields say
+		// when and where it exploded.
+		bool grenade_explosion_available() const
+		{
+			return grenade_explosion_schema_available_;
+		}
+
 		bool smoke_runtime_verified() const
 		{
 			return smoke_runtime_verified_;
@@ -329,6 +338,7 @@ namespace cs2glaz
 		bool weapon_item_schema_available_ {};
 		bool smoke_schema_available_ {};
 		bool smoke_detonation_schema_available_ {};
+		bool grenade_explosion_schema_available_ {};
 		bool player_name_schema_available_ {};
 		bool dynamic_occluder_schema_available_ {};
 		bool velocity_schema_available_ {};

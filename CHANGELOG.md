@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.10
+
+- The first HE into a smoke opened nothing; a second one a few seconds later seemed to work. Without the HE event (limited mode on the tested server), a detonation was recorded when the HE projectile disappeared, and CS2 keeps it for 4-5 seconds after the blast (`cs2glaz_status` put the last detonation that long after the log's `threw hegrenade`), so the channel opened after the real hole had closed; the second grenade only landed in the first one's late channel. The blast is now recorded on the tick the projectile's `m_nExplodeEffectTickBegin` is set, at `m_vecExplodeEffectOrigin`; disappearance stays the fallback when those schema fields are missing. The `HE:` line names the source (`projectile explosion tick`).
+
 ## 0.7.9
 
 - HE grenades open smoke wider and longer: the default channel through a smoke that already existed is 180 units around the blast for 3 seconds (was 100 units for 2.5 s, which kept enemies hidden that the real hole showed). The channel is open if the line is in sight of the grenade or of a point 16 units above it, so a kerb or step next to a grenade on the floor no longer closes it. Opening too much only reveals. `cs2glaz.cfg` ships the new values; a server that keeps its old cfg keeps 100 and 2.5.

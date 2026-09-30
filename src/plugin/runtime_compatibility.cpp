@@ -534,6 +534,8 @@ namespace cs2glaz
 											&& optional(fields_.scene_node_next_sibling, "CGameSceneNode", "m_pNextSibling");
 		smoke_schema_available_ = optional(fields_.did_smoke_effect, "CSmokeGrenadeProjectile", "m_bDidSmokeEffect");
 		smoke_detonation_schema_available_ = optional(fields_.smoke_detonation_pos, "CSmokeGrenadeProjectile", "m_vSmokeDetonationPos");
+		grenade_explosion_schema_available_ = optional(fields_.explode_effect_tick, "CBaseCSGrenadeProjectile", "m_nExplodeEffectTickBegin")
+											  && optional(fields_.explode_effect_origin, "CBaseCSGrenadeProjectile", "m_vecExplodeEffectOrigin");
 		smoke_layout_.volume = smoke_gamedata_volume_;
 		smoke_anchor_shift_ = 0;
 		smoke_anchor_matched_ = false;

@@ -276,7 +276,8 @@ namespace cs2glaz
 			return;
 		}
 		const bool want_smokes = compatibility_.smoke_available() || include_candidates;
-		// Limited mode has no HE event listener; follow the HE projectiles instead.
+		// Without the HE event listener, follow the HE projectiles: their explosion
+		// tick, or (without that schema field) their disappearance.
 		const bool track_he = !he_event_available_ && compatibility_.smoke_available() && std::isfinite(game_time);
 		std::array<tracked_grenade, 32> grenades {};
 		uint32_t grenade_count = 0;
@@ -315,8 +316,34 @@ namespace cs2glaz
 					grenade_overflow = true;
 					continue;
 				}
-				grenades[grenade_count++] = {static_cast<uint32_t>(entity_handle(entity).ToInt()),
-											 to_vec3(field<Vector>(scene_node, compatibility_.fields().abs_origin))};
+				tracked_grenade grenade {static_cast<uint32_t>(entity_handle(entity).ToInt()),
+										 to_vec3(field<Vector>(scene_node, compatibility_.fields().abs_origin)), false};
+				for (uint32_t previous = 0; previous < he_tracked_count_; ++previous)
+				{
+					if (he_tracked_[previous].handle == grenade.handle)
+					{
+						grenade.recorded = he_tracked_[previous].recorded;
+						break;
+					}
+				}
+				// The projectile stays for seconds after its blast (recording it when
+				// it disappeared opened the channel after the real hole had closed):
+				// the explosion tick marks the blast as it happens.
+				if (!grenade.recorded && compatibility_.grenade_explosion_available()
+					&& field<int32_t>(entity, compatibility_.fields().explode_effect_tick) > 0)
+				{
+					const vec3 blast = to_vec3(field<Vector>(entity, compatibility_.fields().explode_effect_origin));
+					const bool blast_known = std::isfinite(blast.x) && std::isfinite(blast.y) && std::isfinite(blast.z)
+											 && (blast.x != 0.0f || blast.y != 0.0f || blast.z != 0.0f);
+					std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+					if (he_clearance_history_.record(blast_known ? blast : grenade.position, game_time))
+					{
+						++he_tracked_detonations_;
+						he_last_detonation_ = game_time;
+					}
+					grenade.recorded = true;
+				}
+				grenades[grenade_count++] = grenade;
 			}
 		}
 		if (!track_he || grenade_overflow)
@@ -328,7 +355,7 @@ namespace cs2glaz
 		{
 			const bool still_flying = std::any_of(grenades.begin(), grenades.begin() + grenade_count,
 												  [&](const tracked_grenade& grenade) { return grenade.handle == he_tracked_[previous].handle; });
-			if (!still_flying)
+			if (!still_flying && !he_tracked_[previous].recorded)
 			{
 				std::lock_guard<std::mutex> lock(transmit_state_mutex_);
 				if (he_clearance_history_.record(he_tracked_[previous].position, game_time))

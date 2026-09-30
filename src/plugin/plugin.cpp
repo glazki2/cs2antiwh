@@ -870,7 +870,10 @@ namespace cs2glaz
 			CGlobalVars* globals = network_server == nullptr ? nullptr : network_server->GetGlobals();
 			const float since = globals == nullptr || !std::isfinite(he_last_detonation_) ? -1.0f : globals->curtime - he_last_detonation_;
 			META_CONPRINTF("[CS2GLAZ] HE: source=%s detonations this map: event=%llu tracked=%llu; last %s%.1f s ago; channel %.0f units for %.1f s\n",
-						   he_event_available_ ? "event" : (compatibility_.smoke_available() ? "projectile tracking" : "none"),
+						   he_event_available_							? "event"
+						   : !compatibility_.smoke_available()			? "none"
+						   : compatibility_.grenade_explosion_available() ? "projectile explosion tick"
+																		  : "projectile disappearance",
 						   static_cast<unsigned long long>(he_event_detonations_), static_cast<unsigned long long>(he_tracked_detonations_),
 						   since < 0.0f ? "never " : "", since < 0.0f ? 0.0f : since, configuration.he_clear_radius_units, configuration.he_clear_seconds);
 		}
