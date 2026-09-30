@@ -478,15 +478,15 @@ namespace cs2glaz
 			}
 			const auto too_close = [&](vec3 point)
 			{
-				const auto near = [&](vec3 other, float distance)
+				const auto within = [&](vec3 other, float distance)
 				{
 					const float x = point.x - other.x;
 					const float y = point.y - other.y;
 					const float z = point.z - other.z;
 					return x * x + y * y + z * z < distance * distance;
 				};
-				return near(viewer.origin, k_decoy_viewer_drop)
-					   || std::any_of(enemies.begin(), enemies.end(), [&](vec3 enemy) { return near(enemy, k_decoy_enemy_drop); });
+				return within(viewer.origin, k_decoy_viewer_drop)
+					   || std::any_of(enemies.begin(), enemies.end(), [&](vec3 enemy) { return within(enemy, k_decoy_enemy_drop); });
 			};
 			for (uint32_t index = 0; index < k_max_decoys_per_viewer; ++index)
 			{
