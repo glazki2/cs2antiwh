@@ -95,6 +95,7 @@ int run_tests(std::span<const std::filesystem::path> argv)
 	run_map_and_bvh_tests(directory, std::filesystem::absolute(argv[0]));
 	run_physics_import_tests(std::filesystem::absolute(argv[0]));
 	run_visibility_and_transmit_tests();
+	run_decoy_tests();
 	std::filesystem::remove_all(directory);
 	std::cout << "cs2glaz_tests: all checks passed\n";
 

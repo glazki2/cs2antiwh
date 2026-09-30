@@ -103,6 +103,7 @@ def copy_common_files(out: Path) -> None:
   copy_file(ROOT / "README.md", out / "README.md")
   copy_file(ROOT / "cfg" / "cs2glaz.cfg", out / "cfg" / "cs2glaz.cfg")
   copy_file(ROOT / "gamedata" / "cs2glaz.games.txt", out / "addons" / "cs2glaz" / "gamedata" / "cs2glaz.games.txt")
+  copy_file(ROOT / "gamedata" / "cs2glaz.signatures.txt", out / "addons" / "cs2glaz" / "gamedata" / "cs2glaz.signatures.txt")
   for source, name in LICENSE_FILES.items():
     copy_file(source, out / "licenses" / name)
   write_text(out / "addons" / "cs2glaz" / "data" / "maps" / ".gitkeep", "")
@@ -128,6 +129,7 @@ def build_core_package(platform: str, plugin_name: str, baker_name: str) -> Path
   required = {
     "addons/cs2glaz/bin/" + Path(plugin_name).name,
     "addons/cs2glaz/gamedata/cs2glaz.games.txt",
+    "addons/cs2glaz/gamedata/cs2glaz.signatures.txt",
     "addons/metamod/cs2glaz.vdf",
     "cfg/cs2glaz.cfg",
     "tools/" + Path(baker_name).name,

@@ -176,6 +176,67 @@ namespace cs2glaz
 	// cs2glaz_filter_dead: dead players only get what their living team sees.
 	bool filter_dead_players_requested();
 	bool cs2glaz_filter_full_updates_value();
+	GameEventKeySymbol_t game_event_key(const char* name);
+
+	// Experimental decoys (cs2glaz_decoys, decoys.cpp): server functions found by
+	// byte pattern, used only when every one is found exactly once.
+	struct decoy_functions
+	{
+		void* create_entity_by_name {};
+		void* dispatch_spawn {};
+		void* remove_entity {};
+		void* set_model {};
+		uint32_t teleport_vtable_index {};
+		bool ready {};
+		std::string error;
+	};
+
+	struct decoy_slot
+	{
+		uint32_t id {}; // 0 = empty
+		uint32_t target {};
+		vec3 origin;
+		float yaw {};
+		CEntityHandle handle;
+		bool spawned {};
+		std::chrono::steady_clock::time_point expires;
+		float aim_ms {};
+		bool aim_reported {};
+		bool shot_reported {};
+	};
+
+	// What CheckTransmit needs about a live decoy; guarded by the transmit lock.
+	struct decoy_transmit_entry
+	{
+		CEntityHandle handle;
+		uint32_t id {};
+		uint32_t target {};
+	};
+
+	struct decoy_player_record
+	{
+		uint64_t xuid {};
+		uint32_t aims {};
+		uint32_t shots {};
+	};
+
+	struct decoy_counters
+	{
+		uint64_t candidates {};
+		uint64_t spawned {};
+		uint64_t exposed {};
+		uint64_t spawn_failures {};
+		uint64_t aims {};
+		uint64_t shots {};
+	};
+
+	struct view_sample
+	{
+		bool valid {};
+		vec3 eye;
+		float pitch {};
+		float yaw {};
+	};
 
 	class plugin final : public ISmmPlugin, public IMetamodListener, public IGameEventListener2
 	{
@@ -305,6 +366,20 @@ namespace cs2glaz
 		bool capture_smokes(const std::array<CEntityInstance*, k_max_smoke_volumes>& entities, size_t count, bool overflow, float game_time,
 							visibility_snapshot& value);
 		bool teammates_are_enemies() const;
+		int decoy_mode() const;
+		void resolve_decoy_functions();
+		void update_decoys(CGameEntitySystem* system, visibility_snapshot& value, std::chrono::steady_clock::time_point now);
+		bool spawn_decoy(CGameEntitySystem* system, decoy_slot& slot, const std::string& model, int mode);
+		void remove_decoy(CGameEntitySystem* system, decoy_slot& slot);
+		void remove_all_decoys(bool remove_entities);
+		void prune_decoy_graveyard(CGameEntitySystem* system);
+		void publish_decoy_transmit();
+		void withhold_decoys(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count, const visibility_result* result,
+							 std::chrono::steady_clock::time_point now);
+		void decoy_weapon_fire(IGameEvent* event);
+		void report_decoy(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, bool shot, float distance);
+		void print_decoy_status() const;
+		bool human_player(uint32_t slot) const;
 
 		ISmmAPI* api_ {};
 		IServerGameDLL* server_ {};
@@ -415,6 +490,25 @@ namespace cs2glaz
 		uint32_t limited_validation_attempts_ {};
 		uint64_t snapshot_sequence_ {};
 		uint32_t active_worker_threads_ {};
+		// Decoys: game-thread state, and the copy CheckTransmit reads.
+		decoy_functions decoy_functions_;
+		bool decoy_functions_resolved_ {};
+		std::array<std::array<decoy_slot, k_max_decoys_per_viewer>, k_max_players> decoys_ {};
+		std::array<std::array<decoy_transmit_entry, k_max_decoys_per_viewer>, k_max_players> decoy_transmit_ {};
+		std::atomic_bool decoys_live_ {};
+		// Removed decoys stay withheld from everyone until the game deletes them.
+		std::vector<CEntityHandle> decoy_graveyard_;
+		std::array<CEntityHandle, 2 * k_max_players> decoy_graveyard_transmit_ {};
+		uint32_t decoy_graveyard_count_ {};
+		decoy_spot_history decoy_spots_;
+		std::chrono::steady_clock::time_point decoy_spots_next_ {};
+		std::chrono::steady_clock::time_point decoy_last_update_ {};
+		uint32_t decoy_next_id_ {};
+		uint32_t decoy_seed_ {0x2545f491u};
+		std::array<decoy_player_record, k_max_players> decoy_records_ {};
+		decoy_counters decoy_counters_;
+		std::array<view_sample, k_max_players> last_view_ {};
+		bool weapon_fire_listening_ {};
 	};
 
 	extern plugin g_plugin;

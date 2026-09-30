@@ -6,6 +6,7 @@
 
 #include "bvh8.h"
 #include "capsule_visibility.h"
+#include "decoy_logic.h"
 #include "smoke_occlusion.h"
 #include "visibility_sampling.h"
 
@@ -44,6 +45,7 @@ namespace cs2glaz
 		int pawn_entity {-1};
 		vec3 velocity;
 		bool has_velocity {};
+		float eye_pitch_degrees {}; // for decoy aim checks
 	};
 
 	inline visibility_player visibility_sample(const player_state& player)
@@ -89,6 +91,8 @@ namespace cs2glaz
 		// filtered) and the pawn entity they watch (-1 = none or unknown).
 		std::array<uint8_t, k_max_players> dead_viewer_team {};
 		std::array<int, k_max_players> dead_viewer_target {};
+		// Decoy candidates and live decoys of each living viewer (cs2glaz_decoys).
+		std::array<decoy_probe_set, k_max_players> decoys {};
 	};
 
 	// What made a pair visible, for diagnostics (the wall-check HUD and metrics).
@@ -139,6 +143,10 @@ namespace cs2glaz
 		std::vector<visibility_occluder> occluders;
 		std::array<uint8_t, k_max_players> dead_viewer_team {};
 		std::array<int, k_max_players> dead_viewer_target {};
+		// The decoys this result checked, and which are proven hidden from their
+		// viewer (only those may be sent to him).
+		std::array<decoy_probe_set, k_max_players> decoys {};
+		bool decoy_hidden[k_max_players][k_max_decoys_per_viewer] {};
 		// For pairs visible by the hold: the test and origin that started it.
 		uint8_t held_reveal[k_max_players][k_max_players] {};
 		std::array<uint32_t, static_cast<size_t>(visibility_reveal::count)> reveal_counts {};

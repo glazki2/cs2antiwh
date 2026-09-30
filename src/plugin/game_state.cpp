@@ -822,7 +822,9 @@ namespace cs2glaz
 			player.eye = {player.origin.x + field<float>(view, compatibility_.fields().view_x),
 						  player.origin.y + field<float>(view, compatibility_.fields().view_y),
 						  player.origin.z + field<float>(view, compatibility_.fields().view_z)};
-			player.eye_yaw_degrees = field<qangle>(pawn_entity, compatibility_.fields().eye_angles).y;
+			const qangle eye_angles = field<qangle>(pawn_entity, compatibility_.fields().eye_angles);
+			player.eye_yaw_degrees = eye_angles.y;
+			player.eye_pitch_degrees = std::isfinite(eye_angles.x) ? eye_angles.x : 0.0f;
 			if (void* movement = field<void*>(pawn_entity, compatibility_.fields().movement_services); movement != nullptr)
 			{
 				void* buttons = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(movement) + compatibility_.fields().movement_buttons);

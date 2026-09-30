@@ -254,7 +254,10 @@ namespace cs2glaz
 	void plugin::hook_check_transmit(CCheckTransmitInfo** infos, int count, CBitVec<MAX_EDICTS>& /*union_a*/, CBitVec<MAX_EDICTS>& /*union_b*/,
 									 const Entity2Networkable_t**, const uint16*, int)
 	{
-		if (!settings::current().enable || !disabled_reason_.empty() || infos == nullptr || count <= 0 || count > static_cast<int>(k_max_players)
+		// Decoys are withheld even while filtering is off, until the game thread
+		// removes them.
+		const bool filtering = settings::current().enable && disabled_reason_.empty();
+		if ((!filtering && !decoys_live_.load()) || infos == nullptr || count <= 0 || count > static_cast<int>(k_max_players)
 			|| transmit_layout_invalid_.load(std::memory_order_relaxed))
 		{
 			return;
@@ -279,6 +282,12 @@ namespace cs2glaz
 		const std::shared_ptr<const visibility_result> result = worker_.result();
 		const auto now = std::chrono::steady_clock::now();
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+		withhold_decoys(entity_system(), infos, count, result.get(), now);
+		if (!filtering)
+		{
+			record_timing();
+			return;
+		}
 		const auto note = [&](uint64_t transmit_decision_stats::*reason)
 { ++(transmit_decisions_.*reason); };
 		const bool filter_full_updates = cs2glaz_filter_full_updates.Get();

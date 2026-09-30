@@ -245,6 +245,7 @@ namespace cs2glaz
 			result.occluders = current->snapshot.occluders;
 			result.dead_viewer_team = current->snapshot.dead_viewer_team;
 			result.dead_viewer_target = current->snapshot.dead_viewer_target;
+			result.decoys = current->snapshot.decoys;
 			for (auto& row : result.visible)
 			{
 				std::fill(std::begin(row), std::end(row), true);
@@ -488,6 +489,14 @@ namespace cs2glaz
 				{
 					break;
 				}
+			}
+			// A decoy is sent only once proven hidden; a deadline leaves it unsent.
+			for (uint32_t index = 0; index < k_max_decoys_per_viewer; ++index)
+			{
+				const decoy_probe& decoy = current.snapshot.decoys[recipient][index];
+				current.result->decoy_hidden[recipient][index] =
+					decoy.id != 0 && !current.budget_exhausted.load()
+					&& decoy_hidden_from_origins(*data_, ray_origins, decoy.origin, current.snapshot.occluders, current.deadline);
 			}
 			if (current.budget_exhausted.load())
 			{

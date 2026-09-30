@@ -146,15 +146,24 @@ The finished immutable result contains its sequence, capture/completion times, c
 4. Re-read live recipient/target lifecycles and visual groups. Any mismatch with the copied worker player fails open. Also walk each target pawn's scene-node children: every other networked entity attached below it joins an "attached" list that is withheld together with the group, and a hierarchy that cannot be fully accounted for (walk budget, capacity, unresolvable owner, another player attached) reveals that target.
 5. Require every live recipient's own pawn to be set in its primary list. A missing own pawn means the recipient slot or list layout is wrong, so filtering stops for the map before any list is changed.
 6. Skip self, invalid players, and full-update snapshots. Skip teammates only when optional teammate filtering and `mp_teammates_are_enemies` are both disabled.
-7. Require a stable player pair. Only the legacy mode 0 also waits for evidence that the complete current visual group was sent on an older worker sequence; the clear-only modes hide at once, because withholding is ordinary PVS culling and a new weapon or thrown grenade must not reveal the player.
-8. When hidden, store the exact visual group and clear each member's bit in the primary list and in the second list (mode 2). Mode 0, the CE behaviour that set the second list's bit, leaks on CS2 1.41.8 and is kept only for comparison.
+7. Require a stable player pair. Hiding starts at once, because withholding is ordinary PVS culling and a new weapon or thrown grenade must not reveal the player.
+8. When hidden, store the exact visual group and clear each member's bit in the primary list and in the second list. Setting the second list's bit (the old CE behaviour) makes CS2 1.41.8 send the entity, so it is never set.
 9. If either list pointer is unavailable, change neither list and fail open.
 10. If rays later say visible, stop withholding the current group and let ordinary snapshots handle it; CS2GLAZ does not wait for or request a full update.
 11. When a current group cannot be rebuilt, a still-valid quarantined old group may be withheld briefly through the same operation. Invalid handles/indexes are skipped rather than guessed.
 
-Those are the only two lists CS2GLAZ changes by default. Full-update snapshots are untouched; `+16`/`+24` and the union lists change only in the diagnostic modes 4 and 5.
+Those are the only two lists CS2GLAZ changes. The `IsBitSet` checks always run because only set bits are cleared.
 
-The `IsBitSet` checks always run because only set bits are cleared. When `cs2glaz_debug` is off, clearing skips classname lookup, record search, and record update. When it is on, evidence is recorded only for a bit that CS2GLAZ actually clears. The 256-record fixed array deduplicates by entity handle and source pawn; it aggregates recipients/reasons/counts without heap allocation in the hook.
+## Decoys (experimental, `cs2glaz_decoys`)
+
+`src/plugin/decoys.cpp` with the pure parts in `src/core/decoy_logic.*` and `src/core/signature_scan.*`.
+
+1. The first time decoys are enabled, `resolve_decoy_functions` reads `gamedata/cs2glaz.signatures.txt` and searches the server's executable ranges (`runtime_compatibility::server_code_ranges`) for `UTIL_CreateEntityByName`, `DispatchSpawn`, `UTIL_Remove` and `SetModel`; each must match exactly once. The Teleport vtable slot is checked to point into the server before first use. `kRenderNone` comes from the schema enum `RenderMode_t`.
+2. `update_decoys` runs on the game thread after each capture. It records floor spots players stood on, drops decoys that expired, were exposed, whose enemy came into view, or whose viewer died, spawns candidates the last result proved hidden, and picks new candidates (`choose_decoy_spot`: a used floor spot behind geometry from the eye, 400+ units from every real enemy of the viewer). Candidates and live decoys go into `visibility_snapshot::decoys`.
+3. The worker proves each decoy hidden from every viewing origin of its viewer (`decoy_hidden_from_origins`: the exact hull body test, then padded corners; smoke does not count) into `visibility_result::decoy_hidden`.
+4. `withhold_decoys` runs first in CheckTransmit, even while filtering is off: a decoy's bits are cleared for every recipient except its viewer, and for him too unless the fresh result proved exactly this decoy hidden and its enemy is still not in view. Removed decoys stay withheld from everyone until the game deletes them.
+5. Spawning sets no collision (`SOLID_NONE`, not-solid flag) and, in mode 1, `kRenderNone` before and after `DispatchSpawn`; the model is set afterwards so no physics object exists. A decoy found solid or rendered after spawning is removed and turns decoys off until the plugin reloads.
+6. Aim (0.5 s on the body) and gun `weapon_fire` at a proven-hidden decoy are reported to the console and `addons/cs2glaz/logs/decoys.log`, never acted on.
 
 ## Thread and data ownership
 

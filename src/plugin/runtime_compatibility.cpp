@@ -16,6 +16,7 @@
 #include <Windows.h>
 #else
 #include <dlfcn.h>
+#include <link.h>
 #include <sys/uio.h>
 #include <unistd.h>
 #endif
@@ -28,6 +29,11 @@ namespace cs2glaz
 		constexpr uint32_t k_max_gamedata_offset = 4096;
 		constexpr uint32_t k_max_vtable_index = 1024;
 		constexpr uint32_t k_max_module_rva = 512u * 1024u * 1024u;
+#if defined(_WIN32)
+		constexpr const char* k_server_module_name = "server.dll";
+#else
+		constexpr const char* k_server_module_name = "libserver.so";
+#endif
 
 		void* module_base(const void* address)
 		{
@@ -519,6 +525,23 @@ namespace cs2glaz
 											 && optional(fields_.solid_flags, "CCollisionProperty", "m_usSolidFlags")
 											 && optional(fields_.model_state, "CSkeletonInstance", "m_modelState")
 											 && optional(fields_.model_name, "CModelState", "m_ModelName");
+		decoy_schema_available_ = optional(fields_.render_mode, "CBaseModelEntity", "m_nRenderMode")
+								  && optional(fields_.render_color, "CBaseModelEntity", "m_clrRender")
+								  && optional(fields_.model_collision, "CBaseModelEntity", "m_Collision");
+		render_none_value_ = -1;
+		for (CSchemaSystemTypeScope* scope : {schema->FindTypeScopeForModule(k_server_module_name), schema->GlobalTypeScope()})
+		{
+			const CSchemaEnumInfo* info = scope == nullptr ? nullptr : scope->FindDeclaredEnum("RenderMode_t").Get();
+			for (int index = 0; info != nullptr && render_none_value_ < 0 && index < info->m_nEnumeratorCount; ++index)
+			{
+				const SchemaEnumeratorInfoData_t& enumerator = info->m_pEnumerators[index];
+				if (enumerator.m_pszName != nullptr && std::strcmp(enumerator.m_pszName, "kRenderNone") == 0 && enumerator.m_nValue >= 0
+					&& enumerator.m_nValue <= 255)
+				{
+					render_none_value_ = static_cast<int>(enumerator.m_nValue);
+				}
+			}
+		}
 		debug_beam_schema_available_ =
 			optional(fields_.beam_end_position, "CBeam", "m_vecEndPos") && optional(fields_.beam_width, "CBeam", "m_fWidth")
 			&& optional(fields_.beam_end_width, "CBeam", "m_fEndWidth") && optional(fields_.render_color, "CBaseModelEntity", "m_clrRender");
@@ -575,6 +598,76 @@ namespace cs2glaz
 		iovec remote {address, size};
 		return process_vm_writev(getpid(), &local, 1, &remote, 1, 0) == static_cast<ssize_t>(size);
 #endif
+	}
+
+	std::vector<std::span<const std::byte>> runtime_compatibility::server_code_ranges() const
+	{
+		std::vector<std::span<const std::byte>> ranges;
+		if (server_module_base_ == nullptr)
+		{
+			return ranges;
+		}
+#if defined(_WIN32)
+		const auto* base = static_cast<const std::byte*>(server_module_base_);
+		IMAGE_DOS_HEADER dos {};
+		if (!safe_read(base, &dos, sizeof(dos)) || dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew <= 0)
+		{
+			return ranges;
+		}
+		IMAGE_NT_HEADERS64 nt {};
+		if (!safe_read(base + dos.e_lfanew, &nt, sizeof(nt)) || nt.Signature != IMAGE_NT_SIGNATURE)
+		{
+			return ranges;
+		}
+		const std::byte* sections = base + dos.e_lfanew + offsetof(IMAGE_NT_HEADERS64, OptionalHeader) + nt.FileHeader.SizeOfOptionalHeader;
+		for (WORD index = 0; index < nt.FileHeader.NumberOfSections; ++index)
+		{
+			IMAGE_SECTION_HEADER section {};
+			if (!safe_read(sections + index * sizeof(section), &section, sizeof(section)))
+			{
+				return {};
+			}
+			if ((section.Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0 && section.Misc.VirtualSize != 0
+				&& section.VirtualAddress + section.Misc.VirtualSize <= nt.OptionalHeader.SizeOfImage)
+			{
+				ranges.emplace_back(base + section.VirtualAddress, section.Misc.VirtualSize);
+			}
+		}
+#else
+		struct search
+		{
+			const void* base;
+			std::vector<std::span<const std::byte>>* ranges;
+		} context {server_module_base_, &ranges};
+		dl_iterate_phdr(
+			[](dl_phdr_info* info, size_t, void* data) -> int
+			{
+				auto* context = static_cast<search*>(data);
+				bool contains_base = false;
+				for (ElfW(Half) index = 0; index < info->dlpi_phnum; ++index)
+				{
+					const ElfW(Phdr)& header = info->dlpi_phdr[index];
+					const auto start = static_cast<uintptr_t>(info->dlpi_addr + header.p_vaddr);
+					const auto base = reinterpret_cast<uintptr_t>(context->base);
+					contains_base = contains_base || (header.p_type == PT_LOAD && base >= start && base < start + header.p_memsz);
+				}
+				if (!contains_base)
+				{
+					return 0;
+				}
+				for (ElfW(Half) index = 0; index < info->dlpi_phnum; ++index)
+				{
+					const ElfW(Phdr)& header = info->dlpi_phdr[index];
+					if (header.p_type == PT_LOAD && (header.p_flags & PF_X) != 0 && header.p_filesz != 0)
+					{
+						context->ranges->emplace_back(reinterpret_cast<const std::byte*>(info->dlpi_addr + header.p_vaddr), header.p_filesz);
+					}
+				}
+				return 1;
+			},
+			&context);
+#endif
+		return ranges;
 	}
 
 	void* runtime_compatibility::game_event_manager_vtable() const

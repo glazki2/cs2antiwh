@@ -201,9 +201,11 @@ set(CS2GLAZ_PLUGIN_SOURCES
   "${CMAKE_SOURCE_DIR}/src/core/bvh8.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/bvh8_format.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/capsule_visibility.cpp"
+  "${CMAKE_SOURCE_DIR}/src/core/decoy_logic.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/dynamic_occluders.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/masked_occlusion_stubs.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/map_source.cpp"
+  "${CMAKE_SOURCE_DIR}/src/core/signature_scan.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/subprocess.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/smoke_occlusion.cpp"
   "${CMAKE_SOURCE_DIR}/src/core/visibility_sampling.cpp"
@@ -211,6 +213,7 @@ set(CS2GLAZ_PLUGIN_SOURCES
 
   # src/plugin
   "${CMAKE_SOURCE_DIR}/src/plugin/automatic_baker.cpp"
+  "${CMAKE_SOURCE_DIR}/src/plugin/decoys.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/game_state.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/occluders.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/plugin.cpp"

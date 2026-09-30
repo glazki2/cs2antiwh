@@ -3,9 +3,12 @@
 #include "runtime_compatibility_model.h"
 #include "transmit_masks.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
+#include <vector>
 
 class ISchemaSystem;
 class ISource2GameEntities;
@@ -57,6 +60,8 @@ namespace cs2glaz
 		uint32_t beam_width {};
 		uint32_t beam_end_width {};
 		uint32_t render_color {};
+		uint32_t render_mode {};
+		uint32_t model_collision {};
 		uint32_t scene_node_owner {};
 		uint32_t scene_node_child {};
 		uint32_t scene_node_next_sibling {};
@@ -243,6 +248,26 @@ namespace cs2glaz
 				   && teleport_vtable_index_ != 0;
 		}
 
+		// Decoys need the model name, collision and render fields, and the
+		// schema's kRenderNone value.
+		bool decoy_schema_available() const
+		{
+			return decoy_schema_available_ && dynamic_occluder_schema_available_ && render_none_value_ >= 0;
+		}
+
+		uint8_t render_none_value() const
+		{
+			return static_cast<uint8_t>(render_none_value_);
+		}
+
+		void* server_module_base() const
+		{
+			return server_module_base_;
+		}
+
+		// Executable ranges of the loaded server binary, for byte-pattern search.
+		std::vector<std::span<const std::byte>> server_code_ranges() const;
+
 	private:
 		bool read_gamedata(const std::filesystem::path& path, std::string& error);
 		bool verify_server_binary(ISource2GameEntities* game_entities, std::string& error);
@@ -276,6 +301,8 @@ namespace cs2glaz
 		bool smoke_layout_candidate_ {};
 		bool smoke_runtime_verified_ {};
 		bool debug_beam_schema_available_ {};
+		bool decoy_schema_available_ {};
+		int render_none_value_ {-1};
 		bool scene_hierarchy_schema_available_ {};
 		bool smoke_gamedata_available_ {};
 		void* server_module_base_ {};

@@ -32,6 +32,9 @@ function(CS2GLAZ_add_package target)
             COMMAND ${CMAKE_COMMAND} -E copy
             "${CMAKE_SOURCE_DIR}/gamedata/cs2glaz.games.txt"
             "${_gamedata_dir}/cs2glaz.games.txt"
+            COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_SOURCE_DIR}/gamedata/cs2glaz.signatures.txt"
+            "${_gamedata_dir}/cs2glaz.signatures.txt"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_cfg_dir}"
             COMMAND ${CMAKE_COMMAND} -E copy
             "${CMAKE_SOURCE_DIR}/cfg/cs2glaz.cfg"

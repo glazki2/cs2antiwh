@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+
+- Experimental decoys, `cs2glaz_decoys` (0 off by default, 1 invisible, 2 model drawn for testing). For each human viewer and each enemy hidden from him, a `prop_dynamic` with that enemy's model stands on a floor spot players have used on this map, behind the geometry from the viewer, at least 400 units from any real enemy of his. It is sent to that viewer only, and only while the worker proves it hidden from every one of his viewing origins; it is removed when he could see it, when the real enemy comes into view, when he dies, or after 8-15 seconds. It has no collision, no animation, no sounds and no radar entry; mode 1 does not render it. Removed decoys stay withheld from everyone until the game deletes them.
+- Aiming at a decoy for half a second or shooting at it with a gun through the wall is printed to the server console and appended to `addons/cs2glaz/logs/decoys.log` (name, SteamID64, distance, counts this map); `cs2glaz_status` lists the suspects. Nobody is kicked automatically.
+- Creating entities needs server functions that limited mode does not know: they are found by byte pattern from `addons/cs2glaz/gamedata/cs2glaz.signatures.txt` (CounterStrikeSharp gamedata v1.0.376), each exactly once in the server's code, with the Teleport vtable slot checked to point into the server. Any mismatch, a missing schema field, or a spawned decoy that turns out solid or rendered keeps decoys off; wall hiding is never affected.
+- Eye pitch is captured with the eye yaw for the aim checks.
+
 ## 0.6.0
 
 Production build: research and debug features removed.

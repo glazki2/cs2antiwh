@@ -123,12 +123,14 @@ namespace cs2glaz
 
 	bool plugin::Unload(char* error, size_t max_length)
 	{
+		remove_all_decoys(true);
 		if (game_events_ != nullptr)
 		{
 			game_events_->RemoveListener(this);
 		}
 		game_events_ = nullptr;
 		he_event_available_ = false;
+		weapon_fire_listening_ = false;
 		if (game_event_load_hooked_)
 		{
 			game_event_load_hook_.RemoveGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
@@ -183,6 +185,11 @@ namespace cs2glaz
 
 	void plugin::FireGameEvent(IGameEvent* event)
 	{
+		if (event != nullptr && std::strcmp(event->GetName(), "weapon_fire") == 0)
+		{
+			decoy_weapon_fire(event);
+			return;
+		}
 		if (event == nullptr || std::strcmp(event->GetName(), "hegrenade_detonate") != 0)
 		{
 			return;
@@ -207,6 +214,10 @@ namespace cs2glaz
 
 	void plugin::OnLevelShutdown()
 	{
+		// The map's entities, decoys included, go away with it.
+		remove_all_decoys(false);
+		decoy_spots_.clear();
+		decoy_records_ = {};
 		automatic_baker_.stop();
 		worker_.stop();
 		data_ = {};
@@ -470,7 +481,7 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_why [name|slot] - Why each enemy is or is not sent, from every viewing origin.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_props [radius] - Solid entities near each player and whether they block sight.\n");
 		META_CONPRINTF("[CS2GLAZ] runtime switches (reset on restart): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
-					   "cs2glaz_dynamic_occluders.\n");
+					   "cs2glaz_dynamic_occluders, cs2glaz_decoys (experimental, 0/1/2).\n");
 	}
 
 	void plugin::check_update()
@@ -691,6 +702,11 @@ namespace cs2glaz
 		}
 		finish_limited_validation(simulating);
 		const runtime_configuration& configuration = settings::current();
+		if ((!configuration.enable || !disabled_reason_.empty()) && decoys_live_.load())
+		{
+			prune_decoy_graveyard(entity_system());
+			remove_all_decoys(true);
+		}
 		if (!simulating || !configuration.enable || !disabled_reason_.empty())
 		{
 			return;
@@ -721,6 +737,7 @@ namespace cs2glaz
 			capture_timing_.record(capture_ms);
 		}
 		last_snapshot_ = now;
+		update_decoys(system, value, now);
 		worker_.submit(std::move(value), static_cast<uint32_t>(configuration.visibility_hold_ms),
 					   {configuration.shoulder_base_units, configuration.shoulder_rtt_scale, configuration.max_shoulder_units,
 						configuration.bounds_padding_units});
@@ -839,6 +856,7 @@ namespace cs2glaz
 		{
 			META_CONPRINTF("[CS2GLAZ] Next action: %s\n", action);
 		}
+		print_decoy_status();
 	}
 
 	void plugin::print_metrics() const
