@@ -58,6 +58,80 @@ namespace cs2glaz
 								   });
 	}
 
+	// An enemy who dies while hidden from a recipient stays hidden from him
+	// (with what hangs on his body) until he respawns or the pawn is gone. The
+	// recipient could not see him die, so nothing he could see goes missing;
+	// weapons dropped on the ground are separate entities and are not held.
+	void plugin::withhold_dead_hidden(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count)
+	{
+		if (system == nullptr)
+		{
+			return;
+		}
+		const auto dead_pawn = [&](CEntityHandle handle) -> CEntityInstance*
+		{
+			CEntityInstance* pawn = handle.IsValid() ? system->GetEntityInstance(handle) : nullptr;
+			if (pawn == nullptr)
+			{
+				return nullptr;
+			}
+			uint8_t life_state = k_life_alive;
+			std::memcpy(&life_state, reinterpret_cast<const std::byte*>(pawn) + compatibility_.fields().life_state, sizeof(life_state));
+			return life_state == k_life_alive ? nullptr : pawn;
+		};
+		for (int i = 0; i < count; ++i)
+		{
+			CCheckTransmitInfo* info = infos[i];
+			if (info == nullptr || info->m_pTransmitEntity == nullptr || info->m_pTransmitAlways == nullptr)
+			{
+				continue;
+			}
+			int slot = -1;
+			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
+			if (slot < 0 || slot >= static_cast<int>(k_max_players))
+			{
+				continue;
+			}
+			for (uint32_t target = 0; target < k_max_players; ++target)
+			{
+				CEntityHandle& kept = dead_hidden_pawns_[slot][target];
+				const visual_entity_group& stored = hidden_groups_[slot][target];
+				CEntityInstance* pawn = kept.IsValid() ? dead_pawn(kept) : nullptr;
+				// The previous decision for the pair (this tick's comes later) says
+				// whether he was hidden from this recipient when he died.
+				if (pawn == nullptr && pair_decisions_[slot][target] == pair_decision::hidden && stored.count != 0
+					&& (pawn = dead_pawn(stored.source)) != nullptr)
+				{
+					kept = stored.source;
+				}
+				if (pawn == nullptr)
+				{
+					kept = CEntityHandle();
+					continue;
+				}
+				++transmit_decisions_.dead_hidden;
+				visual_entity_group group;
+				attached_entity_group attached;
+				if (collect_player_visual_group(system, pawn, group))
+				{
+					withhold_group(system, info->m_pTransmitEntity, info->m_pTransmitAlways, group);
+					if (collect_attached_entities(system, pawn, group, attached))
+					{
+						withhold_group(system, info->m_pTransmitEntity, info->m_pTransmitAlways, attached);
+					}
+				}
+				else
+				{
+					const int index = resolve_entity_index(system, kept);
+					if (valid_networked_edict_index(index))
+					{
+						apply_transmit_mode(info->m_pTransmitEntity, info->m_pTransmitAlways, index, transmit_mode::clear_both);
+					}
+				}
+			}
+		}
+	}
+
 	// Withholds every entity of a group from one recipient: clears it in both
 	// lists (on CS2 1.41.8 the second one also sends what it holds).
 	template<size_t max_count>
@@ -98,6 +172,10 @@ namespace cs2glaz
 			{
 				hidden_group_clear(group);
 			}
+		}
+		for (auto& row : dead_hidden_pawns_)
+		{
+			row.fill(CEntityHandle());
 		}
 		he_clearance_history_.clear();
 		// A verified smoke layout belongs to the server binary and stays; a failed
@@ -246,9 +324,9 @@ namespace cs2glaz
 					   scope, value(stats.filtered_snapshots), value(stats.dead_viewer_snapshots), value(stats.full_update_snapshots),
 					   value(stats.full_update_filtered), value(stats.changing_recipient_snapshots));
 		META_CONPRINTF("[CS2GLAZ] %s enemy pairs: hidden=%llu in_view=%llu shown_because enemy_spawning_or_dying=%llu baseline=%llu "
-					   "attachment=%llu weapons_unlisted=%llu\n",
+					   "attachment=%llu weapons_unlisted=%llu dead_kept_hidden=%llu\n",
 					   scope, value(stats.hidden), value(stats.in_view), value(stats.changing_target), value(stats.baseline),
-					   value(stats.attachment), value(stats.group));
+					   value(stats.attachment), value(stats.group), value(stats.dead_hidden));
 	}
 
 	void plugin::hook_check_transmit(CCheckTransmitInfo** infos, int count, CBitVec<MAX_EDICTS>& /*union_a*/, CBitVec<MAX_EDICTS>& /*union_b*/,
@@ -314,13 +392,9 @@ namespace cs2glaz
 				hidden_group_clear(group);
 			}
 		}
-		if (!result || !visibility_snapshot_fresh(result->captured, now))
-		{
-			record_timing();
-			return;
-		}
 		CGameEntitySystem* system = entity_system();
-		if (system == nullptr)
+		withhold_dead_hidden(system, infos, count);
+		if (!result || !visibility_snapshot_fresh(result->captured, now) || system == nullptr)
 		{
 			record_timing();
 			return;

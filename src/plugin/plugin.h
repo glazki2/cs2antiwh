@@ -105,6 +105,7 @@ namespace cs2glaz
 		uint64_t baseline {};					 // waiting for a sent baseline
 		uint64_t attachment {};					 // something attached cannot be hidden with the enemy
 		uint64_t group {};						 // the enemy's weapons/wearables could not be listed
+		uint64_t dead_hidden {};				 // an enemy who died while hidden, kept hidden until he respawns
 	};
 
 	// Radar messages (CCSUsrMsg_ProcessSpottedEntityUpdate) carry the position and
@@ -399,6 +400,7 @@ namespace cs2glaz
 		bool collect_attached_entities(CGameEntitySystem* system, CEntityInstance* pawn, const visual_entity_group& owned,
 									   attached_entity_group& attached) const;
 		bool group_fully_marked(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* bits, const visual_entity_group& group) const;
+		void withhold_dead_hidden(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count);
 		template<size_t max_count>
 		void withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
 							const hidden_entity_group<CEntityHandle, max_count>& group);
@@ -512,6 +514,11 @@ namespace cs2glaz
 		std::array<lifecycle_guard, k_max_players> lifecycle_;
 		std::array<std::array<pair_guard, k_max_players>, k_max_players> pair_guards_;
 		std::array<std::array<visual_entity_group, k_max_players>, k_max_players> hidden_groups_;
+		// Per recipient and target: the pawn of an enemy who died while hidden from
+		// the recipient. Sending a client the body of a player it never had can
+		// crash it ("CopyExistingEntity: missing client entity"; CS2Fixes keeps
+		// every dead player hidden for this), so it stays hidden until he respawns.
+		std::array<std::array<CEntityHandle, k_max_players>, k_max_players> dead_hidden_pawns_ {};
 		std::array<target_transmit_cache, k_max_players> transmit_target_cache_;
 		std::array<player_bone_cache, k_max_players> player_bone_cache_;
 		mutable std::mutex transmit_state_mutex_;

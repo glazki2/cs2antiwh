@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.8
+
+- A client crash, `FATAL ERROR: CopyExistingEntity: missing client entity`, after killing enemies CS2GLAZ was hiding (bots in a smoke killed with an HE or through it). The dump named entity 188, which survived the round restart, like a player pawn and unlike a decoy. When an enemy died while hidden, his body was sent to the recipient at once; CS2Fixes documents that the body of a player a client never had can crash it and keeps every dead player hidden for that reason. Now an enemy who dies while hidden from a recipient (the previous decision for the pair was "hidden") stays hidden from him, with what hangs on his body, until he respawns or the pawn is gone. The recipient could not see him die, so nothing he could see goes missing; dropped weapons are separate entities and are sent as usual. `cs2glaz_metrics` counts it as `dead_kept_hidden`.
+
 ## 0.7.7
 
 - Smoke costs the visibility worker far less. A body behind a smoke was proven hidden by one smoke line per pixel of its silhouette from every viewing origin (hundreds of voxel walks per origin), which on a live server raised the worker's `recent_p99` from about 0.5 ms to 8-13 ms with 10 players and a few smokes. Now, before any per-pixel line, one walk along the cone from the viewing origin to the body's bounding sphere looks for a slice where every voxel covering the cone is opaque; if one exists, every line into the body is blocked by the same rule the per-line test uses, so the answer is the same. A body behind a dense smoke in the test scene: 165 us to 0.3 us per query. Bodies at a smoke's edge, and any smoke an HE grenade is clearing, still take the per-pixel path.
