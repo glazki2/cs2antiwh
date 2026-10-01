@@ -54,6 +54,11 @@ namespace cs2glaz
 	inline constexpr auto k_lifecycle_fail_open = std::chrono::milliseconds(1000);
 	inline constexpr auto k_smoke_copy_interval = std::chrono::milliseconds(100);
 	inline constexpr auto k_grenade_scan_interval = std::chrono::milliseconds(100);
+	// A decoy that reached its viewer less recently than this is not reaching him.
+	inline constexpr auto k_decoy_delivery_gap = std::chrono::milliseconds(100);
+	// A real decoy that has not reached its viewer for this long (outside his
+	// PVS) is moved to another spot.
+	inline constexpr auto k_decoy_undelivered_limit = std::chrono::milliseconds(1500);
 	inline constexpr size_t k_max_grenade_candidates = 128;
 	inline constexpr auto k_hidden_entity_quarantine = std::chrono::milliseconds(3000);
 	inline constexpr uint32_t k_limited_validation_attempts = 256;
@@ -201,13 +206,22 @@ namespace cs2glaz
 		vec3 origin;
 		float yaw {};
 		CEntityHandle handle;
-		bool spawned {};
+		bool spawned {}; // a control: active (proven hidden once), with no entity
+		// A control: never created and never sent to anyone; reports at it are
+		// the viewer's honest coincidences (k_decoy_control_one_in).
+		bool control {};
+		std::chrono::steady_clock::time_point spawned_at;
 		std::chrono::steady_clock::time_point expires;
 		float aim_ms {};
 		float aim_turn {}; // degrees the aim followed it while on it
 		vec3 aim_origin;   // where it stood at the previous on-target sample
 		bool aim_reported {};
 		bool shot_reported {};
+		// Reports count only while it has reached the viewer's client long enough
+		// (decoy_delivery_ready); a crosshair already on it before then must
+		// leave it first.
+		bool ready {};
+		bool aimed_before_ready {};
 		// Walking: legs between recorded floor spots, with pauses.
 		void* teleport {}; // this entity's Teleport, checked when spawned
 		std::string model;
@@ -236,12 +250,24 @@ namespace cs2glaz
 		uint32_t target {};
 	};
 
+	// When a decoy reached its viewer: CheckTransmit left it in his list and
+	// the engine had it there (inside his PVS). A gap longer than
+	// k_decoy_delivery_gap starts a new run. Guarded by the transmit lock.
+	struct decoy_delivery
+	{
+		uint32_t id {};
+		std::chrono::steady_clock::time_point first_sent;
+		std::chrono::steady_clock::time_point last_sent;
+	};
+
 	struct decoy_player_record
 	{
 		uint64_t xuid {};
 		uint32_t aims {};
 		uint32_t shots {};
-		uint64_t reports_at_kick {}; // aims + shots when cs2glaz_decoy_kick last kicked him
+		uint32_t control_aims {};
+		uint32_t control_shots {};
+		uint64_t evidence_at_kick {}; // decoy_evidence when cs2glaz_decoy_kick last kicked him
 	};
 
 	struct decoy_counters
@@ -259,6 +285,10 @@ namespace cs2glaz
 		uint64_t aims {};
 		uint64_t shots {};
 		uint64_t kicks {};
+		uint64_t controls {};
+		uint64_t control_aims {};
+		uint64_t control_shots {};
+		uint64_t undelivered {}; // real decoys moved after the engine kept them from their viewer
 	};
 
 	struct view_sample
@@ -591,6 +621,7 @@ namespace cs2glaz
 		bool decoy_functions_resolved_ {};
 		std::array<std::array<decoy_slot, k_max_decoys_per_viewer>, k_max_players> decoys_ {};
 		std::array<std::array<decoy_transmit_entry, k_max_decoys_per_viewer>, k_max_players> decoy_transmit_ {};
+		std::array<std::array<decoy_delivery, k_max_decoys_per_viewer>, k_max_players> decoy_delivery_ {};
 		std::atomic_bool decoys_live_ {};
 		// Removed decoys stay withheld from everyone until the game deletes them;
 		// parked ones for as long as they are parked. Both go to CheckTransmit

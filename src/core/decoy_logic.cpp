@@ -107,17 +107,26 @@ namespace cs2glaz
 			return false;
 		}
 		uint32_t state = query.seed == 0 ? 0x9e3779b9u : query.seed;
+		// Spots behind the viewer rank after every spot in front of him.
+		constexpr float k_behind_penalty = 1.0e12f;
+		const bool prefer_view = std::isfinite(query.view_yaw_degrees);
 		float best = std::numeric_limits<float>::max();
 		bool found = false;
 		for (uint32_t attempt = 0; attempt < k_spot_attempts; ++attempt)
 		{
 			const vec3 candidate = points[decoy_random(state) % points.size()];
-			const float distance = distance_sq(candidate, query.viewer_eye);
-			if (distance >= best || !spot_rules(query, candidate) || !hidden_from_eye(data, occluders, query.viewer_eye, body_center(candidate)))
+			float score = distance_sq(candidate, query.viewer_eye);
+			if (prefer_view)
+			{
+				const float yaw = std::atan2(candidate.y - query.viewer_eye.y, candidate.x - query.viewer_eye.x) / k_degrees_to_radians;
+				const float off = std::fabs(std::remainder(yaw - query.view_yaw_degrees, 360.0f));
+				score += off <= k_decoy_view_half_angle ? 0.0f : k_behind_penalty;
+			}
+			if (score >= best || !spot_rules(query, candidate) || !hidden_from_eye(data, occluders, query.viewer_eye, body_center(candidate)))
 			{
 				continue;
 			}
-			best = distance;
+			best = score;
 			spot = candidate;
 			found = true;
 		}
@@ -231,6 +240,11 @@ namespace cs2glaz
 		const float pitch = pitch_degrees * k_degrees_to_radians;
 		const float yaw = yaw_degrees * k_degrees_to_radians;
 		return {std::cos(pitch) * std::cos(yaw), std::cos(pitch) * std::sin(yaw), -std::sin(pitch)};
+	}
+
+	bool aim_on_any_player(vec3 eye, float pitch_degrees, float yaw_degrees, std::span<const vec3> players)
+	{
+		return std::any_of(players.begin(), players.end(), [&](vec3 player) { return aim_on_decoy(eye, pitch_degrees, yaw_degrees, player); });
 	}
 
 	bool aim_on_decoy(vec3 eye, float pitch_degrees, float yaw_degrees, vec3 decoy_origin)

@@ -14,9 +14,12 @@
 #include "dynamic_occluders.h"
 #include "visibility_sampling.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <unordered_set>
 #include <vector>
@@ -67,6 +70,10 @@ namespace cs2glaz
 		uint32_t next_ {};
 	};
 
+	// A wallhack draws only what is on its user's screen, so a new decoy goes in
+	// front of the viewer when it can: within this many degrees of his view yaw.
+	inline constexpr float k_decoy_view_half_angle = 60.0f;
+
 	struct decoy_spot_query
 	{
 		vec3 viewer_eye;
@@ -74,11 +81,13 @@ namespace cs2glaz
 		std::span<const vec3> players;	// every living player (feet)
 		std::span<const vec3> taken;	// the viewer's other decoys
 		uint32_t seed {};
+		float view_yaw_degrees {std::numeric_limits<float>::quiet_NaN()}; // NaN: no preference
 	};
 
-	// Tries up to 32 random spots and keeps the closest one to the viewer whose
-	// body centre the map geometry or an occluder hides from the viewer's eye.
-	// The worker proves it hidden from every viewing origin before it is sent.
+	// Tries up to 32 random spots and keeps, among those whose body centre the
+	// map geometry or an occluder hides from the viewer's eye, the closest one in
+	// front of the viewer (k_decoy_view_half_angle), else the closest one. The
+	// worker proves it hidden from every viewing origin before it is sent.
 	bool choose_decoy_spot(const bvh8_data& data, std::span<const visibility_occluder> occluders, const decoy_spot_history& history,
 						   const decoy_spot_query& query, vec3& spot);
 
@@ -109,14 +118,43 @@ namespace cs2glaz
 	// walking straight at it follows nothing.
 	float decoy_follow_degrees(vec3 eye_before, vec3 forward_before, vec3 decoy_before, vec3 eye_now, vec3 forward_now, vec3 decoy_now);
 
-	// Whether a player's decoy reports on this map (aims and shots through a
-	// wall, each decoy reporting each kind at most once) reach the kick
-	// threshold since his last kick: a player who comes back is kicked again
-	// only after as many new reports. 0 or less never kicks.
-	inline bool decoy_kick_due(uint32_t aims, uint32_t shots, int threshold, uint64_t reports_at_last_kick)
+	// Whether the view direction points at any of these players' bodies (feet
+	// origins, the same body as a decoy): an aim on a decoy that is also on a
+	// player, an enemy he hears or a teammate he follows, proves nothing.
+	bool aim_on_any_player(vec3 eye, float pitch_degrees, float yaw_degrees, std::span<const vec3> players);
+
+	// How long a decoy must have reached its viewer's client before his aim or
+	// shot counts: the round trip (the decoy travels to him, his view back) plus
+	// a reaction. A crosshair already on the spot before then must leave it and
+	// come back.
+	inline constexpr float k_decoy_reaction_ms = 150.0f;
+
+	inline bool decoy_delivery_ready(bool delivered_now, float delivered_ms, float rtt_ms)
 	{
-		const uint64_t reports = static_cast<uint64_t>(aims) + shots;
-		return threshold > 0 && reports >= reports_at_last_kick + static_cast<uint64_t>(threshold);
+		return delivered_now && std::isfinite(delivered_ms) && delivered_ms >= k_decoy_reaction_ms + std::clamp(std::isfinite(rtt_ms) ? rtt_ms : 0.0f, 0.0f, 500.0f);
+	}
+
+	// One decoy in k_decoy_control_one_in is a control: chosen, walked and
+	// proven hidden like the others but never created, so nobody receives it.
+	// A player's aims and shots at controls are what his honest coincidences
+	// look like; with one control for every two real decoys, an honest player
+	// is expected at about twice as many real reports as control ones.
+	inline constexpr uint32_t k_decoy_control_one_in = 3;
+
+	// Evidence against a player: real reports beyond twice his control
+	// reports. Zero for an honest player who pre-aims spots as often as decoys
+	// stand on them; a wallhack sees only the real ones.
+	inline uint64_t decoy_evidence(uint64_t real_reports, uint64_t control_reports)
+	{
+		return real_reports > 2u * control_reports ? real_reports - 2u * control_reports : 0u;
+	}
+
+	// Whether a player's evidence on this map reached the kick threshold since
+	// his last kick: a player who comes back is kicked again only after as much
+	// new evidence. 0 or less never kicks.
+	inline bool decoy_kick_due(uint64_t evidence, int threshold, uint64_t evidence_at_last_kick)
+	{
+		return threshold > 0 && evidence >= evidence_at_last_kick + static_cast<uint64_t>(threshold);
 	}
 
 	// Small deterministic generator for spots and lifetimes.

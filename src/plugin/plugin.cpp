@@ -226,6 +226,7 @@ namespace cs2glaz
 			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
 			decoy_counters_.ticks_sent = 0;
 			decoy_counters_.ticks_outside_pvs = 0;
+			decoy_delivery_ = {};
 		}
 		smoke_cache_.reset();
 		smoke_cache_key_.clear();

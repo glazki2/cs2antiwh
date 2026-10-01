@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0
+
+Decoys: fewer honest players in the log, more chances for a wallhack to give itself away.
+
+- A report counts only while the decoy actually reaches the viewer's client: CheckTransmit now records the ticks the engine had it in his list (inside his PVS). Behind walls it is often outside the PVS, and what never reached the client no cheat could see, yet aims at it used to count. A report also needs the decoy to have been reaching him for his round trip plus 150 ms.
+- A crosshair that was already on the spot when the decoy started reaching the client (a pre-aimed angle) must leave it and come back before it counts.
+- An aim or shot that is also on a real player, an enemy he may hear or a teammate he follows, does not count.
+- Control decoys: one decoy in three is chosen, walked and proven hidden like the others but never created, so nobody receives it. Reports at controls are the player's honest coincidences; they go to the log (`event=control_aim`, `control_shot`) and to `cs2glaz_status`. Evidence = real reports minus twice the control reports (two real decoys for every control, so about zero for an honest player). `cs2glaz_decoy_kick N` now kicks at evidence `N`; every log line carries `evidence=…`.
+- New decoys go in front of the viewer when they can (within 60 degrees of where he looks): a wallhack draws only what is on screen.
+- A real decoy that has not reached its viewer for 1.5 s is moved to another spot instead of waiting out its 8-15 s outside his PVS (`undelivered=…`).
+- `cs2glaz_status` splits decoys into `live` and `controls` and prints the reports since load, at real and at control decoys.
+
 ## 0.7.14
 
 - Re-review fix for 0.7.8 (an enemy who dies while hidden stays hidden until he respawns). Whether he was hidden came from the last decision stored for the pair, and that decision was not updated while the recipient was not being filtered: dead and not filtered as a spectator (the first 2 s after death, 6 s without the observer fields, with no living teammate, or with `cs2glaz_filter_dead 0` or `mp_forcecamera 0`), while the visibility result was stale, or while filtering was off. Such a recipient receives every enemy, so an enemy who died then (often one killed by a teammate the spectator was watching) lost his body on that client although it had been receiving him. Every path that sends all enemies now clears the stored decisions, including the one that returns before taking the lock while filtering is off.

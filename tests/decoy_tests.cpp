@@ -267,20 +267,91 @@ namespace
 	void test_decoy_kick()
 	{
 		static_assert(k_max_decoys_per_viewer == 5);
-		// 0 only logs, however many reports.
-		assert(!decoy_kick_due(50, 50, 0, 0));
-		assert(!decoy_kick_due(1, 1, -1, 0));
-		// Aims and shots count together.
-		assert(!decoy_kick_due(1, 1, 3, 0));
-		assert(decoy_kick_due(2, 1, 3, 0));
-		assert(decoy_kick_due(0, 3, 3, 0));
-		// After a kick at 3 reports, a returning player needs 3 new ones.
-		assert(!decoy_kick_due(2, 1, 3, 3));
-		assert(!decoy_kick_due(3, 2, 3, 3));
-		assert(decoy_kick_due(3, 3, 3, 3));
-		// No overflow at the limits.
-		assert(decoy_kick_due(0xffffffffu, 0xffffffffu, 100, 0));
-		assert(!decoy_kick_due(0xffffffffu, 0xffffffffu, 100, 0x1ffffffffull));
+		// Evidence: real reports beyond twice the control ones.
+		assert(decoy_evidence(0, 0) == 0);
+		assert(decoy_evidence(4, 0) == 4);
+		assert(decoy_evidence(4, 2) == 0);	 // as many coincidences as an honest player
+		assert(decoy_evidence(6, 1) == 4);
+		assert(decoy_evidence(1, 5) == 0);
+		assert(decoy_evidence(0xffffffffffull, 0) == 0xffffffffffull);
+		// 0 only logs, however much evidence.
+		assert(!decoy_kick_due(100, 0, 0));
+		assert(!decoy_kick_due(100, -1, 0));
+		assert(!decoy_kick_due(2, 3, 0));
+		assert(decoy_kick_due(3, 3, 0));
+		// After a kick at evidence 3, a returning player needs 3 more.
+		assert(!decoy_kick_due(5, 3, 3));
+		assert(decoy_kick_due(6, 3, 3));
+		assert(decoy_kick_due(0xffffffffffull, 100, 0));
+	}
+
+	void test_decoy_precision()
+	{
+		// Reports count only after the decoy reached the client for the round
+		// trip plus a reaction, and while it still does.
+		assert(!decoy_delivery_ready(false, 10000.0f, 0.0f));
+		assert(!decoy_delivery_ready(true, k_decoy_reaction_ms - 1.0f, 0.0f));
+		assert(decoy_delivery_ready(true, k_decoy_reaction_ms, 0.0f));
+		assert(!decoy_delivery_ready(true, k_decoy_reaction_ms + 50.0f, 80.0f));
+		assert(decoy_delivery_ready(true, k_decoy_reaction_ms + 80.0f, 80.0f));
+		assert(!decoy_delivery_ready(true, std::nanf(""), 0.0f));
+		assert(decoy_delivery_ready(true, k_decoy_reaction_ms, std::nanf(""))); // unknown latency counts as 0
+		assert(!decoy_delivery_ready(true, k_decoy_reaction_ms + 499.0f, 9999.0f)); // capped at 500 ms
+		assert(decoy_delivery_ready(true, k_decoy_reaction_ms + 500.0f, 9999.0f));
+
+		// An aim that is also on a real player, enemy or teammate, explains itself.
+		const vec3 eye {0, 0, 64};
+		const vec3 decoy {500, 0, 64 - k_decoy_center_height};
+		assert(aim_on_decoy(eye, 0.0f, 0.0f, decoy));
+		const std::vector<vec3> behind_the_decoy {{800, 10, 24}};
+		const std::vector<vec3> elsewhere {{0, 600, 24}, {-500, 0, 24}};
+		assert(aim_on_any_player(eye, 0.0f, 0.0f, behind_the_decoy));
+		assert(!aim_on_any_player(eye, 0.0f, 0.0f, elsewhere));
+		assert(!aim_on_any_player(eye, 0.0f, 0.0f, {}));
+		static_assert(k_decoy_control_one_in >= 2);
+	}
+
+	void test_decoy_view_preference()
+	{
+		// Walls in front (x = 200) and behind (x = -200) the viewer at the origin.
+		std::vector<triangle> walls = wall_at_200();
+		walls.push_back({{-200, -400, -100}, {-200, 400, -100}, {-200, -400, 300}});
+		walls.push_back({{-200, 400, 300}, {-200, -400, 300}, {-200, 400, -100}});
+		const bvh8_data world = decoy_world(walls);
+		decoy_spot_history history;
+		history.record({600, 0, 0});  // in front, farther
+		history.record({-300, 0, 0}); // behind, closer
+		const vec3 eye {0, 0, 64};
+		const std::vector<vec3> players {{0, 0, 0}};
+		const auto choose = [&](float yaw)
+		{
+			vec3 spot {};
+			bool found = false;
+			for (uint32_t seed = 1; seed < 40; ++seed)
+			{
+				vec3 candidate;
+				decoy_spot_query query {eye, {}, players, {}, seed};
+				query.view_yaw_degrees = yaw;
+				if (choose_decoy_spot(world, {}, history, query, candidate))
+				{
+					// Every seed must agree once both spots were tried.
+					spot = candidate;
+					found = true;
+				}
+			}
+			assert(found);
+			return spot;
+		};
+		// Looking along +x: the spot in front wins although it is farther.
+		assert(choose(0.0f).x > 0.0f);
+		assert(choose(350.0f).x > 0.0f);
+		// Looking back: the spot behind is the one on screen.
+		assert(choose(180.0f).x < 0.0f);
+		assert(choose(-170.0f).x < 0.0f);
+		// No view: the closest.
+		assert(choose(std::nanf("")).x < 0.0f);
+		// Looking sideways: neither is on screen, so the closest.
+		assert(choose(90.0f).x < 0.0f);
 	}
 
 } // namespace
@@ -294,4 +365,6 @@ void run_decoy_tests()
 	test_decoy_aim();
 	test_worker_checks_decoys();
 	test_decoy_kick();
+	test_decoy_precision();
+	test_decoy_view_preference();
 }

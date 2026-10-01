@@ -6,7 +6,12 @@
 // and sent to that viewer only, only while the worker proves it hidden from
 // all of his viewing origins. It has no collision, no animation, no sound and
 // no radar entry; in mode 1 it is not rendered at all. Aiming at it for half a
-// second or shooting at it through the wall is logged for moderators.
+// second or shooting at it through the wall is logged for moderators, only
+// while it actually reaches the viewer's client (and a reaction after), never
+// for an aim that was already there or is also on a real player. One decoy in
+// three is a control nobody receives: reports at controls measure the
+// viewer's honest coincidences, and only real reports beyond them count as
+// evidence.
 //
 // Creating entities needs server functions that limited mode does not know,
 // so they are found by byte pattern (addons/cs2glaz/gamedata/
@@ -34,7 +39,7 @@ namespace cs2glaz
 									"Experimental decoys for wallhack users: 0 off, 1 invisible, 2 model drawn behind walls (testing); resets on restart",
 									0, true, 0, true, 2);
 		CConVar<int> cs2glaz_decoy_kick("cs2glaz_decoy_kick", FCVAR_NONE,
-										"Kick a player once his decoy reports (aims and shots through walls) on this map reach this count; 0 only logs",
+										"Kick a player once his decoy evidence on this map (real reports beyond twice his control reports) reaches this; 0 only logs",
 										0, true, 0, true, 100);
 
 		using create_entity_fn = CEntityInstance* (*)(const char*, int);
@@ -455,8 +460,9 @@ namespace cs2glaz
 			{
 				const decoy_slot& slot = decoys_[viewer][index];
 				decoy_transmit_entry& entry = decoy_transmit_[viewer][index];
-				entry = slot.spawned ? decoy_transmit_entry {slot.handle, slot.id, slot.target} : decoy_transmit_entry {};
-				live = live || slot.spawned;
+				const bool real = slot.spawned && !slot.control;
+				entry = real ? decoy_transmit_entry {slot.handle, slot.id, slot.target} : decoy_transmit_entry {};
+				live = live || real;
 			}
 		}
 		uint32_t count = 0;
@@ -552,6 +558,11 @@ namespace cs2glaz
 				living.push_back(player.origin);
 			}
 		}
+		std::array<std::array<decoy_delivery, k_max_decoys_per_viewer>, k_max_players> delivery;
+		{
+			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+			delivery = decoy_delivery_;
+		}
 		uint32_t spawn_budget = k_spawns_per_update;
 		uint32_t candidate_budget = k_candidates_per_update;
 		for (uint32_t viewer_slot = 0; viewer_slot < k_max_players; ++viewer_slot)
@@ -559,13 +570,19 @@ namespace cs2glaz
 			const player_state& viewer = value.players[viewer_slot];
 			const bool eligible = viewer.valid && human_player(viewer_slot);
 			std::vector<vec3> enemies;
+			std::vector<vec3> others; // every other living player, for aims a real player explains
 			for (uint32_t target = 0; eligible && target < k_max_players; ++target)
 			{
 				if (enemies_of(viewer, viewer_slot, target))
 				{
 					enemies.push_back(value.players[target].origin);
 				}
+				if (target != viewer_slot && value.players[target].valid)
+				{
+					others.push_back(value.players[target].origin);
+				}
 			}
+			const float rtt_ms = viewer.rtt_seconds * 1000.0f;
 			const auto too_close = [&](vec3 point)
 			{
 				const auto within = [&](vec3 other, float distance)
@@ -586,8 +603,8 @@ namespace cs2glaz
 					continue;
 				}
 				bool drop = !eligible || !enemies_of(viewer, viewer_slot, slot.target) || now >= slot.expires || too_close(slot.origin);
-				CEntityInstance* entity = slot.spawned ? system->GetEntityInstance(slot.handle) : nullptr;
-				if (slot.spawned && entity == nullptr)
+				CEntityInstance* entity = slot.spawned && !slot.control ? system->GetEntityInstance(slot.handle) : nullptr;
+				if (slot.spawned && !slot.control && entity == nullptr)
 				{
 					// Removed by the game (round restart cleanup).
 					slot = {};
@@ -614,6 +631,14 @@ namespace cs2glaz
 						++decoy_counters_.exposed;
 					}
 				}
+				else if (checked && !slot.spawned && slot.control)
+				{
+					// A control needs no entity: it starts the moment a real one would.
+					slot.spawned = true;
+					slot.spawned_at = now;
+					++decoy_counters_.controls;
+					slot.pause_until = now + std::chrono::milliseconds(k_pause_min_ms + decoy_random(decoy_seed_) % k_pause_spread_ms);
+				}
 				else if (checked && !slot.spawned && spawn_budget > 0)
 				{
 					--spawn_budget;
@@ -628,12 +653,49 @@ namespace cs2glaz
 					else
 					{
 						// A new decoy stands a moment before it starts walking.
+						slot.spawned_at = now;
 						slot.pause_until = now + std::chrono::milliseconds(k_pause_min_ms + decoy_random(decoy_seed_) % k_pause_spread_ms);
 					}
 				}
-				if (!drop && checked && slot.spawned)
+				// Whether it has reached the viewer long enough to be acted on: a
+				// real decoy by what CheckTransmit saw the engine send (outside his
+				// PVS it is not sent, and a wallhack cannot see it), a control as
+				// if it were sent whenever a real one would be.
+				const decoy_delivery& sent = delivery[viewer_slot][index];
+				const bool delivered_now = slot.control || (sent.id == slot.id && now - sent.last_sent <= k_decoy_delivery_gap);
+				const auto delivered_since = slot.control ? slot.spawned_at : sent.first_sent;
+				if (!drop && slot.spawned && !slot.control)
 				{
-					if (aim_on_decoy(viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, slot.origin))
+					const auto last_reached = sent.id == slot.id ? std::max(sent.last_sent, slot.spawned_at) : slot.spawned_at;
+					if (now - last_reached >= k_decoy_undelivered_limit)
+					{
+						// Outside his PVS it reaches nobody: try a spot that is not.
+						drop = true;
+						++decoy_counters_.undelivered;
+					}
+				}
+				const bool aim_on = aim_on_decoy(viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, slot.origin);
+				const bool ready = !drop && checked && slot.spawned
+								   && decoy_delivery_ready(delivered_now, std::chrono::duration<float, std::milli>(now - delivered_since).count(), rtt_ms);
+				if (!ready)
+				{
+					// Not on his screen yet (as far as any cheat could know): a
+					// crosshair already there was put there without it.
+					slot.aimed_before_ready = aim_on;
+				}
+				else if (!aim_on)
+				{
+					slot.aimed_before_ready = false;
+				}
+				slot.ready = ready && !slot.aimed_before_ready;
+				if (!slot.ready)
+				{
+					slot.aim_ms = 0.0f;
+					slot.aim_turn = 0.0f;
+				}
+				else
+				{
+					if (aim_on && !aim_on_any_player(viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others))
 					{
 						const view_sample& before = previous_view[viewer_slot];
 						if (slot.aim_ms > 0.0f && before.valid)
@@ -655,7 +717,7 @@ namespace cs2glaz
 						slot.aim_turn = 0.0f;
 					}
 				}
-				if (!drop && slot.spawned && entity != nullptr && slot.teleport != nullptr)
+				if (!drop && slot.spawned && (slot.control || (entity != nullptr && slot.teleport != nullptr)))
 				{
 					std::vector<vec3> taken;
 					for (const decoy_slot& other : decoys_[viewer_slot])
@@ -701,7 +763,7 @@ namespace cs2glaz
 					}
 					--candidate_budget;
 					vec3 spot;
-					const decoy_spot_query query {viewer.eye, enemies, living, taken, decoy_random(decoy_seed_)};
+					const decoy_spot_query query {viewer.eye, enemies, living, taken, decoy_random(decoy_seed_), viewer.eye_yaw_degrees};
 					if (!choose_decoy_spot(data_, value.occluders, decoy_spots_, query, spot))
 					{
 						continue;
@@ -710,6 +772,7 @@ namespace cs2glaz
 					slot = {};
 					slot.id = ++decoy_next_id_ == 0 ? ++decoy_next_id_ : decoy_next_id_;
 					slot.target = target;
+					slot.control = decoy_random(decoy_seed_) % k_decoy_control_one_in == 0;
 					slot.origin = spot;
 					slot.yaw = static_cast<float>(decoy_random(decoy_seed_) % 360u);
 					slot.expires = now + std::chrono::milliseconds(8000 + decoy_random(decoy_seed_) % 7000u);
@@ -772,6 +835,10 @@ namespace cs2glaz
 		if (dx * dx + dy * dy > 1.0f)
 		{
 			slot.yaw = std::atan2(dy, dx) * 57.29578f;
+		}
+		if (entity == nullptr || slot.teleport == nullptr)
+		{
+			return; // a control walks without an entity
 		}
 		const Vector origin(slot.origin.x, slot.origin.y, slot.origin.z);
 		const QAngle angles(0.0f, slot.yaw, 0.0f);
@@ -839,9 +906,20 @@ namespace cs2glaz
 					{
 						apply_transmit_mode(info->m_pTransmitEntity, info->m_pTransmitAlways, edict, transmit_mode::clear_both);
 					}
+					else if (info->m_pTransmitEntity->IsBitSet(edict))
+					{
+						++decoy_counters_.ticks_sent;
+						decoy_delivery& sent = decoy_delivery_[viewer][index];
+						if (sent.id != entry.id || now - sent.last_sent > k_decoy_delivery_gap)
+						{
+							sent.id = entry.id;
+							sent.first_sent = now;
+						}
+						sent.last_sent = now;
+					}
 					else
 					{
-						info->m_pTransmitEntity->IsBitSet(edict) ? ++decoy_counters_.ticks_sent : ++decoy_counters_.ticks_outside_pvs;
+						++decoy_counters_.ticks_outside_pvs;
 					}
 				}
 			}
@@ -867,11 +945,19 @@ namespace cs2glaz
 		}
 		CGameEntitySystem* system = entity_system();
 		const view_sample& view = last_view_[shooter];
+		std::vector<vec3> others;
+		for (uint32_t player = 0; player < k_max_players; ++player)
+		{
+			if (player != static_cast<uint32_t>(shooter) && result->players[player].valid)
+			{
+				others.push_back(result->players[player].origin);
+			}
+		}
 		for (uint32_t index = 0; index < k_max_decoys_per_viewer; ++index)
 		{
 			decoy_slot& slot = decoys_[shooter][index];
-			if (!slot.spawned || slot.shot_reported || result->decoys[shooter][index].id != slot.id || !result->decoy_hidden[shooter][index]
-				|| !aim_on_decoy(view.eye, view.pitch, view.yaw, slot.origin))
+			if (!slot.spawned || !slot.ready || slot.shot_reported || result->decoys[shooter][index].id != slot.id || !result->decoy_hidden[shooter][index]
+				|| !aim_on_decoy(view.eye, view.pitch, view.yaw, slot.origin) || aim_on_any_player(view.eye, view.pitch, view.yaw, others))
 			{
 				continue;
 			}
@@ -880,23 +966,36 @@ namespace cs2glaz
 		}
 	}
 
-	void plugin::report_decoy(CGameEntitySystem* system, uint32_t viewer, const decoy_slot&, bool shot, float distance)
+	void plugin::report_decoy(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, bool shot, float distance)
 	{
 		const uint64_t xuid = engine_ == nullptr ? 0 : engine_->GetClientXUID(CPlayerSlot(static_cast<int>(viewer)));
 		decoy_player_record& record = decoy_records_[viewer];
 		if (record.xuid != xuid)
 		{
-			record = {xuid, 0, 0, 0};
+			record = {};
+			record.xuid = xuid;
+		}
+		const std::string name = slot_name(system, viewer);
+		if (slot.control)
+		{
+			// Nobody received it: an honest coincidence, logged for the record only.
+			shot ? ++record.control_shots : ++record.control_aims;
+			shot ? ++decoy_counters_.control_shots : ++decoy_counters_.control_aims;
+			write_decoy_log(name, xuid, shot ? "control_shot" : "control_aim", static_cast<int>(distance), record);
+			return;
 		}
 		shot ? ++record.shots : ++record.aims;
 		shot ? ++decoy_counters_.shots : ++decoy_counters_.aims;
-		const std::string name = slot_name(system, viewer);
+		const uint64_t evidence = decoy_evidence(static_cast<uint64_t>(record.aims) + record.shots,
+												 static_cast<uint64_t>(record.control_aims) + record.control_shots);
 		const char* what = shot ? "shot at" : "aimed at";
-		META_CONPRINTF("[CS2GLAZ] decoy: \"%s\" %llu %s a decoy through a wall (%.0f units; this map aims=%u shots=%u) - suspect, check the demo\n",
-					   name.c_str(), static_cast<unsigned long long>(xuid), what, distance, record.aims, record.shots);
+		META_CONPRINTF("[CS2GLAZ] decoy: \"%s\" %llu %s a decoy through a wall (%.0f units; this map aims=%u shots=%u, at controls %u, evidence %llu) "
+					   "- suspect, check the demo\n",
+					   name.c_str(), static_cast<unsigned long long>(xuid), what, distance, record.aims, record.shots,
+					   record.control_aims + record.control_shots, static_cast<unsigned long long>(evidence));
 		write_decoy_log(name, xuid, shot ? "shot" : "aim", static_cast<int>(distance), record);
 		const int threshold = cs2glaz_decoy_kick.Get();
-		if (engine_ == nullptr || !human_player(viewer) || !decoy_kick_due(record.aims, record.shots, threshold, record.reports_at_kick))
+		if (engine_ == nullptr || !human_player(viewer) || !decoy_kick_due(evidence, threshold, record.evidence_at_kick))
 		{
 			return;
 		}
@@ -907,13 +1006,13 @@ namespace cs2glaz
 		{
 			return;
 		}
-		record.reports_at_kick = static_cast<uint64_t>(record.aims) + record.shots;
+		record.evidence_at_kick = evidence;
 		++decoy_counters_.kicks;
 		char command[128] {};
 		std::snprintf(command, sizeof(command), "kickid %d \"%s\"\n", userid, k_decoy_kick_message);
 		engine_->ServerCommand(command);
-		META_CONPRINTF("[CS2GLAZ] decoy: kicked \"%s\" %llu after %u decoy reports on this map (cs2glaz_decoy_kick %d)\n", name.c_str(),
-					   static_cast<unsigned long long>(xuid), record.aims + record.shots, threshold);
+		META_CONPRINTF("[CS2GLAZ] decoy: kicked \"%s\" %llu at decoy evidence %llu on this map (cs2glaz_decoy_kick %d)\n", name.c_str(),
+					   static_cast<unsigned long long>(xuid), static_cast<unsigned long long>(evidence), threshold);
 		write_decoy_log(name, xuid, "kick", static_cast<int>(distance), record);
 	}
 
@@ -930,7 +1029,10 @@ namespace cs2glaz
 		if (log)
 		{
 			log << utc_timestamp() << " map=" << map_ << " player=\"" << name << "\" steamid=" << xuid << " event=" << event << " distance=" << distance
-				<< " aims=" << record.aims << " shots=" << record.shots << "\n";
+				<< " aims=" << record.aims << " shots=" << record.shots << " control_aims=" << record.control_aims
+				<< " control_shots=" << record.control_shots << " evidence="
+				<< decoy_evidence(static_cast<uint64_t>(record.aims) + record.shots, static_cast<uint64_t>(record.control_aims) + record.control_shots)
+				<< "\n";
 		}
 	}
 
@@ -938,12 +1040,13 @@ namespace cs2glaz
 	{
 		const int mode = decoy_mode();
 		uint32_t live = 0;
+		uint32_t controls = 0;
 		uint32_t pending = 0;
 		for (const auto& row : decoys_)
 		{
 			for (const decoy_slot& slot : row)
 			{
-				slot.spawned ? ++live : (slot.id != 0 ? ++pending : 0u);
+				!slot.spawned ? (slot.id != 0 ? ++pending : 0u) : slot.control ? ++controls : ++live;
 			}
 		}
 		decoy_counters counters;
@@ -951,14 +1054,17 @@ namespace cs2glaz
 			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
 			counters = decoy_counters_;
 		}
-		META_CONPRINTF("[CS2GLAZ] decoys mode=%d (%s) %s live=%u pending=%u parked=%zu spots=%zu created=%llu reused=%llu exposed=%llu failed=%llu "
-					   "aims=%llu shots=%llu kicks=%llu (kick after %d, 0 = log only)\n",
+		const auto value = [](uint64_t number) { return static_cast<unsigned long long>(number); };
+		META_CONPRINTF("[CS2GLAZ] decoys mode=%d (%s) %s live=%u controls=%u pending=%u parked=%zu spots=%zu created=%llu reused=%llu exposed=%llu "
+					   "undelivered=%llu failed=%llu\n",
 					   mode, mode == 0 ? "off" : mode == 1 ? "invisible" : "drawn",
-					   !decoy_functions_resolved_ ? "not checked yet" : decoy_functions_.ready ? "ready" : "unavailable", live, pending,
-					   decoy_pool_.size(), decoy_spots_.points().size(), static_cast<unsigned long long>(counters.spawned),
-					   static_cast<unsigned long long>(counters.reused), static_cast<unsigned long long>(counters.exposed), static_cast<unsigned long long>(counters.spawn_failures),
-					   static_cast<unsigned long long>(counters.aims), static_cast<unsigned long long>(counters.shots),
-					   static_cast<unsigned long long>(counters.kicks), cs2glaz_decoy_kick.Get());
+					   !decoy_functions_resolved_ ? "not checked yet" : decoy_functions_.ready ? "ready" : "unavailable", live, controls, pending,
+					   decoy_pool_.size(), decoy_spots_.points().size(), value(counters.spawned), value(counters.reused), value(counters.exposed),
+					   value(counters.undelivered), value(counters.spawn_failures));
+		META_CONPRINTF("[CS2GLAZ] decoy reports since load: aims=%llu shots=%llu; at controls (sent to nobody): aims=%llu shots=%llu over %llu controls; "
+					   "kicks=%llu (kick at evidence %d, 0 = log only)\n",
+					   value(counters.aims), value(counters.shots), value(counters.control_aims), value(counters.control_shots), value(counters.controls),
+					   value(counters.kicks), cs2glaz_decoy_kick.Get());
 		if (decoy_functions_resolved_ && !decoy_functions_.ready)
 		{
 			META_CONPRINTF("[CS2GLAZ] decoys: %s\n", decoy_functions_.error.c_str());
@@ -975,8 +1081,11 @@ namespace cs2glaz
 			const decoy_player_record& record = decoy_records_[slot];
 			if (record.aims + record.shots != 0)
 			{
-				META_CONPRINTF("[CS2GLAZ] decoy suspect: \"%s\" %llu aims=%u shots=%u\n", slot_name(system, slot).c_str(),
-							   static_cast<unsigned long long>(record.xuid), record.aims, record.shots);
+				const uint64_t control = static_cast<uint64_t>(record.control_aims) + record.control_shots;
+				META_CONPRINTF("[CS2GLAZ] decoy suspect: \"%s\" %llu aims=%u shots=%u control_aims=%u control_shots=%u evidence=%llu\n",
+							   slot_name(system, slot).c_str(), static_cast<unsigned long long>(record.xuid), record.aims, record.shots,
+							   record.control_aims, record.control_shots,
+							   static_cast<unsigned long long>(decoy_evidence(static_cast<uint64_t>(record.aims) + record.shots, control)));
 			}
 		}
 	}
