@@ -201,6 +201,8 @@ namespace cs2glaz
 		smoke_seen_.fill({});
 		smoke_layout_failures_ = 0;
 		he_tracked_count_ = 0;
+		grenade_candidates_.clear();
+		grenade_scan_next_ = {};
 		player_bone_cache_.fill({});
 		capture_timing_ = {};
 		bone_timing_ = {};

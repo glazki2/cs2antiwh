@@ -53,6 +53,8 @@ namespace cs2glaz
 	inline constexpr uint8_t k_team_ct = 3;
 	inline constexpr auto k_lifecycle_fail_open = std::chrono::milliseconds(1000);
 	inline constexpr auto k_smoke_copy_interval = std::chrono::milliseconds(100);
+	inline constexpr auto k_grenade_scan_interval = std::chrono::milliseconds(100);
+	inline constexpr size_t k_max_grenade_candidates = 128;
 	inline constexpr auto k_hidden_entity_quarantine = std::chrono::milliseconds(3000);
 	inline constexpr uint32_t k_limited_validation_attempts = 256;
 	static_assert(MAX_EDICTS == 16384);
@@ -479,6 +481,7 @@ namespace cs2glaz
 		std::shared_ptr<const smoke_snapshot> smoke_cache_;
 		std::chrono::steady_clock::time_point smoke_cache_copied_ {};
 		std::vector<std::pair<const void*, float>> smoke_cache_key_;
+		std::vector<std::pair<const void*, float>> smoke_key_scratch_; // reused each tick, no allocation
 		uint32_t smoke_cache_he_count_ {};
 		// Limited mode: the gamedata smoke layout is proven on live smokes first.
 		enum class smoke_layout_state
@@ -511,6 +514,18 @@ namespace cs2glaz
 			bool recorded {}; // its explosion is already in he_clearance_history_
 		};
 		std::array<tracked_grenade, 32> he_tracked_ {};
+		// Smoke and HE projectiles the last full entity scan found. The scan walks
+		// every entity on the map, so it runs every k_grenade_scan_interval; in
+		// between only these are read (a grenade flies for a second or more
+		// before it pops or explodes, far longer than the interval).
+		struct grenade_candidate
+		{
+			CEntityHandle handle;
+			bool smoke {};
+		};
+		std::vector<grenade_candidate> grenade_candidates_;
+		std::chrono::steady_clock::time_point grenade_scan_next_ {};
+		uint64_t grenade_scans_ {};
 		uint32_t he_tracked_count_ {};
 		uint64_t he_tracked_detonations_ {};
 		// HE detonations recorded this map from the hegrenade_detonate event, and

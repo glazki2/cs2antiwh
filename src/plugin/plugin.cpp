@@ -924,6 +924,9 @@ namespace cs2glaz
 					   stats.maximum_ms, age_ms);
 		META_CONPRINTF("[CS2GLAZ] same-tick results: waited=%llu in_time=%llu (cs2glaz_result_wait_ms)\n",
 					   static_cast<unsigned long long>(result_waits_.load()), static_cast<unsigned long long>(result_waits_met_.load()));
+		META_CONPRINTF("[CS2GLAZ] grenade entity scans=%llu (every %lld ms), projectiles followed=%zu\n",
+					   static_cast<unsigned long long>(grenade_scans_), static_cast<long long>(k_grenade_scan_interval.count()),
+					   grenade_candidates_.size());
 		META_CONPRINTF(
 			"[CS2GLAZ] workload pairs=%u visible=%u hidden=%u hold=%u pixels=%u rays=%u nodes=%u triangles=%u cache=%u/%u budget=%llu cycles=%llu\n",
 			stats.evaluated_pairs, stats.visible_pairs, stats.hidden_pairs, stats.hold_reuses, stats.sampled_pixels, stats.traced_rays,

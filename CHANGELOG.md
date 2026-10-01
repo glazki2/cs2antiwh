@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.12
+
+- Less work on the game thread every tick. Finding smoke and HE projectiles walked every entity on the map and compared class names on each tick; the full walk now runs every 100 ms, and in between only the projectiles it found are read by handle. A grenade flies for a second or more before it pops or explodes, so nothing is noticed later than before. `cs2glaz_metrics` shows `grenade entity scans=… projectiles followed=…`.
+- In limited mode, every smoke was re-checked through five `process_vm_readv` system calls on every tick, even on the ticks that reuse the last smoke copy (most of them: a copy lives 100 ms). The check now runs only when a fresh copy is made, which still happens before any of the smoke's storage is read. The list compared against the cached copy is also no longer allocated each tick.
+
 ## 0.7.11
 
 - Hides and reveals a tick sooner. CheckTransmit runs right after the game frame that captured the tick's snapshot, usually before the worker has finished it, so it always used the previous tick's result (`snapshot_age` around 15 ms in `cs2glaz_status`). It now waits for this tick's result, up to `cs2glaz_result_wait_ms` (3 ms by default; 0 is the old behaviour), and only when the previous result took no longer than that, so a slow worker is not waited on every tick. The worker wakes it the moment the result is published. `cs2glaz_metrics` shows `same-tick results: waited=… in_time=…`.

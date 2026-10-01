@@ -282,22 +282,48 @@ namespace cs2glaz
 		std::array<tracked_grenade, 32> grenades {};
 		uint32_t grenade_count = 0;
 		bool grenade_overflow = false;
-		CEntityIdentity* identity = system->m_EntityList.m_pFirstActiveEntity;
-		for (uint32_t scanned = 0; identity != nullptr && scanned < k_entity_scan_hard_limit; identity = identity->m_pNext, ++scanned)
+		if (!want_smokes && !track_he)
 		{
-			CEntityInstance* entity = identity->m_pInstance;
-			const int edict = entity_index(entity);
-			if (!valid_networked_edict_index(edict))
+			grenade_candidates_.clear();
+			he_tracked_count_ = 0;
+			return;
+		}
+		const auto now = std::chrono::steady_clock::now();
+		if (now >= grenade_scan_next_)
+		{
+			grenade_scan_next_ = now + k_grenade_scan_interval;
+			++grenade_scans_;
+			grenade_candidates_.clear();
+			CEntityIdentity* identity = system->m_EntityList.m_pFirstActiveEntity;
+			for (uint32_t scanned = 0; identity != nullptr && scanned < k_entity_scan_hard_limit; identity = identity->m_pNext, ++scanned)
+			{
+				CEntityInstance* entity = identity->m_pInstance;
+				if (!valid_networked_edict_index(entity_index(entity)))
+				{
+					continue;
+				}
+				const char* classname = entity != nullptr && entity->m_pEntity != nullptr ? entity->m_pEntity->GetClassname() : nullptr;
+				const bool smoke = classname != nullptr && std::strcmp(classname, "smokegrenade_projectile") == 0;
+				if ((smoke || (track_he && classname != nullptr && std::strcmp(classname, "hegrenade_projectile") == 0))
+					&& grenade_candidates_.size() < k_max_grenade_candidates)
+				{
+					grenade_candidates_.push_back({entity_handle(entity), smoke});
+				}
+			}
+		}
+		for (const grenade_candidate& candidate : grenade_candidates_)
+		{
+			CEntityInstance* entity = candidate.handle.IsValid() ? system->GetEntityInstance(candidate.handle) : nullptr;
+			if (entity == nullptr)
 			{
 				continue;
 			}
-			const char* classname = entity != nullptr && entity->m_pEntity != nullptr ? entity->m_pEntity->GetClassname() : nullptr;
-			if (classname == nullptr)
+			if (candidate.smoke)
 			{
-				continue;
-			}
-			if (want_smokes && std::strcmp(classname, "smokegrenade_projectile") == 0 && field<bool>(entity, compatibility_.fields().did_smoke_effect))
-			{
+				if (!want_smokes || !field<bool>(entity, compatibility_.fields().did_smoke_effect))
+				{
+					continue;
+				}
 				if (smoke_count < smokes.size())
 				{
 					smokes[smoke_count++] = entity;
@@ -307,7 +333,7 @@ namespace cs2glaz
 					smoke_overflow = true;
 				}
 			}
-			else if (track_he && std::strcmp(classname, "hegrenade_projectile") == 0)
+			else if (track_he)
 			{
 				void* body_component = field<void*>(entity, compatibility_.fields().body_component);
 				void* scene_node = body_component == nullptr ? nullptr : field<void*>(body_component, compatibility_.fields().scene_node);
@@ -744,12 +770,15 @@ namespace cs2glaz
 			smoke_cache_.reset();
 			return true;
 		}
-		std::vector<std::pair<const void*, float>> key;
-		key.reserve(count);
+		// The start time lies inside the projectile itself, so the key is read
+		// directly; the storage behind it is checked (one system call per read in
+		// limited mode) only when a fresh copy is made, not on every tick.
+		std::vector<std::pair<const void*, float>>& key = smoke_key_scratch_;
+		key.clear();
 		for (size_t index = 0; index < count; ++index)
 		{
 			CEntityInstance* entity = entities[index];
-			if (entity == nullptr || (compatibility_.limited() && !smoke_header_readable(entity)))
+			if (entity == nullptr)
 			{
 				return false;
 			}
@@ -790,7 +819,7 @@ namespace cs2glaz
 		}
 		smoke_cache_ = std::make_shared<smoke_snapshot>(std::move(snapshot));
 		smoke_cache_copied_ = now;
-		smoke_cache_key_ = std::move(key);
+		smoke_cache_key_.swap(key);
 		smoke_cache_he_count_ = smoke_cache_->he_clearance_count;
 		value.smokes = smoke_cache_;
 		return true;
