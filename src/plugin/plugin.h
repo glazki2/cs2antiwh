@@ -59,6 +59,8 @@ namespace cs2glaz
 	// A real decoy that has not reached its viewer for this long (outside his
 	// PVS) is moved to another spot.
 	inline constexpr auto k_decoy_undelivered_limit = std::chrono::milliseconds(1500);
+	// Players kept in the since-load decoy records.
+	inline constexpr size_t k_max_decoy_players = 4096;
 	inline constexpr size_t k_max_grenade_candidates = 128;
 	inline constexpr auto k_hidden_entity_quarantine = std::chrono::milliseconds(3000);
 	inline constexpr uint32_t k_limited_validation_attempts = 256;
@@ -206,9 +208,10 @@ namespace cs2glaz
 		vec3 origin;
 		float yaw {};
 		CEntityHandle handle;
-		bool spawned {}; // a control: active (proven hidden once), with no entity
-		// A control: never created and never sent to anyone; reports at it are
-		// the viewer's honest coincidences (k_decoy_control_one_in).
+		bool spawned {};
+		// A control twin (k_decoy_control_one_in): created and walked like the
+		// others but withheld from its viewer too; reports at it are his honest
+		// coincidences.
 		bool control {};
 		std::chrono::steady_clock::time_point spawned_at;
 		std::chrono::steady_clock::time_point expires;
@@ -248,6 +251,7 @@ namespace cs2glaz
 		CEntityHandle handle;
 		uint32_t id {};
 		uint32_t target {};
+		bool control {}; // withheld from everyone, its viewer included
 	};
 
 	// When a decoy reached its viewer: CheckTransmit left it in his list and
@@ -260,14 +264,25 @@ namespace cs2glaz
 		std::chrono::steady_clock::time_point last_sent;
 	};
 
+	// One player's decoy record since the plugin loaded, kept by SteamID64
+	// across maps and reconnects.
 	struct decoy_player_record
 	{
-		uint64_t xuid {};
+		std::string name;
 		uint32_t aims {};
 		uint32_t shots {};
 		uint32_t control_aims {};
 		uint32_t control_shots {};
-		uint64_t evidence_at_kick {}; // decoy_evidence when cs2glaz_decoy_kick last kicked him
+		double real_seconds {};	   // readiness of his real decoys, summed
+		double control_seconds {}; // readiness of his control twins, summed
+		double evidence_at_kick {}; // decoy_evidence when cs2glaz_decoy_kick last kicked him
+		uint32_t kicks {};
+		bool this_map {};
+
+		decoy_exposure exposure() const
+		{
+			return {static_cast<uint64_t>(aims) + shots, static_cast<uint64_t>(control_aims) + control_shots, real_seconds, control_seconds};
+		}
 	};
 
 	struct decoy_counters
@@ -459,8 +474,13 @@ namespace cs2glaz
 		void withhold_decoys(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count, const visibility_result* result,
 							 std::chrono::steady_clock::time_point now);
 		void decoy_weapon_fire(IGameEvent* event);
+		void decoy_bullet_impact(IGameEvent* event);
+		void decoy_shot(uint32_t shooter, vec3 eye, vec3 direction);
+		bool live_view(uint32_t slot, view_sample& view) const;
+		decoy_player_record* decoy_record(uint32_t viewer);
 		void report_decoy(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, bool shot, float distance);
-		void write_decoy_log(const std::string& name, uint64_t xuid, const char* event, int distance, const decoy_player_record& record) const;
+		void write_decoy_log(uint64_t xuid, const char* event, int distance, const decoy_player_record& record) const;
+		void write_decoy_map_summary();
 		void print_decoy_status() const;
 		bool human_player(uint32_t slot) const;
 
@@ -635,10 +655,15 @@ namespace cs2glaz
 		std::chrono::steady_clock::time_point decoy_last_update_ {};
 		uint32_t decoy_next_id_ {};
 		uint32_t decoy_seed_ {0x2545f491u};
-		std::array<decoy_player_record, k_max_players> decoy_records_ {};
+		// Since the plugin loaded: every player's record by SteamID64, and the
+		// whole server's totals (the baseline of honest coincidences).
+		std::unordered_map<uint64_t, decoy_player_record> decoy_players_;
+		decoy_exposure decoy_server_ {};
 		decoy_counters decoy_counters_;
 		std::array<view_sample, k_max_players> last_view_ {};
 		bool weapon_fire_listening_ {};
+		bool bullet_impact_listening_ {};
+		bool bullet_impact_tried_ {};
 	};
 
 	extern plugin g_plugin;

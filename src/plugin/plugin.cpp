@@ -131,6 +131,8 @@ namespace cs2glaz
 		game_events_ = nullptr;
 		he_event_available_ = false;
 		weapon_fire_listening_ = false;
+		bullet_impact_listening_ = false;
+		bullet_impact_tried_ = false;
 		if (game_event_load_hooked_)
 		{
 			game_event_load_hook_.RemoveGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
@@ -190,6 +192,11 @@ namespace cs2glaz
 			decoy_weapon_fire(event);
 			return;
 		}
+		if (event != nullptr && std::strcmp(event->GetName(), "bullet_impact") == 0)
+		{
+			decoy_bullet_impact(event);
+			return;
+		}
 		if (event == nullptr || std::strcmp(event->GetName(), "hegrenade_detonate") != 0)
 		{
 			return;
@@ -221,7 +228,8 @@ namespace cs2glaz
 		// The map's entities, decoys included, go away with it.
 		remove_all_decoys(false);
 		decoy_spots_.clear();
-		decoy_records_ = {};
+		// Records stay (by SteamID, since load); the map's part goes to the log.
+		write_decoy_map_summary();
 		{
 			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
 			decoy_counters_.ticks_sent = 0;

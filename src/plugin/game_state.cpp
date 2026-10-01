@@ -937,6 +937,38 @@ namespace cs2glaz
 		return walk_scene_descendants<k_max_scene_nodes_walked>(child_of(root), next_sibling, child_of, visit);
 	}
 
+	bool plugin::live_view(uint32_t slot, view_sample& view) const
+	{
+		// The same reads as capture, at this moment: for a shot, which happens
+		// between captures.
+		view = {};
+		CGameEntitySystem* system = entity_system();
+		live_player live;
+		if (system == nullptr || slot >= k_max_players)
+		{
+			return false;
+		}
+		player_lifecycle(slot, system, &live);
+		CEntityInstance* pawn_entity = live.pawn;
+		void* body_component = pawn_entity == nullptr ? nullptr : field<void*>(pawn_entity, compatibility_.fields().body_component);
+		void* scene_node = body_component == nullptr ? nullptr : field<void*>(body_component, compatibility_.fields().scene_node);
+		if (scene_node == nullptr)
+		{
+			return false;
+		}
+		const vec3 origin = to_vec3(field<Vector>(scene_node, compatibility_.fields().abs_origin));
+		void* offset = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pawn_entity) + compatibility_.fields().view_offset);
+		const vec3 eye {origin.x + field<float>(offset, compatibility_.fields().view_x), origin.y + field<float>(offset, compatibility_.fields().view_y),
+						origin.z + field<float>(offset, compatibility_.fields().view_z)};
+		const qangle angles = field<qangle>(pawn_entity, compatibility_.fields().eye_angles);
+		if (!std::isfinite(eye.x) || !std::isfinite(eye.y) || !std::isfinite(eye.z) || !std::isfinite(angles.x) || !std::isfinite(angles.y))
+		{
+			return false;
+		}
+		view = {true, eye, angles.x, angles.y};
+		return true;
+	}
+
 	bool plugin::capture_animated_capsules(CEntityInstance* pawn, uint32_t slot, player_state& player, std::chrono::steady_clock::time_point now)
 	{
 		if (pawn == nullptr || slot >= player_bone_cache_.size() || compatibility_.lookup_bone() == nullptr

@@ -566,10 +566,12 @@ namespace cs2glaz
 			for (uint32_t index = 0; index < k_max_decoys_per_viewer; ++index)
 			{
 				const decoy_probe& decoy = current.snapshot.decoys[recipient][index];
-				current.result->decoy_hidden[recipient][index] =
-					decoy.id != 0 && !current.budget_exhausted.load()
-					&& decoy_hidden_from_origins(*data_, current.recipient_origins[recipient], decoy.origin, current.snapshot.occluders,
-												 current.deadline);
+				const decoy_proof proof = decoy.id == 0 || current.budget_exhausted.load()
+											  ? decoy_proof::unproven
+											  : prove_decoy_hidden(*data_, current.recipient_origins[recipient], decoy.origin,
+																   current.snapshot.occluders, current.deadline);
+				current.result->decoy_hidden[recipient][index] = proof == decoy_proof::hidden;
+				current.result->decoy_proven[recipient][index] = proof != decoy_proof::unproven;
 			}
 		}
 		totals.active_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - active_started).count();

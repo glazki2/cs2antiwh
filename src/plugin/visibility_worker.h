@@ -147,6 +147,9 @@ namespace cs2glaz
 		// viewer (only those may be sent to him).
 		std::array<decoy_probe_set, k_max_players> decoys {};
 		bool decoy_hidden[k_max_players][k_max_decoys_per_viewer] {};
+		// The worker reached a verdict (hidden or seen) before its deadline; an
+		// unproven decoy is not sent, but it is not taken as seen either.
+		bool decoy_proven[k_max_players][k_max_decoys_per_viewer] {};
 		// For pairs visible by the hold: the test and origin that started it.
 		uint8_t held_reveal[k_max_players][k_max_players] {};
 		std::array<uint32_t, static_cast<size_t>(visibility_reveal::count)> reveal_counts {};

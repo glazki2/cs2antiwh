@@ -184,6 +184,15 @@ namespace
 		assert(!decoy_hidden_from_origins(wall, origins, {400, 0, 0}, {}, std::chrono::steady_clock::now() - std::chrono::seconds(1)));
 		visibility_origin_points none;
 		assert(!decoy_hidden_from_origins(wall, none, {400, 0, 0}, {}, deadline));
+
+		// The three verdicts: an expired deadline or bad input proves nothing
+		// either way, which is not the same as being seen.
+		assert(prove_decoy_hidden(wall, origins, {400, 0, 0}, {}, deadline) == decoy_proof::hidden);
+		assert(prove_decoy_hidden(wall, origins, {100, 0, 0}, {}, deadline) == decoy_proof::seen);
+		assert(prove_decoy_hidden(wall, origins, {400, 0, 0}, {}, std::chrono::steady_clock::now() - std::chrono::seconds(1))
+			   == decoy_proof::unproven);
+		assert(prove_decoy_hidden(wall, none, {400, 0, 0}, {}, deadline) == decoy_proof::unproven);
+		assert(prove_decoy_hidden(wall, origins, {std::nanf(""), 0, 0}, {}, deadline) == decoy_proof::unproven);
 	}
 
 	void test_decoy_aim()
@@ -256,33 +265,57 @@ namespace
 			result = worker->result();
 		}
 		assert(result != nullptr && result->sequence == 1);
-		assert(result->decoys[0][0].id == 7 && result->decoy_hidden[0][0]);
-		assert(result->decoys[0][1].id == 8 && !result->decoy_hidden[0][1]);
-		assert(!result->decoy_hidden[0][2]);
-		assert(result->decoys[0][4].id == 10 && result->decoy_hidden[0][4]);
-		assert(result->decoys[1][0].id == 9 && !result->decoy_hidden[1][0]);
+		assert(result->decoys[0][0].id == 7 && result->decoy_hidden[0][0] && result->decoy_proven[0][0]);
+		assert(result->decoys[0][1].id == 8 && !result->decoy_hidden[0][1] && result->decoy_proven[0][1]);
+		assert(!result->decoy_hidden[0][2] && !result->decoy_proven[0][2]); // an empty slot proves nothing
+		assert(result->decoys[0][4].id == 10 && result->decoy_hidden[0][4] && result->decoy_proven[0][4]);
+		assert(result->decoys[1][0].id == 9 && !result->decoy_hidden[1][0] && !result->decoy_proven[1][0]);
 		worker->stop();
 	}
 
 	void test_decoy_kick()
 	{
 		static_assert(k_max_decoys_per_viewer == 5);
-		// Evidence: real reports beyond twice the control ones.
-		assert(decoy_evidence(0, 0) == 0);
-		assert(decoy_evidence(4, 0) == 4);
-		assert(decoy_evidence(4, 2) == 0);	 // as many coincidences as an honest player
-		assert(decoy_evidence(6, 1) == 4);
-		assert(decoy_evidence(1, 5) == 0);
-		assert(decoy_evidence(0xffffffffffull, 0) == 0xffffffffffull);
-		// 0 only logs, however much evidence.
-		assert(!decoy_kick_due(100, 0, 0));
-		assert(!decoy_kick_due(100, -1, 0));
-		assert(!decoy_kick_due(2, 3, 0));
-		assert(decoy_kick_due(3, 3, 0));
-		// After a kick at evidence 3, a returning player needs 3 more.
-		assert(!decoy_kick_due(5, 3, 3));
-		assert(decoy_kick_due(6, 3, 3));
-		assert(decoy_kick_due(0xffffffffffull, 100, 0));
+		const decoy_exposure empty_server {};
+		// No data: the prior rate, one coincidence per 500 decoy-seconds.
+		assert(std::fabs(decoy_server_rate(empty_server) - k_decoy_prior_rate) < 1e-12);
+		assert(decoy_expected_reports({}, empty_server) == 0.0);
+		assert(decoy_evidence({}, empty_server) == 0.0);
+		// A player with few coincidences: one report in 300 s of real decoys is
+		// within chance, six are not.
+		const decoy_exposure honest {1, 0, 300.0, 150.0};
+		const decoy_exposure cheater {6, 0, 300.0, 150.0};
+		assert(decoy_evidence(honest, empty_server) == 0.0);
+		const double expected = decoy_expected_reports(cheater, empty_server);
+		assert(expected > 0.1 && expected < 0.25);
+		const double evidence = decoy_evidence(cheater, empty_server);
+		assert(evidence > 4.0 && evidence < 5.0);
+		// A player who often aims where decoys happen to be (his controls say so)
+		// is expected at many real reports too.
+		const decoy_exposure pre_aimer {8, 4, 600.0, 300.0};
+		assert(decoy_expected_reports(pre_aimer, empty_server) > 6.0);
+		assert(decoy_evidence(pre_aimer, empty_server) == 0.0);
+		// The server's controls set the baseline for players with little of
+		// their own.
+		const decoy_exposure busy_server {0, 100, 0.0, 10000.0};
+		assert(decoy_server_rate(busy_server) > 0.009 && decoy_server_rate(busy_server) < 0.01);
+		assert(decoy_expected_reports({0, 0, 100.0, 0.0}, busy_server) > 0.9);
+		assert(decoy_evidence(cheater, busy_server) < evidence);
+		// Ten hours at the honest rate stay at no evidence: the margin grows with
+		// the square root of the expected count.
+		const decoy_exposure long_honest {90, 36, 36000.0, 18000.0};
+		assert(decoy_evidence(long_honest, empty_server) == 0.0);
+		// More real reports, more evidence; more control reports, less.
+		assert(decoy_evidence({7, 0, 300.0, 150.0}, empty_server) > evidence);
+		assert(decoy_evidence({6, 2, 300.0, 150.0}, empty_server) < evidence);
+		// Kicks.
+		assert(!decoy_kick_due(100.0, 0, 0.0));
+		assert(!decoy_kick_due(100.0, -1, 0.0));
+		assert(!decoy_kick_due(2.9, 3, 0.0));
+		assert(decoy_kick_due(3.0, 3, 0.0));
+		assert(!decoy_kick_due(6.4, 3, 3.5));
+		assert(decoy_kick_due(6.5, 3, 3.5));
+		assert(!decoy_kick_due(std::nan(""), 3, 0.0));
 	}
 
 	void test_decoy_precision()
@@ -309,6 +342,19 @@ namespace
 		assert(!aim_on_any_player(eye, 0.0f, 0.0f, elsewhere));
 		assert(!aim_on_any_player(eye, 0.0f, 0.0f, {}));
 		static_assert(k_decoy_control_one_in >= 2);
+
+		// A bullet's direction: from the eye to where it hit, any length. The
+		// impact on the wall in front of the decoy lies on the line to it.
+		assert(direction_on_decoy(eye, {200.0f, 0.0f, 0.0f}, decoy));
+		assert(direction_on_decoy(eye, {0.001f, 0.0f, 0.0f}, decoy));
+		assert(!direction_on_decoy(eye, {200.0f, 60.0f, 0.0f}, decoy));
+		assert(!direction_on_decoy(eye, {-200.0f, 0.0f, 0.0f}, decoy));
+		assert(!direction_on_decoy(eye, {0.0f, 0.0f, 0.0f}, decoy));
+		assert(!direction_on_decoy(eye, {std::nanf(""), 0.0f, 0.0f}, decoy));
+		assert(direction_on_any_player(eye, {200.0f, 4.0f, 0.0f}, behind_the_decoy));
+		assert(!direction_on_any_player(eye, {200.0f, 4.0f, 0.0f}, elsewhere));
+		// The view and the bullet agree for a shot straight ahead.
+		assert(aim_on_decoy(eye, 0.0f, 0.0f, decoy) == direction_on_decoy(eye, view_forward(0.0f, 0.0f), decoy));
 	}
 
 	void test_decoy_view_preference()

@@ -181,18 +181,18 @@ namespace cs2glaz
 		return false;
 	}
 
-	bool decoy_hidden_from_origins(const bvh8_data& data, const visibility_origin_points& origins, vec3 origin,
+	decoy_proof prove_decoy_hidden(const bvh8_data& data, const visibility_origin_points& origins, vec3 origin,
 								   std::span<const visibility_occluder> occluders, std::chrono::steady_clock::time_point deadline)
 	{
 		if (!finite(origin) || origins.count == 0)
 		{
-			return false;
+			return decoy_proof::unproven;
 		}
 		std::array<visibility_capsule, k_visibility_capsule_count> capsules {};
 		const uint32_t capsule_count = visibility_hull_capsules(origin, k_decoy_mins, k_decoy_maxs, capsules);
 		if (capsule_count == 0)
 		{
-			return false;
+			return decoy_proof::unproven;
 		}
 		std::array<vec3, 8> corners {};
 		for (uint32_t index = 0; index < corners.size(); ++index)
@@ -206,23 +206,27 @@ namespace cs2glaz
 			const vec3 eye = origins.points[origin_index];
 			if (std::chrono::steady_clock::now() >= deadline)
 			{
-				return false;
+				return decoy_proof::unproven;
 			}
 			const capsule_query_result body = capsule_visible_from_origin(data, eye, std::span<const visibility_capsule>(capsules.data(), capsule_count),
 																		  nullptr, 0.0f, deadline, nullptr, nullptr, nullptr, occluders);
+			if (body == capsule_query_result::visible)
+			{
+				return decoy_proof::seen;
+			}
 			if (body != capsule_query_result::blocked)
 			{
-				return false;
+				return decoy_proof::unproven;
 			}
 			for (const vec3& corner : corners)
 			{
 				if (!segment_blocked(data, eye, corner).blocked && !occluders_block_segment(occluders, eye, corner))
 				{
-					return false;
+					return decoy_proof::seen;
 				}
 			}
 		}
-		return true;
+		return decoy_proof::hidden;
 	}
 
 	float decoy_follow_degrees(vec3 eye_before, vec3 forward_before, vec3 decoy_before, vec3 eye_now, vec3 forward_now, vec3 decoy_now)
@@ -242,26 +246,27 @@ namespace cs2glaz
 		return {std::cos(pitch) * std::cos(yaw), std::cos(pitch) * std::sin(yaw), -std::sin(pitch)};
 	}
 
-	bool aim_on_any_player(vec3 eye, float pitch_degrees, float yaw_degrees, std::span<const vec3> players)
+	bool direction_on_any_player(vec3 eye, vec3 direction, std::span<const vec3> players)
 	{
-		return std::any_of(players.begin(), players.end(), [&](vec3 player) { return aim_on_decoy(eye, pitch_degrees, yaw_degrees, player); });
+		return std::any_of(players.begin(), players.end(), [&](vec3 player) { return direction_on_decoy(eye, direction, player); });
 	}
 
-	bool aim_on_decoy(vec3 eye, float pitch_degrees, float yaw_degrees, vec3 decoy_origin)
+	bool direction_on_decoy(vec3 eye, vec3 direction, vec3 decoy_origin)
 	{
-		if (!finite(eye) || !finite(decoy_origin) || !std::isfinite(pitch_degrees) || !std::isfinite(yaw_degrees))
+		if (!finite(eye) || !finite(decoy_origin) || !finite(direction))
 		{
 			return false;
 		}
+		const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
 		const vec3 center = body_center(decoy_origin);
 		const vec3 to_center {center.x - eye.x, center.y - eye.y, center.z - eye.z};
 		const float distance = std::sqrt(to_center.x * to_center.x + to_center.y * to_center.y + to_center.z * to_center.z);
-		if (distance < 1.0f)
+		if (distance < 1.0f || !(length > 1.0e-6f) || !std::isfinite(length))
 		{
 			return false;
 		}
-		const vec3 forward = view_forward(pitch_degrees, yaw_degrees);
-		const float cosine = std::clamp((forward.x * to_center.x + forward.y * to_center.y + forward.z * to_center.z) / distance, -1.0f, 1.0f);
+		const float cosine =
+			std::clamp((direction.x * to_center.x + direction.y * to_center.y + direction.z * to_center.z) / (length * distance), -1.0f, 1.0f);
 		const float angle = std::acos(cosine);
 		const float allowed = std::atan2(k_aim_body_radius, distance) + k_aim_tolerance_degrees * k_degrees_to_radians;
 		return angle <= allowed;

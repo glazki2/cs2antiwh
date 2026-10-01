@@ -99,17 +99,37 @@ namespace cs2glaz
 	bool choose_decoy_step(const bvh8_data& data, std::span<const visibility_occluder> occluders, const decoy_spot_history& history,
 						   const decoy_spot_query& query, vec3 from, vec3& next);
 
+	enum class decoy_proof : uint8_t
+	{
+		hidden,	  // hidden from every viewing origin
+		seen,	  // some origin may see part of it
+		unproven, // the deadline came first, or the input was bad
+	};
+
 	// Whether a decoy standing at origin is hidden from every viewing origin:
 	// the exact body test, then padded bounds corners. Smoke does not count.
-	// Anything unproven (deadline, bad input) counts as seen.
-	bool decoy_hidden_from_origins(const bvh8_data& data, const visibility_origin_points& origins, vec3 origin,
+	// Only a hidden decoy may be sent; an unproven one is not sent either, but
+	// it is not proof that the viewer could see it.
+	decoy_proof prove_decoy_hidden(const bvh8_data& data, const visibility_origin_points& origins, vec3 origin,
 								   std::span<const visibility_occluder> occluders, std::chrono::steady_clock::time_point deadline);
+
+	inline bool decoy_hidden_from_origins(const bvh8_data& data, const visibility_origin_points& origins, vec3 origin,
+										  std::span<const visibility_occluder> occluders, std::chrono::steady_clock::time_point deadline)
+	{
+		return prove_decoy_hidden(data, origins, origin, occluders, deadline) == decoy_proof::hidden;
+	}
 
 	vec3 view_forward(float pitch_degrees, float yaw_degrees);
 
-	// Whether the view direction points at a decoy's body: within its angular
-	// size plus a small tolerance.
-	bool aim_on_decoy(vec3 eye, float pitch_degrees, float yaw_degrees, vec3 decoy_origin);
+	// Whether a direction from the eye points at a decoy's body: within its
+	// angular size plus a small tolerance. The direction need not be unit
+	// length: a view (view_forward) or the line to where a bullet hit.
+	bool direction_on_decoy(vec3 eye, vec3 direction, vec3 decoy_origin);
+
+	inline bool aim_on_decoy(vec3 eye, float pitch_degrees, float yaw_degrees, vec3 decoy_origin)
+	{
+		return std::isfinite(pitch_degrees) && std::isfinite(yaw_degrees) && direction_on_decoy(eye, view_forward(pitch_degrees, yaw_degrees), decoy_origin);
+	}
 
 	// How far the aim followed a decoy between two samples that were both on
 	// it, in degrees: the smaller of how much the direction to it turned (the
@@ -118,10 +138,16 @@ namespace cs2glaz
 	// walking straight at it follows nothing.
 	float decoy_follow_degrees(vec3 eye_before, vec3 forward_before, vec3 decoy_before, vec3 eye_now, vec3 forward_now, vec3 decoy_now);
 
-	// Whether the view direction points at any of these players' bodies (feet
-	// origins, the same body as a decoy): an aim on a decoy that is also on a
+	// Whether a direction points at any of these players' bodies (feet origins,
+	// the same body as a decoy): an aim or shot at a decoy that is also at a
 	// player, an enemy he hears or a teammate he follows, proves nothing.
-	bool aim_on_any_player(vec3 eye, float pitch_degrees, float yaw_degrees, std::span<const vec3> players);
+	bool direction_on_any_player(vec3 eye, vec3 direction, std::span<const vec3> players);
+
+	inline bool aim_on_any_player(vec3 eye, float pitch_degrees, float yaw_degrees, std::span<const vec3> players)
+	{
+		return std::isfinite(pitch_degrees) && std::isfinite(yaw_degrees)
+			   && direction_on_any_player(eye, view_forward(pitch_degrees, yaw_degrees), players);
+	}
 
 	// How long a decoy must have reached its viewer's client before his aim or
 	// shot counts: the round trip (the decoy travels to him, his view back) plus
@@ -134,27 +160,66 @@ namespace cs2glaz
 		return delivered_now && std::isfinite(delivered_ms) && delivered_ms >= k_decoy_reaction_ms + std::clamp(std::isfinite(rtt_ms) ? rtt_ms : 0.0f, 0.0f, 500.0f);
 	}
 
-	// One decoy in k_decoy_control_one_in is a control: chosen, walked and
-	// proven hidden like the others but never created, so nobody receives it.
-	// A player's aims and shots at controls are what his honest coincidences
-	// look like; with one control for every two real decoys, an honest player
-	// is expected at about twice as many real reports as control ones.
+	// One decoy in k_decoy_control_one_in is a control: a twin created, placed,
+	// walked and proven hidden like the others, but CheckTransmit withholds it
+	// from its viewer too, so no client ever has it and no cheat can see it.
+	// It is "ready" exactly when a real decoy would be (the engine would have
+	// sent it: same PVS), so a player's reports at controls per second of
+	// readiness are his honest coincidence rate.
 	inline constexpr uint32_t k_decoy_control_one_in = 3;
 
-	// Evidence against a player: real reports beyond twice his control
-	// reports. Zero for an honest player who pre-aims spots as often as decoys
-	// stand on them; a wallhack sees only the real ones.
-	inline uint64_t decoy_evidence(uint64_t real_reports, uint64_t control_reports)
+	// Reports and seconds of readiness (summed over decoys) at real decoys and
+	// at controls, for one player or the whole server.
+	struct decoy_exposure
 	{
-		return real_reports > 2u * control_reports ? real_reports - 2u * control_reports : 0u;
+		uint64_t real_reports {};
+		uint64_t control_reports {};
+		double real_seconds {};
+		double control_seconds {};
+	};
+
+	// Before the server has data: one coincidence per 500 decoy-seconds, as if
+	// seen over 600 control seconds; a player's own controls weigh like 60.
+	inline constexpr double k_decoy_prior_rate = 0.002;
+	inline constexpr double k_decoy_server_prior_seconds = 600.0;
+	inline constexpr double k_decoy_player_prior_seconds = 60.0;
+
+	// The server's honest coincidence rate, reports per decoy-second: every
+	// player's reports at control twins over their readiness, drawn towards
+	// the prior while there is little of it.
+	inline double decoy_server_rate(const decoy_exposure& server)
+	{
+		return (static_cast<double>(server.control_reports) + k_decoy_prior_rate * k_decoy_server_prior_seconds)
+			   / (std::max(server.control_seconds, 0.0) + k_decoy_server_prior_seconds);
 	}
 
-	// Whether a player's evidence on this map reached the kick threshold since
-	// his last kick: a player who comes back is kicked again only after as much
-	// new evidence. 0 or less never kicks.
-	inline bool decoy_kick_due(uint64_t evidence, int threshold, uint64_t evidence_at_last_kick)
+	// Real reports an honest player would be expected to have: his coincidence
+	// rate (his own controls, drawn towards the server's rate when he has little
+	// control time) times his real decoy readiness.
+	inline double decoy_expected_reports(const decoy_exposure& player, const decoy_exposure& server)
 	{
-		return threshold > 0 && evidence >= evidence_at_last_kick + static_cast<uint64_t>(threshold);
+		const double player_rate = (static_cast<double>(player.control_reports) + decoy_server_rate(server) * k_decoy_player_prior_seconds)
+								   / (std::max(player.control_seconds, 0.0) + k_decoy_player_prior_seconds);
+		return player_rate * std::max(player.real_seconds, 0.0);
+	}
+
+	// Evidence against a player: real reports beyond what an honest player
+	// with the same readiness could plausibly have, the expected count plus
+	// three standard deviations (Poisson). An honest player stays at 0 however
+	// long he plays; a wallhack sees only the real decoys.
+	inline double decoy_evidence(const decoy_exposure& player, const decoy_exposure& server)
+	{
+		const double expected = decoy_expected_reports(player, server);
+		const double excess = static_cast<double>(player.real_reports) - expected - 3.0 * std::sqrt(expected);
+		return excess > 0.0 ? excess : 0.0;
+	}
+
+	// Whether a player's evidence reached the kick threshold since his last
+	// kick: a player who comes back is kicked again only after as much new
+	// evidence. 0 or less never kicks.
+	inline bool decoy_kick_due(double evidence, int threshold, double evidence_at_last_kick)
+	{
+		return threshold > 0 && std::isfinite(evidence) && evidence >= evidence_at_last_kick + static_cast<double>(threshold);
 	}
 
 	// Small deterministic generator for spots and lifetimes.

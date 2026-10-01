@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.1
+
+Re-review of the 0.8.0 decoys: the comparison with control decoys was unfair, and the evidence too easy to reach by chance.
+
+- Control decoys are now twins: real props, placed, walked and proven like the others, but CheckTransmit withholds them from their viewer too, so no client ever has one. A twin counts as delivered exactly when the engine would have sent it (same PVS). In 0.8.0 a control had no entity and counted as delivered all the time, while a real decoy behind a wall often was not, so controls collected coincidences for far longer than real decoys did.
+- Evidence counts time, not just reports. Every decoy's seconds of readiness (delivered, or would have been, and the reaction time passed) are summed per player for real decoys and for twins. Expected real reports for an honest player = his coincidence rate (his own twins, drawn towards the whole server's twins while he has little control time; before the server has data, one per 500 decoy-seconds) x his real decoy time. Evidence = real reports - expected - 3 standard deviations, so an honest player stays at 0 however long he plays. With 0.8.0's "real - 2 x control", three real reports and none at controls, which happens to about a third of honest players with three coincidences, already reached evidence 3.
+- Records are kept by SteamID since the plugin loaded, across maps and reconnects, so a wallhack user who gives himself away a little on every map adds up. `cs2glaz_decoy_kick` uses that evidence. Each log line carries `real_seconds`, `control_seconds`, `expected` and `evidence`; at the end of a map every player the decoys met gets an `event=map_summary` line. `cs2glaz_status` shows the server's coincidence rate and the ten players with the most evidence.
+- A worker out of time no longer counts as seeing a decoy: an unproven decoy is not sent that tick, but it stays where it is instead of being removed and counted `exposed`.
+- Shots are checked with the view read at the moment of `weapon_fire` (the last capture is a tick older), and with `bullet_impact`: the line from the eye to where the bullet hit, which catches aimbots that turn only the shot (silent aim). `cs2glaz_status` says whether `bullet_impact` is available.
+
 ## 0.8.0
 
 Decoys: fewer honest players in the log, more chances for a wallhack to give itself away.
