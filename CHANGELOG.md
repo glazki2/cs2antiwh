@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.14
+
+- Re-review fix for 0.7.8 (an enemy who dies while hidden stays hidden until he respawns). Whether he was hidden came from the last decision stored for the pair, and that decision was not updated while the recipient was not being filtered: dead and not filtered as a spectator (the first 2 s after death, 6 s without the observer fields, with no living teammate, or with `cs2glaz_filter_dead 0` or `mp_forcecamera 0`), while the visibility result was stale, or while filtering was off. Such a recipient receives every enemy, so an enemy who died then (often one killed by a teammate the spectator was watching) lost his body on that client although it had been receiving him. Every path that sends all enemies now clears the stored decisions, including the one that returns before taking the lock while filtering is off.
+- Bodies already held stay held while filtering is off (`cs2glaz_enable 0`), until those players respawn, instead of being sent to clients that never had them.
+- README describes the held bodies.
+
 ## 0.7.13
 
 - Decoys: `cs2glaz_decoy_kick N` kicks a player once his decoy reports on this map (aims and shots through walls, counted together, each decoy giving at most one of each) reach `N`; `0`, the default, only logs as before. The kick is a queued `kickid` with a message that does not mention decoys; the log gets an `event=kick` line and `cs2glaz_status` shows `kicks=…`. A player who comes back is kicked again after `N` new reports.

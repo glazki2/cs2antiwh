@@ -141,6 +141,16 @@ namespace cs2glaz
 				}
 			}
 		}
+		dead_hidden_live_.store(std::any_of(dead_hidden_pawns_.begin(), dead_hidden_pawns_.end(), [](const auto& row)
+											{ return std::any_of(row.begin(), row.end(), [](CEntityHandle handle) { return handle.IsValid(); }); }));
+	}
+
+	void plugin::forget_pair_decisions()
+	{
+		for (auto& row : pair_decisions_)
+		{
+			row.fill(pair_decision::none);
+		}
 	}
 
 	// Withholds every entity of a group from one recipient: clears it in both
@@ -188,6 +198,7 @@ namespace cs2glaz
 		{
 			row.fill(CEntityHandle());
 		}
+		dead_hidden_live_.store(false);
 		he_clearance_history_.clear();
 		he_event_detonations_ = 0;
 		he_tracked_detonations_ = 0;
@@ -349,10 +360,17 @@ namespace cs2glaz
 									 const Entity2Networkable_t**, const uint16*, int)
 	{
 		// Decoys are withheld even while filtering is off, until the game thread
-		// removes them.
+		// removes them, and so are enemies who died while hidden, until they
+		// respawn.
 		const bool filtering = settings::current().enable && disabled_reason_.empty();
-		if ((!filtering && !decoys_live_.load()) || infos == nullptr || count <= 0 || count > static_cast<int>(k_max_players)
-			|| transmit_layout_invalid_.load(std::memory_order_relaxed))
+		if (!filtering && !decoys_live_.load() && !dead_hidden_live_.load())
+		{
+			// Everything is sent without the lock being taken: the stored pair
+			// decisions are forgotten on the next pass that takes it.
+			pair_decisions_stale_.store(true);
+			return;
+		}
+		if (infos == nullptr || count <= 0 || count > static_cast<int>(k_max_players) || transmit_layout_invalid_.load(std::memory_order_relaxed))
 		{
 			return;
 		}
@@ -387,9 +405,17 @@ namespace cs2glaz
 		}
 		const auto now = std::chrono::steady_clock::now();
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+		if (pair_decisions_stale_.exchange(false))
+		{
+			forget_pair_decisions();
+		}
 		withhold_decoys(entity_system(), infos, count, result.get(), now);
 		if (!filtering)
 		{
+			// Everything is sent now, so no pair counts as hidden any more; the
+			// dead already held stay held.
+			forget_pair_decisions();
+			withhold_dead_hidden(entity_system(), infos, count);
 			record_timing();
 			return;
 		}
@@ -423,6 +449,8 @@ namespace cs2glaz
 		withhold_dead_hidden(system, infos, count);
 		if (!result || !visibility_snapshot_fresh(result->captured, now) || system == nullptr)
 		{
+			// Failing open sends every enemy: none is hidden from anyone now.
+			forget_pair_decisions();
 			record_timing();
 			return;
 		}
@@ -486,6 +514,11 @@ namespace cs2glaz
 			const bool dead_viewer = !alive_viewer && dead_viewer_sight(*result, static_cast<uint32_t>(slot), team_sight);
 			if (!alive_viewer && !dead_viewer)
 			{
+				// Not filtered (dead and not watching his team yet, or dead-viewer
+				// filtering off): he receives every enemy, so none is hidden from
+				// him. A stale "hidden" would hold back the body of an enemy he
+				// has been receiving.
+				pair_decisions_[slot].fill(pair_decision::none);
 				continue;
 			}
 			if (read_checktransmit_full_update(info, compatibility_.transmit_offsets().full_update_offset))

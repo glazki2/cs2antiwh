@@ -406,6 +406,7 @@ namespace cs2glaz
 									   attached_entity_group& attached) const;
 		bool group_fully_marked(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* bits, const visual_entity_group& group) const;
 		void withhold_dead_hidden(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count);
+		void forget_pair_decisions();
 		template<size_t max_count>
 		void withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
 							const hidden_entity_group<CEntityHandle, max_count>& group);
@@ -549,6 +550,9 @@ namespace cs2glaz
 		// crash it ("CopyExistingEntity: missing client entity"; CS2Fixes keeps
 		// every dead player hidden for this), so it stays hidden until he respawns.
 		std::array<std::array<CEntityHandle, k_max_players>, k_max_players> dead_hidden_pawns_ {};
+		std::atomic<bool> dead_hidden_live_ {}; // any pawn held in dead_hidden_pawns_
+		// CheckTransmit sent everything without updating pair_decisions_.
+		std::atomic<bool> pair_decisions_stale_ {};
 		std::array<target_transmit_cache, k_max_players> transmit_target_cache_;
 		std::array<player_bone_cache, k_max_players> player_bone_cache_;
 		mutable std::mutex transmit_state_mutex_;
