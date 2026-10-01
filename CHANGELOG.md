@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.13
+
+- Decoys: `cs2glaz_decoy_kick N` kicks a player once his decoy reports on this map (aims and shots through walls, counted together, each decoy giving at most one of each) reach `N`; `0`, the default, only logs as before. The kick is a queued `kickid` with a message that does not mention decoys; the log gets an `event=kick` line and `cs2glaz_status` shows `kicks=…`. A player who comes back is kicked again after `N` new reports.
+- Up to 5 decoys per viewer (was 4), one for every hidden enemy in a 5 on 5 match.
+- A decoy's `m_flShadowStrength` is set to 0 when the schema has it, so a drawn decoy (mode 2) casts no shadow past its wall. Mode 1 already draws neither model nor shadow.
+- README explains why a decoy stays a prop rather than posing as a player pawn: the server packs one network copy of each entity per tick for every client, and the plugin can only decide whether an entity reaches a client, not send one client different values.
+
 ## 0.7.12
 
 - Less work on the game thread every tick. Finding smoke and HE projectiles walked every entity on the map and compared class names on each tick; the full walk now runs every 100 ms, and in between only the projectiles it found are read by handle. A grenade flies for a second or more before it pops or explodes, so nothing is noticed later than before. `cs2glaz_metrics` shows `grenade entity scans=… projectiles followed=…`.

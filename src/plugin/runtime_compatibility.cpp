@@ -583,6 +583,7 @@ namespace cs2glaz
 		decoy_schema_available_ = optional(fields_.render_mode, "CBaseModelEntity", "m_nRenderMode")
 								  && optional(fields_.render_color, "CBaseModelEntity", "m_clrRender")
 								  && optional(fields_.model_collision, "CBaseModelEntity", "m_Collision");
+		shadow_strength_available_ = optional(fields_.shadow_strength, "CBaseModelEntity", "m_flShadowStrength");
 		const auto field_anywhere = [&](uint32_t& target, const char* class_name, const char* field_name)
 		{ return resolve_field(schema, class_name, field_name, target) || resolve_global_field(schema, class_name, field_name, target); };
 		collision_attribute_available_ = optional(fields_.collision_attribute, "CCollisionProperty", "m_collisionAttribute")

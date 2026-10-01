@@ -244,6 +244,8 @@ namespace
 		viewer.capsule_count = visibility_hull_capsules(viewer.origin, viewer.mins, viewer.maxs, viewer.capsules);
 		snapshot.decoys[0][0] = {7, {400, 0, 0}};
 		snapshot.decoys[0][1] = {8, {100, 0, 0}};
+		// The fifth slot: one decoy per hidden enemy in a 5 on 5 match.
+		snapshot.decoys[0][4] = {10, {400, 0, 0}};
 		// A dead viewer's decoys are never proven hidden.
 		snapshot.decoys[1][0] = {9, {400, 0, 0}};
 		worker->submit(snapshot, 0, {});
@@ -257,8 +259,28 @@ namespace
 		assert(result->decoys[0][0].id == 7 && result->decoy_hidden[0][0]);
 		assert(result->decoys[0][1].id == 8 && !result->decoy_hidden[0][1]);
 		assert(!result->decoy_hidden[0][2]);
+		assert(result->decoys[0][4].id == 10 && result->decoy_hidden[0][4]);
 		assert(result->decoys[1][0].id == 9 && !result->decoy_hidden[1][0]);
 		worker->stop();
+	}
+
+	void test_decoy_kick()
+	{
+		static_assert(k_max_decoys_per_viewer == 5);
+		// 0 only logs, however many reports.
+		assert(!decoy_kick_due(50, 50, 0, 0));
+		assert(!decoy_kick_due(1, 1, -1, 0));
+		// Aims and shots count together.
+		assert(!decoy_kick_due(1, 1, 3, 0));
+		assert(decoy_kick_due(2, 1, 3, 0));
+		assert(decoy_kick_due(0, 3, 3, 0));
+		// After a kick at 3 reports, a returning player needs 3 new ones.
+		assert(!decoy_kick_due(2, 1, 3, 3));
+		assert(!decoy_kick_due(3, 2, 3, 3));
+		assert(decoy_kick_due(3, 3, 3, 3));
+		// No overflow at the limits.
+		assert(decoy_kick_due(0xffffffffu, 0xffffffffu, 100, 0));
+		assert(!decoy_kick_due(0xffffffffu, 0xffffffffu, 100, 0x1ffffffffull));
 	}
 
 } // namespace
@@ -271,4 +293,5 @@ void run_decoy_tests()
 	test_decoy_hidden_proof();
 	test_decoy_aim();
 	test_worker_checks_decoys();
+	test_decoy_kick();
 }

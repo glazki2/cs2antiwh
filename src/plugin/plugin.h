@@ -241,6 +241,7 @@ namespace cs2glaz
 		uint64_t xuid {};
 		uint32_t aims {};
 		uint32_t shots {};
+		uint64_t reports_at_kick {}; // aims + shots when cs2glaz_decoy_kick last kicked him
 	};
 
 	struct decoy_counters
@@ -257,6 +258,7 @@ namespace cs2glaz
 		uint64_t spawn_failures {};
 		uint64_t aims {};
 		uint64_t shots {};
+		uint64_t kicks {};
 	};
 
 	struct view_sample
@@ -427,6 +429,7 @@ namespace cs2glaz
 							 std::chrono::steady_clock::time_point now);
 		void decoy_weapon_fire(IGameEvent* event);
 		void report_decoy(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, bool shot, float distance);
+		void write_decoy_log(const std::string& name, uint64_t xuid, const char* event, int distance, const decoy_player_record& record) const;
 		void print_decoy_status() const;
 		bool human_player(uint32_t slot) const;
 

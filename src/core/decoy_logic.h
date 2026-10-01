@@ -24,7 +24,8 @@
 namespace cs2glaz
 {
 
-	inline constexpr uint32_t k_max_decoys_per_viewer = 4;
+	// One per hidden enemy in a 5 on 5 match.
+	inline constexpr uint32_t k_max_decoys_per_viewer = 5;
 	inline constexpr uint32_t k_max_decoy_spots = 4096;
 	inline constexpr vec3 k_decoy_mins {-16.0f, -16.0f, 0.0f};
 	inline constexpr vec3 k_decoy_maxs {16.0f, 16.0f, 72.0f};
@@ -107,6 +108,16 @@ namespace cs2glaz
 	// through a still crosshair, a crosshair sweeping over a still decoy, or
 	// walking straight at it follows nothing.
 	float decoy_follow_degrees(vec3 eye_before, vec3 forward_before, vec3 decoy_before, vec3 eye_now, vec3 forward_now, vec3 decoy_now);
+
+	// Whether a player's decoy reports on this map (aims and shots through a
+	// wall, each decoy reporting each kind at most once) reach the kick
+	// threshold since his last kick: a player who comes back is kicked again
+	// only after as many new reports. 0 or less never kicks.
+	inline bool decoy_kick_due(uint32_t aims, uint32_t shots, int threshold, uint64_t reports_at_last_kick)
+	{
+		const uint64_t reports = static_cast<uint64_t>(aims) + shots;
+		return threshold > 0 && reports >= reports_at_last_kick + static_cast<uint64_t>(threshold);
+	}
 
 	// Small deterministic generator for spots and lifetimes.
 	inline uint32_t decoy_random(uint32_t& state)

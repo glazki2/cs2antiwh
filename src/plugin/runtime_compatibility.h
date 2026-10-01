@@ -63,6 +63,7 @@ namespace cs2glaz
 		uint32_t beam_end_width {};
 		uint32_t render_color {};
 		uint32_t render_mode {};
+		uint32_t shadow_strength {};
 		uint32_t model_collision {};
 		uint32_t collision_attribute {};
 		uint32_t interacts_as {};
@@ -293,6 +294,11 @@ namespace cs2glaz
 			return collision_attribute_available_;
 		}
 
+		bool shadow_strength_available() const
+		{
+			return shadow_strength_available_;
+		}
+
 		uint8_t render_none_value() const
 		{
 			return static_cast<uint8_t>(render_none_value_);
@@ -348,6 +354,7 @@ namespace cs2glaz
 		bool debug_beam_schema_available_ {};
 		bool decoy_schema_available_ {};
 		bool collision_attribute_available_ {};
+		bool shadow_strength_available_ {};
 		int render_none_value_ {-1};
 		bool scene_hierarchy_schema_available_ {};
 		bool smoke_gamedata_available_ {};

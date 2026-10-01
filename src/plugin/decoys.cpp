@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <fstream>
@@ -32,6 +33,9 @@ namespace cs2glaz
 		CConVar<int> cs2glaz_decoys("cs2glaz_decoys", FCVAR_NONE,
 									"Experimental decoys for wallhack users: 0 off, 1 invisible, 2 model drawn behind walls (testing); resets on restart",
 									0, true, 0, true, 2);
+		CConVar<int> cs2glaz_decoy_kick("cs2glaz_decoy_kick", FCVAR_NONE,
+										"Kick a player once his decoy reports (aims and shots through walls) on this map reach this count; 0 only logs",
+										0, true, 0, true, 100);
 
 		using create_entity_fn = CEntityInstance* (*)(const char*, int);
 		using dispatch_spawn_fn = void (*)(CEntityInstance*, void*);
@@ -65,6 +69,8 @@ namespace cs2glaz
 		// Dropped when a real enemy or its viewer comes this close.
 		constexpr float k_decoy_enemy_drop = 200.0f;
 		constexpr float k_decoy_viewer_drop = 128.0f;
+		// Shown to a kicked player; it names no decoy, so it teaches a cheat nothing.
+		constexpr const char* k_decoy_kick_message = "Kicked by the server anti-cheat";
 
 
 #if defined(_WIN32)
@@ -283,6 +289,11 @@ namespace cs2glaz
 				field<uint64_t>(attribute, fields.interacts_with) = 0;
 			}
 			field<int32_t>(entity, fields.health) = k_decoy_health;
+			if (compatibility_.shadow_strength_available())
+			{
+				// No shadow either, which a drawn model (mode 2) could cast past its wall.
+				field<float>(entity, fields.shadow_strength) = 0.0f;
+			}
 			if (mode == 1)
 			{
 				field<uint8_t>(entity, fields.render_mode) = compatibility_.render_none_value();
@@ -875,7 +886,7 @@ namespace cs2glaz
 		decoy_player_record& record = decoy_records_[viewer];
 		if (record.xuid != xuid)
 		{
-			record = {xuid, 0, 0};
+			record = {xuid, 0, 0, 0};
 		}
 		shot ? ++record.shots : ++record.aims;
 		shot ? ++decoy_counters_.shots : ++decoy_counters_.aims;
@@ -883,6 +894,31 @@ namespace cs2glaz
 		const char* what = shot ? "shot at" : "aimed at";
 		META_CONPRINTF("[CS2GLAZ] decoy: \"%s\" %llu %s a decoy through a wall (%.0f units; this map aims=%u shots=%u) - suspect, check the demo\n",
 					   name.c_str(), static_cast<unsigned long long>(xuid), what, distance, record.aims, record.shots);
+		write_decoy_log(name, xuid, shot ? "shot" : "aim", static_cast<int>(distance), record);
+		const int threshold = cs2glaz_decoy_kick.Get();
+		if (engine_ == nullptr || !human_player(viewer) || !decoy_kick_due(record.aims, record.shots, threshold, record.reports_at_kick))
+		{
+			return;
+		}
+		// Queued as a console command, so the client leaves at a safe point of the
+		// frame, never inside this event or the transmit hook.
+		const int userid = engine_->GetPlayerUserId(CPlayerSlot(static_cast<int>(viewer))).Get();
+		if (userid < 0)
+		{
+			return;
+		}
+		record.reports_at_kick = static_cast<uint64_t>(record.aims) + record.shots;
+		++decoy_counters_.kicks;
+		char command[128] {};
+		std::snprintf(command, sizeof(command), "kickid %d \"%s\"\n", userid, k_decoy_kick_message);
+		engine_->ServerCommand(command);
+		META_CONPRINTF("[CS2GLAZ] decoy: kicked \"%s\" %llu after %u decoy reports on this map (cs2glaz_decoy_kick %d)\n", name.c_str(),
+					   static_cast<unsigned long long>(xuid), record.aims + record.shots, threshold);
+		write_decoy_log(name, xuid, "kick", static_cast<int>(distance), record);
+	}
+
+	void plugin::write_decoy_log(const std::string& name, uint64_t xuid, const char* event, int distance, const decoy_player_record& record) const
+	{
 		if (api_ == nullptr)
 		{
 			return;
@@ -893,8 +929,8 @@ namespace cs2glaz
 		std::ofstream log(directory / "decoys.log", std::ios::app);
 		if (log)
 		{
-			log << utc_timestamp() << " map=" << map_ << " player=\"" << name << "\" steamid=" << xuid << " event=" << (shot ? "shot" : "aim")
-				<< " distance=" << static_cast<int>(distance) << " aims=" << record.aims << " shots=" << record.shots << "\n";
+			log << utc_timestamp() << " map=" << map_ << " player=\"" << name << "\" steamid=" << xuid << " event=" << event << " distance=" << distance
+				<< " aims=" << record.aims << " shots=" << record.shots << "\n";
 		}
 	}
 
@@ -916,12 +952,13 @@ namespace cs2glaz
 			counters = decoy_counters_;
 		}
 		META_CONPRINTF("[CS2GLAZ] decoys mode=%d (%s) %s live=%u pending=%u parked=%zu spots=%zu created=%llu reused=%llu exposed=%llu failed=%llu "
-					   "aims=%llu shots=%llu\n",
+					   "aims=%llu shots=%llu kicks=%llu (kick after %d, 0 = log only)\n",
 					   mode, mode == 0 ? "off" : mode == 1 ? "invisible" : "drawn",
 					   !decoy_functions_resolved_ ? "not checked yet" : decoy_functions_.ready ? "ready" : "unavailable", live, pending,
 					   decoy_pool_.size(), decoy_spots_.points().size(), static_cast<unsigned long long>(counters.spawned),
 					   static_cast<unsigned long long>(counters.reused), static_cast<unsigned long long>(counters.exposed), static_cast<unsigned long long>(counters.spawn_failures),
-					   static_cast<unsigned long long>(counters.aims), static_cast<unsigned long long>(counters.shots));
+					   static_cast<unsigned long long>(counters.aims), static_cast<unsigned long long>(counters.shots),
+					   static_cast<unsigned long long>(counters.kicks), cs2glaz_decoy_kick.Get());
 		if (decoy_functions_resolved_ && !decoy_functions_.ready)
 		{
 			META_CONPRINTF("[CS2GLAZ] decoys: %s\n", decoy_functions_.error.c_str());
