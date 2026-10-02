@@ -37,8 +37,9 @@ namespace cs2glaz
 	{
 
 		CConVar<int> cs2glaz_decoys("cs2glaz_decoys", FCVAR_NONE,
-									"Experimental decoys for wallhack users: 0 off, 1 invisible, 2 model drawn behind walls (testing); resets on restart",
-									0, true, 0, true, 2);
+									"Experimental decoys for wallhack users: 0 off, 1 invisible, 2 model drawn behind walls (testing), 3 invisible and only "
+									"for watched players (CSVILKA detections, cs2glaz_suspect); resets on restart",
+									0, true, 0, true, 3);
 		CConVar<int> cs2glaz_decoy_kick("cs2glaz_decoy_kick", FCVAR_NONE,
 										"Kick a player once his decoy evidence (real reports beyond an honest player's, judged by control twins) reaches this; 0 only logs",
 										0, true, 0, true, 100);
@@ -142,7 +143,13 @@ namespace cs2glaz
 
 	int plugin::decoy_mode() const
 	{
-		return std::clamp(cs2glaz_decoys.Get(), 0, 2);
+		return std::clamp(cs2glaz_decoys.Get(), 0, 3);
+	}
+
+	int plugin::decoy_entity_mode() const
+	{
+		const int mode = decoy_mode();
+		return mode == 0 ? 0 : (mode == 2 ? 2 : 1);
 	}
 
 	bool plugin::human_player(uint32_t slot) const
@@ -392,7 +399,7 @@ namespace cs2glaz
 		{
 			// Parked for the next decoy while there is room; withheld from everyone
 			// meanwhile.
-			const int mode = decoy_mode();
+			const int mode = decoy_entity_mode();
 			if (decoy_functions_.ready && mode != 0 && slot.teleport != nullptr && decoy_pool_.size() < k_decoy_pool_size
 				&& decoy_graveyard_.size() + decoy_pool_.size() < decoy_graveyard_transmit_.size())
 			{
@@ -572,10 +579,33 @@ namespace cs2glaz
 		}
 		uint32_t spawn_budget = k_spawns_per_update;
 		uint32_t candidate_budget = k_candidates_per_update;
-		for (uint32_t viewer_slot = 0; viewer_slot < k_max_players; ++viewer_slot)
+		// Watched players (CSVILKA detections, cs2glaz_suspect) come first for the
+		// shared spawn and candidate budgets and pick new decoys on every update;
+		// in mode 3 they are the only ones with decoys.
+		const int entity_mode = decoy_entity_mode();
+		const bool watched_only = mode == 3;
+		csvilka_bridge();
+		std::array<bool, k_max_players> watched {};
+		std::array<uint32_t, k_max_players> order {};
+		uint32_t ordered = 0;
+		for (uint32_t pass = 0; pass < 2; ++pass)
+		{
+			for (uint32_t slot = 0; slot < k_max_players; ++slot)
+			{
+				if (pass == 0)
+				{
+					watched[slot] = value.players[slot].valid && is_suspect(slot, now);
+				}
+				if (watched[slot] == (pass == 0))
+				{
+					order[ordered++] = slot;
+				}
+			}
+		}
+		for (const uint32_t viewer_slot : order)
 		{
 			const player_state& viewer = value.players[viewer_slot];
-			const bool eligible = viewer.valid && human_player(viewer_slot);
+			const bool eligible = viewer.valid && human_player(viewer_slot) && (!watched_only || watched[viewer_slot]);
 			std::vector<vec3> enemies;
 			std::vector<vec3> others; // every other living player, for aims a real player explains
 			for (uint32_t target = 0; eligible && target < k_max_players; ++target)
@@ -655,7 +685,7 @@ namespace cs2glaz
 					const int pawn_index = value.players[slot.target].pawn_entity;
 					CEntityInstance* pawn = pawn_index > 0 ? system->GetEntityInstance(CEntityIndex(pawn_index)) : nullptr;
 					const std::string model = entity_model_name(pawn);
-					if (!spawn_decoy(system, slot, model, mode))
+					if (!spawn_decoy(system, slot, model, entity_mode))
 					{
 						++decoy_counters_.spawn_failures;
 						drop = true;
@@ -761,7 +791,7 @@ namespace cs2glaz
 			{
 				break;
 			}
-			if (eligible && slow_tick && fresh && result->players[viewer_slot].valid)
+			if (eligible && (slow_tick || watched[viewer_slot]) && fresh && result->players[viewer_slot].valid)
 			{
 				for (uint32_t target = 0; target < k_max_players && candidate_budget > 0; ++target)
 				{
@@ -1095,9 +1125,33 @@ namespace cs2glaz
 					   static_cast<unsigned long long>(exposure.real_reports), exposure.real_seconds,
 					   static_cast<unsigned long long>(exposure.control_reports), exposure.control_seconds, expected, evidence);
 		write_decoy_log(xuid, shot ? "shot" : "aim", static_cast<int>(distance), *record);
+		// CSVILKA weighs it together with its own checks and punishes by its own
+		// rules: every whole point of new evidence goes to it.
+		if (evidence >= 1.0 && std::floor(evidence) > record->evidence_reported)
+		{
+			if (anticheat_bridge::csvilka* partner = csvilka_bridge(); partner != nullptr)
+			{
+				anticheat_bridge::decoy_evidence shared {};
+				decoy_evidence_for(xuid, shared);
+				record->evidence_reported = std::floor(evidence);
+				++csvilka_reports_;
+				write_decoy_log(xuid, "reported_to_csvilka", -1, *record);
+				partner->report_decoy_evidence(static_cast<int>(viewer), xuid, shared);
+			}
+		}
 		const int threshold = cs2glaz_decoy_kick.Get();
 		if (!human_player(viewer) || !decoy_kick_due(evidence, threshold, record->evidence_at_kick))
 		{
+			return;
+		}
+		if (anticheat_bridge::csvilka* partner = csvilka_bridge(); partner != nullptr && partner->is_whitelisted(xuid))
+		{
+			// Never punished, by either plugin; counted like a kick so the line
+			// comes once per threshold.
+			record->evidence_at_kick = evidence;
+			META_CONPRINTF("[CS2GLAZ] decoy: \"%s\" %llu reached decoy evidence %.1f but is on CSVILKA's whitelist: not kicked\n",
+						   record->name.c_str(), static_cast<unsigned long long>(xuid), evidence);
+			write_decoy_log(xuid, "whitelisted", -1, *record);
 			return;
 		}
 		// Queued as a console command, so the client leaves at a safe point of the
@@ -1180,7 +1234,7 @@ namespace cs2glaz
 		const auto value = [](uint64_t number) { return static_cast<unsigned long long>(number); };
 		META_CONPRINTF("[CS2GLAZ] decoys mode=%d (%s) %s live=%u controls=%u pending=%u parked=%zu spots=%zu created=%llu reused=%llu exposed=%llu "
 					   "undelivered=%llu failed=%llu\n",
-					   mode, mode == 0 ? "off" : mode == 1 ? "invisible" : "drawn",
+					   mode, mode == 0 ? "off" : mode == 1 ? "invisible" : mode == 2 ? "drawn" : "invisible, watched players only",
 					   !decoy_functions_resolved_ ? "not checked yet" : decoy_functions_.ready ? "ready" : "unavailable", live, controls, pending,
 					   decoy_pool_.size(), decoy_spots_.points().size(), value(counters.spawned), value(counters.reused), value(counters.exposed),
 					   value(counters.undelivered), value(counters.spawn_failures));
@@ -1229,6 +1283,7 @@ namespace cs2glaz
 						   record.control_shots, exposure.control_seconds, decoy_expected_reports(exposure, decoy_server_),
 						   decoy_evidence(exposure, decoy_server_), record.kicks);
 		}
+		print_bridge_status();
 	}
 
 } // namespace cs2glaz

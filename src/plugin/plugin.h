@@ -4,6 +4,7 @@
 // its modules. Live engine objects stay with game-thread/CheckTransmit callers;
 // the worker receives copied snapshots, and uncertain state must fail open.
 
+#include "anticheat_bridge.h"
 #include "automatic_baker.h"
 #include "lifecycle_guard.h"
 #include "map_source.h"
@@ -276,6 +277,7 @@ namespace cs2glaz
 		double real_seconds {};	   // readiness of his real decoys, summed
 		double control_seconds {}; // readiness of his control twins, summed
 		double evidence_at_kick {}; // decoy_evidence when cs2glaz_decoy_kick last kicked him
+		double evidence_reported {}; // whole evidence last reported to CSVILKA
 		uint32_t kicks {};
 		bool this_map {};
 
@@ -321,6 +323,14 @@ namespace cs2glaz
 		bool Unload(char* error, size_t max_length) override;
 
 		void AllPluginsLoaded() override {}
+		// The bridge with CSVILKA (bridge.cpp, anticheat_bridge.h).
+		void* OnMetamodQuery(const char* iface, int* ret) override;
+		void OnPluginLoad(PluginId id) override;
+		void OnPluginUnload(PluginId id) override;
+		void mark_suspect(uint64_t xuid, float seconds, const char* reason, const char* source);
+		bool filtering_active_now() const;
+		bool decoy_evidence_for(uint64_t xuid, anticheat_bridge::decoy_evidence& evidence) const;
+		void suspect_command(const CCommand& args);
 
 		void OnLevelInit(char const* map_name, char const*, char const*, char const*, bool, bool) override;
 		void OnLevelShutdown() override;
@@ -461,6 +471,7 @@ namespace cs2glaz
 							visibility_snapshot& value);
 		bool teammates_are_enemies() const;
 		int decoy_mode() const;
+		int decoy_entity_mode() const; // how a decoy entity is drawn: 1 not at all, 2 drawn (testing)
 		void resolve_decoy_functions();
 		void update_decoys(CGameEntitySystem* system, visibility_snapshot& value, std::chrono::steady_clock::time_point now);
 		bool spawn_decoy(CGameEntitySystem* system, decoy_slot& slot, const std::string& model, int mode);
@@ -664,6 +675,23 @@ namespace cs2glaz
 		bool weapon_fire_listening_ {};
 		bool bullet_impact_listening_ {};
 		bool bullet_impact_tried_ {};
+		// CSVILKA, found through Metamod and forgotten when it unloads; players it
+		// (or an administrator) asked to watch, by SteamID64. Main thread only.
+		struct suspect_entry
+		{
+			std::chrono::steady_clock::time_point expires;
+			std::string reason;
+			std::string source;
+		};
+		anticheat_bridge::csvilka* csvilka_bridge(bool force = false);
+		bool is_suspect(uint32_t slot, std::chrono::steady_clock::time_point now) const;
+		void print_bridge_status() const;
+		anticheat_bridge::csvilka* csvilka_ {};
+		PluginId csvilka_id_ {};
+		std::chrono::steady_clock::time_point csvilka_next_search_ {};
+		std::unordered_map<uint64_t, suspect_entry> suspects_;
+		uint64_t csvilka_reports_ {};
+		uint64_t suspects_marked_ {};
 	};
 
 	extern plugin g_plugin;

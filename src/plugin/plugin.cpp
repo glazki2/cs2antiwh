@@ -388,6 +388,7 @@ namespace cs2glaz
 	{
 		poll_automatic_bake();
 		finish_limited_validation(true);
+		csvilka_bridge(true);
 	}
 
 	void plugin::finish_limited_validation(bool simulating)
@@ -501,7 +502,8 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_why [name|slot] - Why each enemy is or is not sent, from every viewing origin.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_props [radius] - Solid entities near each player and whether they block sight.\n");
 		META_CONPRINTF("[CS2GLAZ] runtime switches (reset on restart): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
-					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2), cs2glaz_decoy_kick.\n");
+					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2/3), cs2glaz_decoy_kick.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_suspect [steamid64|slot|name] [minutes] - Watch a player first with decoys (CSVILKA does it on its detections).\n");
 	}
 
 	void plugin::check_update()

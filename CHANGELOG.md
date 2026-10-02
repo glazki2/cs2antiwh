@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0
+
+CS2GLAZ and [CSVILKA](https://github.com/glazki2/CS2VILKA), a server anti-cheat, now help each other when both are loaded.
+
+- A bridge through Metamod (`src/plugin/anticheat_bridge.h`, the same file in both projects): each plugin answers `OnMetamodQuery` for its own interface and finds the other with `MetaFactory`, in any load order, and forgets it in `OnPluginUnload`. Only plain numbers and strings cross it, on the main thread. Without CSVILKA nothing changes.
+- Decoy evidence goes to CSVILKA as the `ESP` detection every time it rises by a whole point, with its numbers; CSVILKA logs it, reports it and weighs it with its own detections under its own rules. The decoy log gets `event=reported_to_csvilka`.
+- CSVILKA's detections, and Steam ban history it finds, put a player under watch for its confirmation window: his decoys are created first and picked every update instead of every 250 ms. `cs2glaz_decoys 3` gives invisible decoys only to watched players. `cs2glaz_suspect` watches a player by hand (SteamID64, slot or part of a name; minutes, 0 stops) and lists the watched ones.
+- `cs2glaz_decoy_kick` never kicks a player on CSVILKA's whitelist.
+- `cs2glaz_status` shows the bridge and the watched players.
+
 ## 0.8.1
 
 Re-review of the 0.8.0 decoys: the comparison with control decoys was unfair, and the evidence too easy to reach by chance.

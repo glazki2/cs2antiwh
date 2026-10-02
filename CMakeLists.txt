@@ -213,6 +213,7 @@ set(CS2GLAZ_PLUGIN_SOURCES
 
   # src/plugin
   "${CMAKE_SOURCE_DIR}/src/plugin/automatic_baker.cpp"
+  "${CMAKE_SOURCE_DIR}/src/plugin/bridge.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/decoys.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/game_state.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/occluders.cpp"
