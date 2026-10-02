@@ -10,6 +10,7 @@
 #include "rtti_check.h"
 #include "smoke_layout_check.h"
 #include "smoke_occlusion.h"
+#include "transmit_journal.h"
 #include "transmit_masks.h"
 #include "visibility_sampling.h"
 #include "visibility_worker.h"
@@ -19,6 +20,7 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <initializer_list>
 #include <iostream>
@@ -1396,6 +1398,95 @@ namespace
 		}
 	};
 
+	void test_transmit_journal()
+	{
+		auto journal = std::make_unique<recipient_journal>();
+		quick_resend_counts quick;
+		transmit_words primary {};
+		transmit_words second {};
+		const auto describe = [](uint16_t index, uint16_t& serial, char* classname)
+		{
+			serial = static_cast<uint16_t>(index + 1);
+			std::snprintf(classname, sizeof(journal_event::classname), "entity_%u", index);
+		};
+		const auto set = [](transmit_words& words, int index, bool value)
+		{
+			const uint32_t bit = uint32_t {1} << (index & 31);
+			words[static_cast<size_t>(index) >> 5] = value ? (words[static_cast<size_t>(index) >> 5] | bit) : (words[static_cast<size_t>(index) >> 5] & ~bit);
+		};
+		// The first snapshot only primes the comparison.
+		set(primary, 203, true);
+		set(second, 300, true);
+		assert(journal_finish(*journal, primary.data(), second.data(), false, 1.0, describe, quick) == 0);
+		assert(journal->primed && journal->count == 0);
+		// 203 was in his snapshot (primary) and is withheld now; 300 (second
+		// list) too; 500 never reached him and is withheld: no event for it.
+		set(primary, 203, false);
+		set(second, 300, false);
+		journal_mark(*journal, 203, withhold_reason::decoy);
+		journal_mark(*journal, 300, withhold_reason::enemy_item);
+		journal_mark(*journal, 500, withhold_reason::enemy_pawn);
+		journal_mark(*journal, 203, withhold_reason::enemy_pawn); // the first reason stays
+		assert(journal_finish(*journal, primary.data(), second.data(), false, 2.0, describe, quick) == 2);
+		const journal_event& first = journal_event_at(*journal, 1);
+		const journal_event& last = journal_event_at(*journal, 0);
+		assert(first.kind == journal_event_kind::withheld && first.index == 203 && first.reason == withhold_reason::decoy);
+		assert(first.serial == 204 && std::strcmp(first.classname, "entity_203") == 0);
+		assert(last.kind == journal_event_kind::withheld && last.index == 300 && last.reason == withhold_reason::enemy_item);
+		// Still withheld: nothing new.
+		journal_mark(*journal, 203, withhold_reason::decoy);
+		journal_mark(*journal, 300, withhold_reason::enemy_item);
+		journal_mark(*journal, 500, withhold_reason::enemy_pawn);
+		assert(journal_finish(*journal, primary.data(), second.data(), false, 2.1, describe, quick) == 0);
+		// 203 goes back 0.15 s after it was taken: a quick re-send of a decoy.
+		// 500 (never sent before) reaches him: sent after being withheld.
+		set(primary, 203, true);
+		set(primary, 500, true);
+		journal_mark(*journal, 300, withhold_reason::enemy_item);
+		assert(journal_finish(*journal, primary.data(), second.data(), false, 2.15, describe, quick) == 2);
+		const journal_event& back = journal_event_at(*journal, 1);
+		assert(back.kind == journal_event_kind::sent_again && back.index == 203 && back.reason == withhold_reason::decoy);
+		assert(std::fabs(back.withheld_ms - 150.0) < 0.01);
+		const journal_event& entered = journal_event_at(*journal, 0);
+		assert(entered.kind == journal_event_kind::sent_again && entered.index == 500 && entered.withheld_ms < 0.0);
+		assert(quick.decoys == 1 && quick.players == 0 && quick.items == 0 && quick.other == 0);
+		// 300 goes back after 2 s: not quick.
+		set(second, 300, true);
+		assert(journal_finish(*journal, primary.data(), second.data(), false, 4.0, describe, quick) == 1);
+		assert(journal_event_at(*journal, 0).index == 300 && journal_event_at(*journal, 0).withheld_ms > 1900.0);
+		assert(quick.items == 0);
+		// A full update: one event, and nothing before it matches his client.
+		set(primary, 203, false);
+		journal_mark(*journal, 203, withhold_reason::decoy);
+		assert(journal_finish(*journal, primary.data(), second.data(), true, 5.0, describe, quick) == 1);
+		assert(journal_event_at(*journal, 0).kind == journal_event_kind::full_update);
+		set(primary, 203, true);
+		assert(journal_finish(*journal, primary.data(), second.data(), false, 5.05, describe, quick) == 1);
+		assert(journal_event_at(*journal, 0).kind == journal_event_kind::sent_again && journal_event_at(*journal, 0).withheld_ms < 0.0);
+		assert(quick.decoys == 1);
+		// The ring keeps the newest k_journal_events.
+		for (size_t round = 0; round < k_journal_events; ++round)
+		{
+			set(primary, 203, false);
+			journal_mark(*journal, 203, withhold_reason::enemy_pawn);
+			journal_finish(*journal, primary.data(), second.data(), false, 10.0 + static_cast<double>(round), describe, quick);
+			set(primary, 203, true);
+			journal_finish(*journal, primary.data(), second.data(), false, 10.5 + static_cast<double>(round), describe, quick);
+		}
+		assert(journal->count == k_journal_events);
+		assert(journal_event_at(*journal, 0).kind == journal_event_kind::sent_again);
+		assert(std::fabs(journal_event_at(*journal, 0).withheld_ms - 500.0) < 0.01);
+		assert(quick.players == 0);
+		// Out-of-range marks are ignored; missing lists unprime.
+		journal_mark(*journal, -1, withhold_reason::decoy);
+		journal_mark(*journal, 16384, withhold_reason::decoy);
+		assert(journal->mark_count == 0);
+		assert(journal_finish(*journal, nullptr, second.data(), false, 9999.0, describe, quick) == 0 && !journal->primed);
+		journal_reset(*journal);
+		assert(journal->count == 0 && journal->xuid == 0 && !journal->primed);
+		assert(std::strcmp(withhold_reason_name(withhold_reason::decoy_control), "control decoy") == 0);
+	}
+
 	void test_checktransmit_private_offsets()
 	{
 		uint32_t value {};
@@ -1873,6 +1964,7 @@ void run_visibility_and_transmit_tests()
 	test_visual_group_key();
 	test_pair_guard();
 	test_checktransmit_private_offsets();
+	test_transmit_journal();
 	test_hidden_entity_group();
 }
 

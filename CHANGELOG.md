@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1
+
+A client crashed again with `FATAL ERROR: CopyExistingEntity: missing client entity 203` (drawn decoys, bots, one human). The dump shows it failed while applying the delta from snapshot 648749 to 648758, which changed 8 entities: the server sent a change of entity 203, which the client no longer had. With the bots stopped and the player in the menu, walking decoys were among the few entities changing every tick. Which entity 203 was cannot be read from a minidump, and decoys were on in all three dumps with this error, so this release makes the next one identifiable and takes away the decoy pattern the engine handles worst.
+
+- Transmit journal. For every recipient CS2GLAZ now records what it took from his client (an entity he had that it withheld) and what it gave back (sent again after being withheld, and after how many milliseconds), with the entity's class, serial and the reason: hidden enemy, his item, attached to him, enemy who died hidden, decoy, control decoy, parked decoy. Entities a client never had are not recorded. It keeps the last 512 changes per player for the map.
+- When a player times out (`NETWORK_DISCONNECT_TIMEDOUT`, which is how a crashed client looks to the server), the journal of his last minute is printed to the server console, one line per entity, newest first.
+- `cs2glaz_entity N`: what entity N is now (class, serial, and whether it is a decoy, a parked decoy, or part of a player's body) and its journal across all players.
+- `cs2glaz_metrics`: `sent again within 300 ms of being withheld`, per kind (players, items, decoys). A client may still be acknowledging the snapshot that took an entity away; sending it back then is the case CS2's delta encoding handles worst.
+- Decoys reach their viewer in one unbroken run. A decoy already sent stays sent for up to 250 ms without a fresh proof (the worker out of time used to withhold it for that tick and send it again on the next one); when it is withheld (proven seen, its enemy in view, its viewer gone, the 250 ms over), its run is over and it is retired, never sent to that client again. `cs2glaz_status` shows `runs ended` and the ticks sent without a fresh proof.
+- A parked decoy entity is reused only after a second withheld from everyone, the longest parked first. It used to be the most recently parked, often in the same tick it was taken from its viewer, teleported and sent to him again moments later.
+- README: what to do after a client crash, and why decoys should stay off on servers with real players until this is settled.
+
 ## 0.9.0
 
 CS2GLAZ and [CSVILKA](https://github.com/glazki2/CS2VILKA), a server anti-cheat, now help each other when both are loaded.

@@ -400,6 +400,48 @@ namespace
 		assert(choose(90.0f).x < 0.0f);
 	}
 
+	void test_decoy_one_run()
+	{
+		// Not sent yet: only a fresh proof starts a run.
+		decoy_delivery_state state;
+		assert(!decoy_may_deliver(state));
+		state.proven_hidden = true;
+		assert(decoy_may_deliver(state));
+		// A proof that it is seen, its enemy in view, or the viewer gone stop it.
+		for (int reason = 0; reason < 3; ++reason)
+		{
+			decoy_delivery_state stopped = state;
+			stopped.proven_exposed = reason == 0;
+			stopped.target_visible = reason == 1;
+			stopped.viewer_gone = reason == 2;
+			assert(!decoy_may_deliver(stopped));
+		}
+		// Running: a moment without a fresh proof keeps it, up to the latch.
+		decoy_delivery_state running;
+		running.running = true;
+		running.unproven_ms = 0.0f;
+		assert(decoy_may_deliver(running));
+		running.unproven_ms = k_decoy_latch_ms;
+		assert(decoy_may_deliver(running));
+		running.unproven_ms = k_decoy_latch_ms + 1.0f;
+		assert(!decoy_may_deliver(running));
+		running.unproven_ms = std::nanf("");
+		assert(!decoy_may_deliver(running));
+		// The latch never outlasts a fresh "seen".
+		running.unproven_ms = 10.0f;
+		running.proven_exposed = true;
+		assert(!decoy_may_deliver(running));
+		// A run that ended is over even with a new proof: the decoy is retired.
+		decoy_delivery_state ended;
+		ended.ended = true;
+		ended.proven_hidden = true;
+		assert(!decoy_may_deliver(ended));
+		// The latch is shorter than the reuse quarantine, which outlasts any
+		// acknowledgement round trip the delivery check accepts.
+		static_assert(k_decoy_latch_ms < k_decoy_reuse_quarantine_ms);
+		static_assert(k_decoy_reuse_quarantine_ms >= 2.0f * 500.0f);
+	}
+
 } // namespace
 
 void run_decoy_tests()
@@ -413,4 +455,5 @@ void run_decoy_tests()
 	test_decoy_kick();
 	test_decoy_precision();
 	test_decoy_view_preference();
+	test_decoy_one_run();
 }

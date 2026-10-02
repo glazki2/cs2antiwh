@@ -133,6 +133,7 @@ namespace cs2glaz
 		weapon_fire_listening_ = false;
 		bullet_impact_listening_ = false;
 		bullet_impact_tried_ = false;
+		disconnect_listening_ = false;
 		if (game_event_load_hooked_)
 		{
 			game_event_load_hook_.RemoveGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
@@ -195,6 +196,11 @@ namespace cs2glaz
 		if (event != nullptr && std::strcmp(event->GetName(), "bullet_impact") == 0)
 		{
 			decoy_bullet_impact(event);
+			return;
+		}
+		if (event != nullptr && std::strcmp(event->GetName(), "player_disconnect") == 0)
+		{
+			journal_disconnect(event);
 			return;
 		}
 		if (event == nullptr || std::strcmp(event->GetName(), "hegrenade_detonate") != 0)
@@ -501,6 +507,8 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_check_update - Check for an update now instead of waiting.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_why [name|slot] - Why each enemy is or is not sent, from every viewing origin.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_props [radius] - Solid entities near each player and whether they block sight.\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_entity <index> - What entity N is and when CS2GLAZ withheld it from or sent it again to each player "
+					   "(for a client crash \"CopyExistingEntity: missing client entity N\").\n");
 		META_CONPRINTF("[CS2GLAZ] runtime switches (reset on restart): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
 					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2/3), cs2glaz_decoy_kick.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_suspect [steamid64|slot|name] [minutes] - Watch a player first with decoys (CSVILKA does it on its detections).\n");
@@ -706,6 +714,10 @@ namespace cs2glaz
 		if (!he_event_available_ && game_events_ != nullptr)
 		{
 			he_event_available_ = game_events_->AddListener(this, "hegrenade_detonate", true);
+		}
+		if (!disconnect_listening_ && game_events_ != nullptr)
+		{
+			disconnect_listening_ = game_events_->AddListener(this, "player_disconnect", true);
 		}
 		INetworkGameServer* network_server = g_pNetworkServerService == nullptr ? nullptr : g_pNetworkServerService->GetIGameServer();
 		if (network_server == nullptr)
@@ -913,8 +925,10 @@ namespace cs2glaz
 		transmit_decision_stats transmit_decisions;
 		uint32_t capsule_players = 0;
 		uint32_t capsule_failed_players = 0;
+		quick_resend_counts quick_resends;
 		{
 			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+			quick_resends = quick_resends_;
 			capture_timing = capture_timing_;
 			bone_timing = bone_timing_;
 			transmit_timing = transmit_timing_;
@@ -965,6 +979,7 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] transmit latest=%.3fms average=%.3fms maximum=%.3fms calls=%llu\n", transmit_timing.latest_ms,
 					   transmit_timing.average_ms(), transmit_timing.maximum_ms, static_cast<unsigned long long>(transmit_timing.calls));
 		print_transmit_decisions("map", transmit_decisions);
+		print_quick_resends("map", quick_resends);
 		print_radar_filter();
 		const bool smoke_available = result != nullptr ? result->smoke_available : compatibility_.smoke_available();
 		META_CONPRINTF("[CS2GLAZ] smoke enabled=%d available=%d captured=%u he_listener=%d he_active=%u\n",

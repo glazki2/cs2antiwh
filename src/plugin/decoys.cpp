@@ -316,10 +316,19 @@ namespace cs2glaz
 		CEntityInstance* entity = nullptr;
 		void* teleport = nullptr;
 		bool reused = false;
-		while (entity == nullptr && !decoy_pool_.empty())
+		const auto now = std::chrono::steady_clock::now();
+		const auto quarantine = std::chrono::duration<float, std::milli>(k_decoy_reuse_quarantine_ms);
+		while (entity == nullptr)
 		{
-			parked_decoy parked = std::move(decoy_pool_.back());
-			decoy_pool_.pop_back();
+			// The longest parked first, and only once no client can still be
+			// taking it in (k_decoy_reuse_quarantine_ms).
+			const auto ready = std::find_if(decoy_pool_.begin(), decoy_pool_.end(), [&](const parked_decoy& parked) { return now - parked.parked_at >= quarantine; });
+			if (ready == decoy_pool_.end())
+			{
+				break;
+			}
+			parked_decoy parked = std::move(*ready);
+			decoy_pool_.erase(ready);
 			CEntityInstance* candidate = system->GetEntityInstance(parked.handle);
 			if (candidate == nullptr)
 			{
@@ -403,7 +412,7 @@ namespace cs2glaz
 			if (decoy_functions_.ready && mode != 0 && slot.teleport != nullptr && decoy_pool_.size() < k_decoy_pool_size
 				&& decoy_graveyard_.size() + decoy_pool_.size() < decoy_graveyard_transmit_.size())
 			{
-				decoy_pool_.push_back({slot.handle, slot.teleport, slot.model, mode});
+				decoy_pool_.push_back({slot.handle, slot.teleport, slot.model, mode, std::chrono::steady_clock::now()});
 			}
 			else
 			{
@@ -708,6 +717,12 @@ namespace cs2glaz
 				const decoy_delivery& sent = delivery[viewer_slot][index];
 				const bool delivered_now = sent.id == slot.id && now - sent.last_sent <= k_decoy_delivery_gap;
 				const auto delivered_since = sent.first_sent;
+				if (!drop && slot.spawned && sent.id == slot.id && sent.ended)
+				{
+					// Its one run reached its end: it never goes to this client again.
+					drop = true;
+					++decoy_counters_.runs_ended;
+				}
 				if (!drop && slot.spawned)
 				{
 					const auto last_reached = sent.id == slot.id ? std::max(sent.last_sent, slot.spawned_at) : slot.spawned_at;
@@ -926,15 +941,15 @@ namespace cs2glaz
 			{
 				continue;
 			}
+			int slot = -1;
+			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
 			for (uint32_t index = 0; index < decoy_graveyard_count_; ++index)
 			{
 				if (removed[index] >= 0)
 				{
-					apply_transmit_mode(info->m_pTransmitEntity, info->m_pTransmitAlways, removed[index], transmit_mode::clear_both);
+					withhold_entity(slot, info->m_pTransmitEntity, info->m_pTransmitAlways, removed[index], withhold_reason::decoy_parked);
 				}
 			}
-			int slot = -1;
-			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
 			for (uint32_t viewer = 0; viewer < k_max_players; ++viewer)
 			{
 				for (uint32_t index = 0; index < k_max_decoys_per_viewer; ++index)
@@ -945,9 +960,29 @@ namespace cs2glaz
 						continue;
 					}
 					const decoy_transmit_entry& entry = decoy_transmit_[viewer][index];
-					const bool allowed = slot == static_cast<int>(viewer) && fresh && result->decoys[viewer][index].id == entry.id
-										 && result->decoy_hidden[viewer][index] && result->players[viewer].valid && entry.target < k_max_players
-										 && !result->visible[viewer][entry.target];
+					const withhold_reason reason = entry.control ? withhold_reason::decoy_control : withhold_reason::decoy;
+					if (slot != static_cast<int>(viewer) || entry.target >= k_max_players)
+					{
+						// Another viewer's decoy: nobody else ever receives it.
+						withhold_entity(slot, info->m_pTransmitEntity, info->m_pTransmitAlways, edict, reason);
+						continue;
+					}
+					decoy_delivery& sent = decoy_delivery_[viewer][index];
+					if (sent.id != entry.id)
+					{
+						sent = {};
+						sent.id = entry.id;
+					}
+					const bool same = fresh && result->decoys[viewer][index].id == entry.id;
+					decoy_delivery_state state;
+					state.proven_hidden = same && result->decoy_hidden[viewer][index];
+					state.proven_exposed = same && result->decoy_proven[viewer][index] && !result->decoy_hidden[viewer][index];
+					state.viewer_gone = fresh && !result->players[viewer].valid;
+					state.target_visible = fresh && result->visible[viewer][entry.target];
+					state.running = sent.first_sent != std::chrono::steady_clock::time_point {} && !sent.ended;
+					state.ended = sent.ended;
+					state.unproven_ms = std::chrono::duration<float, std::milli>(now - sent.last_proven).count();
+					const bool allowed = decoy_may_deliver(state);
 					if (allowed && info->m_pTransmitEntity->IsBitSet(edict))
 					{
 						// The engine packed it for its viewer: a real decoy reaches his
@@ -956,18 +991,27 @@ namespace cs2glaz
 						if (!entry.control)
 						{
 							++decoy_counters_.ticks_sent;
+							decoy_counters_.latched_ticks += state.proven_hidden ? 0u : 1u;
 						}
-						decoy_delivery& sent = decoy_delivery_[viewer][index];
-						if (sent.id != entry.id || now - sent.last_sent > k_decoy_delivery_gap)
+						if (sent.first_sent == std::chrono::steady_clock::time_point {})
 						{
-							sent.id = entry.id;
 							sent.first_sent = now;
 						}
 						sent.last_sent = now;
+						if (state.proven_hidden)
+						{
+							sent.last_proven = now;
+						}
 					}
-					else if (allowed && !entry.control)
+					else
 					{
-						++decoy_counters_.ticks_outside_pvs;
+						if (allowed && !entry.control)
+						{
+							++decoy_counters_.ticks_outside_pvs;
+						}
+						// A run that stops here is over: the decoy never reaches this
+						// client again and is retired on the next update.
+						sent.ended = sent.ended || state.running;
 					}
 					// Bits are only ever cleared. Setting one for an entity the engine
 					// did not pack this frame makes the client fail with "CopyExistingEntity:
@@ -975,7 +1019,7 @@ namespace cs2glaz
 					// for its viewer: no client ever has it.
 					if (!allowed || entry.control)
 					{
-						apply_transmit_mode(info->m_pTransmitEntity, info->m_pTransmitAlways, edict, transmit_mode::clear_both);
+						withhold_entity(slot, info->m_pTransmitEntity, info->m_pTransmitAlways, edict, reason);
 					}
 				}
 			}
@@ -1245,9 +1289,11 @@ namespace cs2glaz
 		if (mode != 0)
 		{
 			// A decoy reaches its viewer only while the engine counts it in his PVS.
-			META_CONPRINTF("[CS2GLAZ] decoy transmit ticks this map: sent=%llu outside_pvs=%llu (outside the PVS a decoy is not sent); shots from "
-						   "the view at weapon_fire%s\n",
-						   value(counters.ticks_sent), value(counters.ticks_outside_pvs),
+			META_CONPRINTF("[CS2GLAZ] decoy transmit ticks this map: sent=%llu (of them without a fresh proof, kept for at most %.0f ms: %llu) "
+						   "outside_pvs=%llu (outside the PVS a decoy is not sent); runs ended=%llu (each decoy reaches its viewer in one run, "
+						   "then is retired); shots from the view at weapon_fire%s\n",
+						   value(counters.ticks_sent), k_decoy_latch_ms, value(counters.latched_ticks), value(counters.ticks_outside_pvs),
+						   value(counters.runs_ended),
 						   bullet_impact_listening_ ? " and bullet_impact" : (bullet_impact_tried_ ? " (bullet_impact unavailable)" : ""));
 		}
 		// The server's honest coincidences: what every player's real reports are

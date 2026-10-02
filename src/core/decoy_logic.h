@@ -160,6 +160,40 @@ namespace cs2glaz
 		return delivered_now && std::isfinite(delivered_ms) && delivered_ms >= k_decoy_reaction_ms + std::clamp(std::isfinite(rtt_ms) ? rtt_ms : 0.0f, 0.0f, 500.0f);
 	}
 
+	// Each decoy reaches its viewer's client in one unbroken run at most. Once
+	// it has been sent, a moment without a fresh proof (the worker out of time,
+	// a late result) does not take it away for up to k_decoy_latch_ms; when it
+	// does go (proven seen, its enemy in view, the viewer gone, the latch
+	// over), the run is over for good and the decoy is retired. A client that
+	// lost an entity a moment ago may still be acknowledging the snapshot that
+	// took it, and sending it back then is exactly what CS2's delta encoding
+	// handles worst; an entity that leaves once never comes back that way.
+	inline constexpr float k_decoy_latch_ms = 250.0f;
+
+	struct decoy_delivery_state
+	{
+		bool proven_hidden {};	// a fresh result for this decoy proves it hidden
+		bool proven_exposed {}; // a fresh result for this decoy proves it seen
+		bool viewer_gone {};	// a fresh result has the viewer dead or gone
+		bool target_visible {}; // a fresh result has its enemy in the viewer's sight
+		bool running {};		// it has been sent and its run has not ended
+		bool ended {};			// its run is over
+		float unproven_ms {};	// since the last fresh proof while running
+	};
+
+	inline bool decoy_may_deliver(const decoy_delivery_state& state)
+	{
+		if (state.ended || state.viewer_gone || state.target_visible || state.proven_exposed)
+		{
+			return false;
+		}
+		return state.proven_hidden || (state.running && std::isfinite(state.unproven_ms) && state.unproven_ms <= k_decoy_latch_ms);
+	}
+
+	// A parked decoy entity is used again only after it has been withheld from
+	// everyone this long.
+	inline constexpr float k_decoy_reuse_quarantine_ms = 1000.0f;
+
 	// One decoy in k_decoy_control_one_in is a control: a twin created, placed,
 	// walked and proven hidden like the others, but CheckTransmit withholds it
 	// from its viewer too, so no client ever has it and no cheat can see it.

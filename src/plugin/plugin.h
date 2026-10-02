@@ -11,6 +11,7 @@
 #include "runtime_compatibility.h"
 #include "settings.h"
 #include "smoke_layout_check.h"
+#include "transmit_journal.h"
 #include "transmit_masks.h"
 #include "updater.h"
 #include "visibility_worker.h"
@@ -184,6 +185,7 @@ namespace cs2glaz
 	bool valid_networked_edict_index(int index);
 	int resolve_entity_index(CGameEntitySystem* system, CEntityHandle handle);
 	void print_transmit_decisions(const char* scope, const transmit_decision_stats& stats);
+	void print_quick_resends(const char* scope, const quick_resend_counts& counts);
 	// cs2glaz_filter_dead: dead players only get what their living team sees.
 	bool filter_dead_players_requested();
 	bool cs2glaz_filter_full_updates_value();
@@ -244,6 +246,7 @@ namespace cs2glaz
 		void* teleport {};
 		std::string model;
 		int mode {};
+		std::chrono::steady_clock::time_point parked_at; // reused only k_decoy_reuse_quarantine_ms later
 	};
 
 	// What CheckTransmit needs about a live decoy; guarded by the transmit lock.
@@ -256,13 +259,16 @@ namespace cs2glaz
 	};
 
 	// When a decoy reached its viewer: CheckTransmit left it in his list and
-	// the engine had it there (inside his PVS). A gap longer than
-	// k_decoy_delivery_gap starts a new run. Guarded by the transmit lock.
+	// the engine had it there (inside his PVS). It reaches him in one run at
+	// most (decoy_may_deliver); when the run ends, the decoy is retired.
+	// Guarded by the transmit lock.
 	struct decoy_delivery
 	{
 		uint32_t id {};
 		std::chrono::steady_clock::time_point first_sent;
 		std::chrono::steady_clock::time_point last_sent;
+		std::chrono::steady_clock::time_point last_proven; // last fresh proof while running
+		bool ended {};									   // its one run is over (decoy_may_deliver)
 	};
 
 	// One player's decoy record since the plugin loaded, kept by SteamID64
@@ -306,6 +312,8 @@ namespace cs2glaz
 		uint64_t control_aims {};
 		uint64_t control_shots {};
 		uint64_t undelivered {}; // real decoys moved after the engine kept them from their viewer
+		uint64_t latched_ticks {}; // sent through a moment without a fresh proof (k_decoy_latch_ms)
+		uint64_t runs_ended {};	   // retired because their one run reached its end
 	};
 
 	struct view_sample
@@ -331,6 +339,8 @@ namespace cs2glaz
 		bool filtering_active_now() const;
 		bool decoy_evidence_for(uint64_t xuid, anticheat_bridge::decoy_evidence& evidence) const;
 		void suspect_command(const CCommand& args);
+		// The transmit journal (journal.cpp, transmit_journal.h).
+		void entity_command(const CCommand& args);
 
 		void OnLevelInit(char const* map_name, char const*, char const*, char const*, bool, bool) override;
 		void OnLevelShutdown() override;
@@ -463,8 +473,17 @@ namespace cs2glaz
 		void withhold_dead_hidden(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count);
 		void forget_pair_decisions();
 		template<size_t max_count>
-		void withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
-							const hidden_entity_group<CEntityHandle, max_count>& group);
+		void withhold_group(CGameEntitySystem* system, int recipient, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
+							const hidden_entity_group<CEntityHandle, max_count>& group, withhold_reason reason);
+		// Clears an entity in both lists of one recipient and notes it in his
+		// journal when anything was set. Transmit lock held.
+		bool withhold_entity(int recipient, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list, int index, withhold_reason reason);
+		void apply_check_transmit(CCheckTransmitInfo** infos, int count, const std::shared_ptr<const visibility_result>& result, bool filtering,
+								  std::chrono::steady_clock::time_point now);
+		void finish_transmit_journal(CCheckTransmitInfo** infos, int count);
+		double journal_now() const;
+		void journal_disconnect(IGameEvent* event);
+		void print_journal_summary(uint32_t slot, double from_seconds, double to_seconds) const;
 		bool capture(visibility_snapshot& value, float game_time);
 		bool capture_animated_capsules(CEntityInstance* pawn, uint32_t slot, player_state& player, std::chrono::steady_clock::time_point now);
 		bool capture_smokes(const std::array<CEntityInstance*, k_max_smoke_volumes>& entities, size_t count, bool overflow, float game_time,
@@ -630,6 +649,14 @@ namespace cs2glaz
 		bool transmit_lists_verified_ {};
 		transmit_decision_stats transmit_decisions_;
 		std::array<std::array<pair_decision, k_max_players>, k_max_players> pair_decisions_ {};
+		// Per recipient slot: what CS2GLAZ took from or gave back to his client,
+		// kept until the slot gets another player or the map changes. Transmit
+		// lock; journal_stale_ is set where CheckTransmit returns without it.
+		std::array<recipient_journal, k_max_players> journals_ {};
+		quick_resend_counts quick_resends_ {};
+		std::chrono::steady_clock::time_point journal_epoch_ {std::chrono::steady_clock::now()};
+		std::atomic_bool journal_stale_ {};
+		bool disconnect_listening_ {};
 		std::array<std::chrono::steady_clock::time_point, k_max_players> recipient_decided_at_ {};
 		// Doors and box props found by the last entity-list walk (once a second).
 		struct occluder_candidate

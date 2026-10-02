@@ -125,10 +125,10 @@ namespace cs2glaz
 				attached_entity_group attached;
 				if (collect_player_visual_group(system, pawn, group))
 				{
-					withhold_group(system, info->m_pTransmitEntity, info->m_pTransmitAlways, group);
+					withhold_group(system, slot, info->m_pTransmitEntity, info->m_pTransmitAlways, group, withhold_reason::dead_hidden);
 					if (collect_attached_entities(system, pawn, group, attached))
 					{
-						withhold_group(system, info->m_pTransmitEntity, info->m_pTransmitAlways, attached);
+						withhold_group(system, slot, info->m_pTransmitEntity, info->m_pTransmitAlways, attached, withhold_reason::dead_hidden);
 					}
 				}
 				else
@@ -136,7 +136,7 @@ namespace cs2glaz
 					const int index = resolve_entity_index(system, kept);
 					if (valid_networked_edict_index(index))
 					{
-						apply_transmit_mode(info->m_pTransmitEntity, info->m_pTransmitAlways, index, transmit_mode::clear_both);
+						withhold_entity(slot, info->m_pTransmitEntity, info->m_pTransmitAlways, index, withhold_reason::dead_hidden);
 					}
 				}
 			}
@@ -153,11 +153,25 @@ namespace cs2glaz
 		}
 	}
 
+	bool plugin::withhold_entity(int recipient, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list, int index, withhold_reason reason)
+	{
+		if (!apply_transmit_mode(primary, second_list, index, transmit_mode::clear_both))
+		{
+			return false;
+		}
+		if (recipient >= 0 && recipient < static_cast<int>(k_max_players))
+		{
+			journal_mark(journals_[static_cast<size_t>(recipient)], index, reason);
+		}
+		return true;
+	}
+
 	// Withholds every entity of a group from one recipient: clears it in both
-	// lists (on CS2 1.41.8 the second one also sends what it holds).
+	// lists (on CS2 1.41.8 the second one also sends what it holds). In an
+	// enemy's own group the pawn is noted as the enemy, the rest as his items.
 	template<size_t max_count>
-	void plugin::withhold_group(CGameEntitySystem* system, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
-								const hidden_entity_group<CEntityHandle, max_count>& group)
+	void plugin::withhold_group(CGameEntitySystem* system, int recipient, CBitVec<MAX_EDICTS>* primary, CBitVec<MAX_EDICTS>* second_list,
+								const hidden_entity_group<CEntityHandle, max_count>& group, withhold_reason reason)
 	{
 		if (primary == nullptr || second_list == nullptr)
 		{
@@ -168,7 +182,8 @@ namespace cs2glaz
 			const int index = resolve_entity_index(system, group.handles[entity]);
 			if (valid_networked_edict_index(index))
 			{
-				apply_transmit_mode(primary, second_list, index, transmit_mode::clear_both);
+				const bool pawn = reason == withhold_reason::enemy_item && group.handles[entity] == group.source;
+				withhold_entity(recipient, primary, second_list, index, pawn ? withhold_reason::enemy_pawn : reason);
 			}
 		}
 	}
@@ -224,6 +239,12 @@ namespace cs2glaz
 			row.fill(pair_decision::none);
 		}
 		recipient_decided_at_.fill({});
+		// Entity numbers mean other entities on the next map.
+		for (recipient_journal& journal : journals_)
+		{
+			journal_reset(journal);
+		}
+		quick_resends_ = {};
 		capsule_players_ = 0;
 		capsule_failed_players_ = 0;
 	}
@@ -366,12 +387,15 @@ namespace cs2glaz
 		if (!filtering && !decoys_live_.load() && !dead_hidden_live_.load())
 		{
 			// Everything is sent without the lock being taken: the stored pair
-			// decisions are forgotten on the next pass that takes it.
+			// decisions are forgotten on the next pass that takes it, and the
+			// journal starts a fresh comparison.
 			pair_decisions_stale_.store(true);
+			journal_stale_.store(true);
 			return;
 		}
 		if (infos == nullptr || count <= 0 || count > static_cast<int>(k_max_players) || transmit_layout_invalid_.load(std::memory_order_relaxed))
 		{
+			journal_stale_.store(true);
 			return;
 		}
 		if (!transmit_lists_verified_)
@@ -379,6 +403,7 @@ namespace cs2glaz
 			if (!checktransmit_lists_readable(infos, count))
 			{
 				transmit_layout_invalid_.store(true);
+				journal_stale_.store(true);
 				return;
 			}
 			transmit_lists_verified_ = true;
@@ -386,6 +411,7 @@ namespace cs2glaz
 		if (!checktransmit_layout_plausible(infos, count))
 		{
 			transmit_layout_invalid_.store(true);
+			journal_stale_.store(true);
 			return;
 		}
 		const auto timing_started = std::chrono::steady_clock::now();
@@ -405,6 +431,21 @@ namespace cs2glaz
 		}
 		const auto now = std::chrono::steady_clock::now();
 		std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+		if (journal_stale_.exchange(false))
+		{
+			for (recipient_journal& journal : journals_)
+			{
+				journal_unprime(journal);
+			}
+		}
+		apply_check_transmit(infos, count, result, filtering, now);
+		finish_transmit_journal(infos, count);
+		record_timing();
+	}
+
+	void plugin::apply_check_transmit(CCheckTransmitInfo** infos, int count, const std::shared_ptr<const visibility_result>& result, bool filtering,
+									  std::chrono::steady_clock::time_point now)
+	{
 		if (pair_decisions_stale_.exchange(false))
 		{
 			forget_pair_decisions();
@@ -416,7 +457,6 @@ namespace cs2glaz
 			// dead already held stay held.
 			forget_pair_decisions();
 			withhold_dead_hidden(entity_system(), infos, count);
-			record_timing();
 			return;
 		}
 		const auto note = [&](uint64_t transmit_decision_stats::*reason) { ++(transmit_decisions_.*reason); };
@@ -451,7 +491,6 @@ namespace cs2glaz
 		{
 			// Failing open sends every enemy: none is hidden from anyone now.
 			forget_pair_decisions();
-			record_timing();
 			return;
 		}
 		const auto current_player_pawn = [&](uint32_t slot, const player_state& saved)
@@ -483,7 +522,6 @@ namespace cs2glaz
 		if (!checktransmit_recipients_consistent(infos, count))
 		{
 			transmit_layout_invalid_.store(true);
-			record_timing();
 			return;
 		}
 		for (int i = 0; i < count; ++i)
@@ -609,19 +647,18 @@ namespace cs2glaz
 					if (hidden_group_quarantined(stored_group, now))
 					{
 						decisions[target] = pair_decision::hidden;
-						withhold_group(system, info->m_pTransmitEntity, second_list, stored_group);
-						withhold_group(system, info->m_pTransmitEntity, second_list, cache.attached);
+						withhold_group(system, slot, info->m_pTransmitEntity, second_list, stored_group, withhold_reason::enemy_item);
+						withhold_group(system, slot, info->m_pTransmitEntity, second_list, cache.attached, withhold_reason::enemy_attached);
 					}
 					continue;
 				}
 				note(&transmit_decision_stats::hidden);
 				decisions[target] = pair_decision::hidden;
 				hidden_group_store(stored_group, cache.group, now, k_hidden_entity_quarantine);
-				withhold_group(system, info->m_pTransmitEntity, second_list, cache.group);
-				withhold_group(system, info->m_pTransmitEntity, second_list, cache.attached);
+				withhold_group(system, slot, info->m_pTransmitEntity, second_list, cache.group, withhold_reason::enemy_item);
+				withhold_group(system, slot, info->m_pTransmitEntity, second_list, cache.attached, withhold_reason::enemy_attached);
 			}
 		}
-		record_timing();
 	}
 
 } // namespace cs2glaz
