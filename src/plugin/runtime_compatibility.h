@@ -131,6 +131,10 @@ namespace cs2glaz
 		// Copies size bytes to address without faulting; false when unwritable.
 		static bool safe_write(void* address, const void* input, size_t size);
 
+		// The game event manager was found after initialize (plugin.cpp,
+		// find_game_event_manager): the report stops listing game events.
+		void note_game_events(bool available);
+
 		const compatibility_report& report() const
 		{
 			return report_;

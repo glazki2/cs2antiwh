@@ -2,8 +2,9 @@
 
 // Proves from a vtable's RTTI, before any virtual call, that `base` is a base
 // subobject located `base - owner` bytes into a live object whose class name
-// contains `class_name`. Every memory access goes through `read`, which returns
-// false instead of faulting, so an unexpected layout only yields false.
+// contains `class_name` (or that an object is one, rtti_names_object_class).
+// Every memory access goes through `read`, which returns false instead of
+// faulting, so an unexpected layout only yields false.
 
 #include <cstddef>
 #include <cstdint>
@@ -12,12 +13,14 @@
 namespace cs2glaz
 {
 
+	// The shared check: the vtable at `base` says its subobject sits `offset`
+	// bytes into the complete object (0 for the object itself) and the RTTI
+	// class name contains `class_name`.
 	template<typename read_function>
-	bool rtti_names_class_at_offset(const void* owner, const void* base, std::string_view class_name, read_function read)
+	bool rtti_names_class_with_offset(const void* base, std::ptrdiff_t offset, std::string_view class_name, read_function read)
 	{
-		const auto offset = static_cast<std::ptrdiff_t>(static_cast<const char*>(base) - static_cast<const char*>(owner));
 		const void* const* vtable = nullptr;
-		if (offset <= 0 || !read(base, &vtable, sizeof(vtable)) || vtable == nullptr)
+		if (offset < 0 || !read(base, &vtable, sizeof(vtable)) || vtable == nullptr)
 		{
 			return false;
 		}
@@ -67,6 +70,21 @@ namespace cs2glaz
 			}
 		}
 		return std::string_view(text).find(class_name) != std::string_view::npos;
+	}
+
+	template<typename read_function>
+	bool rtti_names_class_at_offset(const void* owner, const void* base, std::string_view class_name, read_function read)
+	{
+		const auto offset = static_cast<std::ptrdiff_t>(static_cast<const char*>(base) - static_cast<const char*>(owner));
+		return offset > 0 && rtti_names_class_with_offset(base, offset, class_name, read);
+	}
+
+	// Proves that `object` is the start of a live object whose class name
+	// contains `class_name` (its primary vtable says so), before any call.
+	template<typename read_function>
+	bool rtti_names_object_class(const void* object, std::string_view class_name, read_function read)
+	{
+		return object != nullptr && rtti_names_class_with_offset(object, 0, class_name, read);
 	}
 
 } // namespace cs2glaz

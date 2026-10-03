@@ -177,8 +177,12 @@ namespace cs2glaz
 		std::vector<std::string> missing;
 		if (state == compatibility_state::limited)
 		{
-			missing = {"animated capsules (hull-shaped body used)", "smoke occlusion until a live smoke verifies its layout",
-					   "HE event listener (HE grenades are tracked by their projectiles instead)", "temporary LOS debug beams"};
+			missing = {"animated capsules (hull-shaped body used)", "smoke occlusion until a live smoke verifies its layout"};
+			if (!he_event_manager_available)
+			{
+				missing.emplace_back("game events (HE grenades are tracked by their projectiles instead; no shots at decoys or blind hits)");
+			}
+			missing.emplace_back("temporary LOS debug beams");
 		}
 		if ((state == compatibility_state::limited || state == compatibility_state::compatible) && !scene_hierarchy_available())
 		{
@@ -200,6 +204,11 @@ namespace cs2glaz
 			}
 		}
 		report_ = make_compatibility_report(state, std::move(detail), std::move(missing));
+	}
+
+	void runtime_compatibility::note_game_events(bool available)
+	{
+		set_report(report_.state, report_.technical_detail, available);
 	}
 
 	bool runtime_compatibility::read_gamedata(const std::filesystem::path& path, std::string& error)

@@ -653,6 +653,13 @@ namespace cs2glaz
 		int decoy_mode() const;
 		int decoy_entity_mode() const; // how a decoy entity is drawn: 1 not at all, 2 drawn (testing)
 		void resolve_decoy_functions();
+		// cs2glaz.signatures.txt: this platform's entries, and a pattern that
+		// must occur exactly once in the server's code.
+		bool read_signatures(std::unordered_map<std::string, std::string>& values, std::string& error) const;
+		const std::byte* find_unique_server_pattern(const std::unordered_map<std::string, std::string>& values, const char* key,
+													std::string& error) const;
+		// The game event manager on any build (plugin.cpp).
+		void find_game_event_manager();
 		void update_decoys(CGameEntitySystem* system, visibility_snapshot& value, std::chrono::steady_clock::time_point now);
 		bool spawn_decoy(CGameEntitySystem* system, decoy_slot& slot, const std::string& model, int mode);
 		void discard_decoy_entity(CEntityInstance* entity);
@@ -765,6 +772,7 @@ namespace cs2glaz
 		radar_filter_stats radar_stats_;
 		// AddGlobal reads the vtable through its argument, so this holds the gamedata vtable address.
 		void* game_event_manager_vtable_ {};
+		std::string game_event_manager_error_; // why game events are not heard; empty when they are
 		bool game_frame_hooked_ {};
 		bool check_transmit_hooked_ {};
 		bool game_event_load_hooked_ {};

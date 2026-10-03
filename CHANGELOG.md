@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.2
+
+Game events on CS2 builds the gamedata does not verify (every build since 1.41.7.4, the current 1.41.8.8 included).
+
+- CS2 offers its game event manager through no interface (`GAMEEVENTSMANAGER002` is not exported), and CS2GLAZ caught it only through a hook placed by an address from `cs2glaz.games.txt`, which only the verified build has. On every other build no game event was ever heard: shots at decoys and at front decoys (so `cs2glaz_decoy_front 2` never switched on), blind hits, `hegrenade_detonate` (hence `HE=off`), and the journal's disconnect summaries were silently off, and ghost players' events (connect, team, death) would have reached every client. A late load on the verified build missed it as well.
+- `find_game_event_manager` finds it from the instruction that loads its address (`game_event_manager` in `cs2glaz.signatures.txt`, the pattern CSVILKA uses, present on 1.41.8.8) and accepts it only when the object's RTTI names `CGameEventManager` (`rtti_names_object_class`, tested); its `FireEvent` and `LoadEventsFromFile` are then hooked as on the verified build. Anything else leaves events off, with `game events unavailable (...)` in the console.
+- Ghost players need that hook now: without it they stay off rather than show their events to everyone.
+- `cs2glaz_status` says whether decoy shots and blind hits are heard; the limited-mode report lists game events as missing only when they are.
+- The signature-file reading is shared by decoys and the event manager (`read_signatures`, `find_unique_server_pattern`).
+- Checked against the updates since 1.41.8.2 (to 1.41.8.8, 2026-10-02): the decoy patterns and the Teleport index (164/165) match CounterStrikeSharp's and CS2Fixes' current data; the smoke volume's private block grew by 4 bytes on 2026-09-25 (8836 to 8840 in the public schema offsets), which the live-smoke search (plus or minus 1024 bytes) finds on the first smoke.
+
 ## 0.13.1
 
 Front decoys against triggerbots, and fixes from a review of the decoy code.

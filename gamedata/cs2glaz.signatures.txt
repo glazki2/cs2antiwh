@@ -1,8 +1,9 @@
-// CS2GLAZ byte patterns for the experimental decoys (cs2glaz_decoys).
-// Taken from the CounterStrikeSharp gamedata (release v1.0.376, 2026-09-27).
-// Each pattern must occur exactly once in the server binary, otherwise decoys
-// stay off; nothing else in CS2GLAZ uses this file. After a CS2 update, copy
-// the matching lines from a current CounterStrikeSharp gamedata.json.
+// CS2GLAZ byte patterns for the experimental decoys (cs2glaz_decoys) and for
+// finding the game event manager on any CS2 build.
+// The decoy patterns are taken from the CounterStrikeSharp gamedata (release
+// v1.0.376, 2026-09-27). Each pattern must occur exactly once in the server
+// binary, otherwise decoys stay off. After a CS2 update, copy the matching
+// lines from a current CounterStrikeSharp gamedata.json.
 
 // UTIL_CreateEntityByName(const char* class_name, int force_index)
 create_entity_by_name_linux=48 8D 05 ? ? ? ? 55 48 89 FA
@@ -23,3 +24,11 @@ set_model_windows=40 53 48 83 EC ? 48 8B D9 4C 8B C2 48 8B 0D ? ? ? ? 48 8D 54 2
 // CBaseEntity::Teleport(const Vector*, const QAngle*, const Vector*) vtable index
 teleport_vtable_index_linux=164
 teleport_vtable_index_windows=165
+
+// The instruction that loads the game event manager's address (lea reg,
+// [rip + disp32]); the same pattern CSVILKA uses, found on CS2 1.41.8.8. The
+// object it leads to is used only when its RTTI names CGameEventManager.
+// Without it, shots at decoys, blind hits, HE events and ghost players are
+// off on builds cs2glaz.games.txt does not verify.
+game_event_manager_linux=4C 8D 25 ? ? ? ? 31 DB 48 83 EC 08
+game_event_manager_windows=48 8D 0D ? ? ? ? 49 8B 04 38

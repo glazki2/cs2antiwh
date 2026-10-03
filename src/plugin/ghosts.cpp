@@ -86,6 +86,12 @@ namespace cs2glaz
 			reason = "decoys are not ready";
 			return false;
 		}
+		if (!game_event_fire_hooked_)
+		{
+			// Its connect, team and death events would reach every player.
+			reason = "the game event manager was not found, so events about a ghost cannot be kept off players' screens";
+			return false;
+		}
 		return true;
 	}
 

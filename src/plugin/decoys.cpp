@@ -163,29 +163,21 @@ namespace cs2glaz
 		return (xuid >> 52u) == 0x011u && (xuid & 0xffffffffu) != 0;
 	}
 
-	void plugin::resolve_decoy_functions()
+	bool plugin::read_signatures(std::unordered_map<std::string, std::string>& values, std::string& error) const
 	{
-		decoy_functions_ = {};
-		decoy_functions_resolved_ = true;
-		decoy_functions& functions = decoy_functions_;
-		if (!compatibility_.valid() || api_ == nullptr)
+		values.clear();
+		if (api_ == nullptr)
 		{
-			functions.error = "CS2GLAZ is not active on this server build";
-			return;
-		}
-		if (!compatibility_.decoy_schema_available())
-		{
-			functions.error = "missing schema fields (model name, collision or render mode)";
-			return;
+			error = "Metamod is unavailable";
+			return false;
 		}
 		const std::filesystem::path path = std::filesystem::path(api_->GetBaseDir()) / "addons" / "cs2glaz" / "gamedata" / "cs2glaz.signatures.txt";
 		std::ifstream stream(path);
 		if (!stream)
 		{
-			functions.error = "cannot read " + path.string();
-			return;
+			error = "cannot read " + path.string();
+			return false;
 		}
-		std::unordered_map<std::string, std::string> values;
 		std::string line;
 		while (std::getline(stream, line))
 		{
@@ -202,38 +194,74 @@ namespace cs2glaz
 				values[key] = trim(line.substr(equals + 1));
 			}
 		}
+		return true;
+	}
+
+	const std::byte* plugin::find_unique_server_pattern(const std::unordered_map<std::string, std::string>& values, const char* key,
+														 std::string& error) const
+	{
+		byte_pattern pattern;
+		const auto value = values.find(key);
+		if (value == values.end() || !parse_byte_pattern(value->second, pattern))
+		{
+			error = std::string(key) + ": no valid pattern";
+			return nullptr;
+		}
 		const std::vector<std::span<const std::byte>> ranges = compatibility_.server_code_ranges();
 		if (ranges.empty())
 		{
-			functions.error = "cannot find the server binary's code";
+			error = "cannot find the server binary's code";
+			return nullptr;
+		}
+		uint32_t count = 0;
+		const std::byte* first = nullptr;
+		for (const std::span<const std::byte>& range : ranges)
+		{
+			const pattern_matches matches = find_byte_pattern(range, pattern);
+			if (matches.count != 0 && first == nullptr)
+			{
+				first = matches.first;
+			}
+			count += matches.count;
+		}
+		if (count != 1)
+		{
+			error = std::string(key) + (count == 0 ? ": not found" : ": found more than once");
+			return nullptr;
+		}
+		return first;
+	}
+
+	void plugin::resolve_decoy_functions()
+	{
+		decoy_functions_ = {};
+		decoy_functions_resolved_ = true;
+		decoy_functions& functions = decoy_functions_;
+		if (!compatibility_.valid() || api_ == nullptr)
+		{
+			functions.error = "CS2GLAZ is not active on this server build";
+			return;
+		}
+		if (!compatibility_.decoy_schema_available())
+		{
+			functions.error = "missing schema fields (model name, collision or render mode)";
+			return;
+		}
+		std::unordered_map<std::string, std::string> values;
+		if (!read_signatures(values, functions.error))
+		{
 			return;
 		}
 		const auto find = [&](const char* key, void*& output)
 		{
-			byte_pattern pattern;
-			const auto value = values.find(key);
-			if (value == values.end() || !parse_byte_pattern(value->second, pattern))
+			std::string error;
+			const std::byte* found = find_unique_server_pattern(values, key, error);
+			if (found == nullptr)
 			{
-				functions.error += std::string(functions.error.empty() ? "" : ", ") + key + ": no valid pattern";
+				functions.error += std::string(functions.error.empty() ? "" : ", ") + error;
 				return;
 			}
-			uint32_t count = 0;
-			const std::byte* first = nullptr;
-			for (const std::span<const std::byte>& range : ranges)
-			{
-				const pattern_matches matches = find_byte_pattern(range, pattern);
-				if (matches.count != 0 && first == nullptr)
-				{
-					first = matches.first;
-				}
-				count += matches.count;
-			}
-			if (count != 1)
-			{
-				functions.error += std::string(functions.error.empty() ? "" : ", ") + key + (count == 0 ? ": not found" : ": found more than once");
-				return;
-			}
-			output = const_cast<std::byte*>(first);
+			output = const_cast<std::byte*>(found);
 		};
 		find("create_entity_by_name", functions.create_entity_by_name);
 		find("dispatch_spawn", functions.dispatch_spawn);
@@ -1567,10 +1595,20 @@ namespace cs2glaz
 			// A decoy reaches its viewer only while the engine counts it in his PVS.
 			META_CONPRINTF("[CS2GLAZ] decoy transmit ticks this map: sent=%llu (of them without a fresh proof, kept for at most %.0f ms: %llu) "
 						   "outside_pvs=%llu (outside the PVS a decoy is not sent); runs ended=%llu (each decoy reaches its viewer in one run, "
-						   "then is retired); shots from the view at weapon_fire%s\n",
+						   "then is retired)\n",
 						   value(counters.ticks_sent), k_decoy_latch_ms, value(counters.latched_ticks), value(counters.ticks_outside_pvs),
-						   value(counters.runs_ended),
-						   bullet_impact_listening_ ? " and bullet_impact" : (bullet_impact_tried_ ? " (bullet_impact unavailable)" : ""));
+						   value(counters.runs_ended));
+			if (weapon_fire_listening_)
+			{
+				META_CONPRINTF("[CS2GLAZ] decoy shots: from the view at weapon_fire%s; blind hits: %s\n",
+							   bullet_impact_listening_ ? " and where bullets hit (bullet_impact)" : (bullet_impact_tried_ ? " (bullet_impact unavailable)" : ""),
+							   player_hurt_listening_ ? "on" : "off (player_hurt unavailable)");
+			}
+			else
+			{
+				META_CONPRINTF("[CS2GLAZ] decoy shots and blind hits: off, game events unavailable%s%s%s\n", game_event_manager_error_.empty() ? "" : " (",
+							   game_event_manager_error_.c_str(), game_event_manager_error_.empty() ? "" : ")");
+			}
 		}
 		print_ghost_status();
 		print_front_status();

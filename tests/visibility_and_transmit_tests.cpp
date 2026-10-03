@@ -233,6 +233,16 @@ namespace
 		// An unreadable address stops the check instead of faulting.
 		const auto refuse = [](const void*, void*, size_t) { return false; };
 		assert(!rtti_names_class_at_offset(owner, payload, "rtti_test_payload", refuse));
+
+		// A whole object (how the game event manager is accepted): its primary
+		// vtable names its class; a base inside it or another class does not.
+		const rtti_test_payload object;
+		assert(rtti_names_object_class(&object, "rtti_test_payload", read));
+		assert(!rtti_names_object_class(&object, "rtti_test_other", read));
+		assert(!rtti_names_object_class(payload, "rtti_test_payload", read)); // a base 8+ bytes into the message
+		assert(rtti_names_object_class(owner, "rtti_test_message", read));
+		assert(!rtti_names_object_class(nullptr, "rtti_test_payload", read));
+		assert(!rtti_names_object_class(&object, "rtti_test_payload", refuse));
 	}
 
 	// Dense smoke answers whole sightline sets at once, and a body behind or

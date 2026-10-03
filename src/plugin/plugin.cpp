@@ -4,6 +4,7 @@
 // validation, and worker submission on the game thread. It activates filtering
 // only after CPU, gamedata, schema, map source, and bake checks all succeed.
 
+#include "rtti_check.h"
 #include "runtime_health.h"
 #include "vpk.h"
 
@@ -107,6 +108,11 @@ namespace cs2glaz
 			game_event_fire_hook_.AddGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
 			game_event_fire_hooked_ = true;
 		}
+		if (compatibility_.valid())
+		{
+			find_game_event_manager();
+			compatibility_.note_game_events(game_events_ != nullptr);
+		}
 		if (!compatibility_.valid())
 		{
 			META_CONPRINTF("[CS2GLAZ] compatibility state: %s\n", compatibility_state_name(compatibility_.report().state));
@@ -122,6 +128,57 @@ namespace cs2glaz
 		}
 		META_CONPRINTF("[CS2GLAZ] loaded; culling is fail-open until a map bake validates\n");
 		return true;
+	}
+
+	// CS2 offers its game event manager through no interface. On the build
+	// cs2glaz.games.txt verifies it is caught when the game loads its event
+	// files (game_event_load_hook_), which a late load misses; on every other
+	// build nothing caught it, and weapon_fire, bullet_impact, player_hurt,
+	// hegrenade_detonate and player_disconnect were never heard. Here it is
+	// found from the instruction that loads its address
+	// (cs2glaz.signatures.txt, game_event_manager) and used only when the
+	// object's RTTI names it, so a pattern that lands elsewhere changes
+	// nothing. Its FireEvent and LoadEventsFromFile are hooked as on the
+	// verified build (events about ghost players stay off clients).
+	void plugin::find_game_event_manager()
+	{
+		game_event_manager_error_.clear();
+		if (game_events_ != nullptr)
+		{
+			return;
+		}
+		std::unordered_map<std::string, std::string> values;
+		std::string error;
+		const std::byte* instruction = read_signatures(values, error) ? find_unique_server_pattern(values, "game_event_manager", error) : nullptr;
+		int32_t displacement = 0;
+		if (instruction == nullptr || !runtime_compatibility::safe_read(instruction + 3, &displacement, sizeof(displacement)))
+		{
+			game_event_manager_error_ = error.empty() ? "the game_event_manager pattern could not be read" : error;
+			META_CONPRINTF("[CS2GLAZ] game events unavailable (%s): shots at decoys, blind hits, HE events and ghost players are off\n",
+						   game_event_manager_error_.c_str());
+			return;
+		}
+		// lea reg, [rip + disp32]: seven bytes, the address relative to the next instruction.
+		void* manager = const_cast<std::byte*>(instruction) + 7 + displacement;
+		void* vtable = nullptr;
+		const auto read = [](const void* address, void* output, size_t size) { return runtime_compatibility::safe_read(address, output, size); };
+		if (!compatibility_.address_in_server_module(manager) || !rtti_names_object_class(manager, "GameEventManager", read)
+			|| !runtime_compatibility::safe_read(manager, &vtable, sizeof(vtable)) || !compatibility_.address_in_server_module(vtable))
+		{
+			game_event_manager_error_ = "the game_event_manager pattern does not lead to the game event manager";
+			META_CONPRINTF("[CS2GLAZ] game events unavailable (%s): shots at decoys, blind hits, HE events and ghost players are off\n",
+						   game_event_manager_error_.c_str());
+			return;
+		}
+		game_events_ = static_cast<IGameEventManager2*>(manager);
+		if (!game_event_load_hooked_)
+		{
+			game_event_manager_vtable_ = vtable;
+			game_event_load_hook_.AddGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
+			game_event_load_hooked_ = true;
+			game_event_fire_hook_.AddGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
+			game_event_fire_hooked_ = true;
+		}
 	}
 
 	bool plugin::Unload(char* error, size_t max_length)
