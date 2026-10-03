@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.0
+
+Ghost players: decoys that a cheat drawing only players shows. Most cheats, external ESPs above all, walk the player controllers in entity slots 1-64 and follow each one's pawn; a prop decoy is never among them, so they never drew one.
+
+- `cs2glaz_decoy_ghosts N` (0 off by default, at most 2, needs `cs2glaz_decoys`): a fake client (`IVEngineServer2::CreateFakeClient`) on the enemy team of one viewer, at most one per team, watched players first (only them in mode 3). Its controller is sent to that viewer only; its pawn reaches him only while it stands in for one of his real decoys, through the same one-run delivery, walking and reports as a prop; its items, observer pawn and attached entities are never sent. Nobody else receives anything of it.
+- It is kept harmless every update: `m_bTakesDamage` off, not solid, no collision attributes (no trace touches it), `MOVETYPE_NONE`; in mode 1 not rendered, and no shadow. It drops the bomb at its spawn if it gets it and is never used as a decoy while carrying it. When nobody else on its team is alive it kills itself, so it never keeps a round going. Dead players watching it are moved to another target.
+- Game events about it (connect, team, spawn, death) are fired for the server but not broadcast (a `FireEvent` pre-hook); radar entries about it are dropped from every spotted-entity message.
+- It joins its team with the game's own `jointeam` command run as the fake client, needs two free slots, and leaves 30 s after it is no longer needed, on a map change, when ghosts or decoys are turned off, and on unload. If it cannot join its team in 10 tries or takes damage, it is kicked and ghosts stay off until the plugin reloads; prop decoys and wall hiding are not affected. A ghost kicked by the game or another plugin is made again after a few seconds (ghosts turn off after the third), and one that could not drop the bomb within 2 s leaves the server, which drops it.
+- Captures leave ghost slots out, so no ghost is ever anyone's enemy, decoy target or radar target. The transmit journal names its entities `ghost player`.
+- `cs2glaz_status` shows the ghost counters and each ghost's slot, team, viewer and state.
+
 ## 0.9.1
 
 A client crashed again with `FATAL ERROR: CopyExistingEntity: missing client entity 203` (drawn decoys, bots, one human). The dump shows it failed while applying the delta from snapshot 648749 to 648758, which changed 8 entities: the server sent a change of entity 203, which the client no longer had. With the bots stopped and the player in the menu, walking decoys were among the few entities changing every tick. Which entity 203 was cannot be read from a minidump, and decoys were on in all three dumps with this error, so this release makes the next one identifiable and takes away the decoy pattern the engine handles worst.

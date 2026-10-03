@@ -384,7 +384,7 @@ namespace cs2glaz
 		// removes them, and so are enemies who died while hidden, until they
 		// respawn.
 		const bool filtering = settings::current().enable && disabled_reason_.empty();
-		if (!filtering && !decoys_live_.load() && !dead_hidden_live_.load())
+		if (!filtering && !decoys_live_.load() && !dead_hidden_live_.load() && ghost_slots_.load() == 0)
 		{
 			// Everything is sent without the lock being taken: the stored pair
 			// decisions are forgotten on the next pass that takes it, and the
@@ -451,6 +451,7 @@ namespace cs2glaz
 			forget_pair_decisions();
 		}
 		withhold_decoys(entity_system(), infos, count, result.get(), now);
+		withhold_ghosts(entity_system(), infos, count);
 		if (!filtering)
 		{
 			// Everything is sent now, so no pair counts as hidden any more; the

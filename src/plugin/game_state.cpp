@@ -1083,7 +1083,8 @@ namespace cs2glaz
 			live_player live;
 			const lifecycle_key key = player_lifecycle(slot, system, &live);
 			keys[slot] = key;
-			const bool stable = live.pawn != nullptr;
+			// A ghost player is not a player for anyone's sight, decoys or radar.
+			const bool stable = live.pawn != nullptr && !ghost_capture_slot(slot);
 			stable_slots[slot] = stable;
 			update_lifecycle_guard(lifecycle_[slot], key, stable, now, k_lifecycle_fail_open);
 			if (!stable || !lifecycle_allows_hiding(lifecycle_[slot], now))

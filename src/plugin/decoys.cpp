@@ -403,6 +403,13 @@ namespace cs2glaz
 
 	void plugin::remove_decoy(CGameEntitySystem* system, decoy_slot& slot)
 	{
+		if (slot.ghost)
+		{
+			// A ghost is not a prop: it stays a player, withheld until its next run.
+			ghost_release(slot.id, std::chrono::steady_clock::now());
+			slot = {};
+			return;
+		}
 		CEntityInstance* entity = slot.spawned && system != nullptr && slot.handle.IsValid() ? system->GetEntityInstance(slot.handle) : nullptr;
 		if (entity != nullptr)
 		{
@@ -435,7 +442,11 @@ namespace cs2glaz
 			{
 				if (slot.id != 0)
 				{
-					if (system != nullptr && slot.spawned && slot.handle.IsValid())
+					if (slot.ghost)
+					{
+						ghost_release(slot.id, std::chrono::steady_clock::now());
+					}
+					else if (system != nullptr && slot.spawned && slot.handle.IsValid())
 					{
 						discard_decoy_entity(system->GetEntityInstance(slot.handle));
 					}
@@ -512,6 +523,8 @@ namespace cs2glaz
 		const int mode = decoy_mode();
 		if (mode == 0 || !compatibility_.valid())
 		{
+			kick_all_ghosts("cs2glaz decoys off");
+			ghost_slots_.store(0);
 			if (decoys_live_.load() || std::any_of(decoys_.begin(), decoys_.end(), [](const auto& row)
 													{ return std::any_of(row.begin(), row.end(), [](const decoy_slot& slot) { return slot.id != 0; }); }))
 			{
@@ -533,12 +546,15 @@ namespace cs2glaz
 		}
 		if (!decoy_functions_.ready)
 		{
+			kick_all_ghosts("cs2glaz decoys unavailable");
+			ghost_slots_.store(0);
 			if (decoys_live_.load())
 			{
 				remove_all_decoys(true);
 			}
 			return;
 		}
+		update_ghosts(system, value, now);
 		if (!weapon_fire_listening_ && game_events_ != nullptr)
 		{
 			weapon_fire_listening_ = game_events_->AddListener(this, "weapon_fire", true);
@@ -657,11 +673,19 @@ namespace cs2glaz
 				CEntityInstance* entity = slot.spawned ? system->GetEntityInstance(slot.handle) : nullptr;
 				if (slot.spawned && entity == nullptr)
 				{
-					// Removed by the game (round restart cleanup).
+					// Removed by the game (round restart cleanup), or a ghost kicked.
+					if (slot.ghost)
+					{
+						ghost_release(slot.id, now);
+					}
 					slot = {};
 					continue;
 				}
-				if (entity != nullptr && field<int32_t>(entity, compatibility_.fields().health) < k_decoy_health)
+				if (slot.ghost && !ghost_pawn_alive(system, slot.handle))
+				{
+					drop = true; // the ghost died (its team had nobody else alive)
+				}
+				else if (!slot.ghost && entity != nullptr && field<int32_t>(entity, compatibility_.fields().health) < k_decoy_health)
 				{
 					// A shot or a knife reached it: it would absorb honest players' shots.
 					decoy_functions_.ready = false;
@@ -694,7 +718,14 @@ namespace cs2glaz
 					const int pawn_index = value.players[slot.target].pawn_entity;
 					CEntityInstance* pawn = pawn_index > 0 ? system->GetEntityInstance(CEntityIndex(pawn_index)) : nullptr;
 					const std::string model = entity_model_name(pawn);
-					if (!spawn_decoy(system, slot, model, entity_mode))
+					// A ghost player stands in for a real decoy when its viewer has one
+					// ready: a cheat that draws only players sees it.
+					if (ghost_take(system, viewer_slot, slot, now))
+					{
+						slot.spawned_at = now;
+						slot.pause_until = now + std::chrono::milliseconds(k_pause_min_ms + decoy_random(decoy_seed_) % k_pause_spread_ms);
+					}
+					else if (!spawn_decoy(system, slot, model, entity_mode))
 					{
 						++decoy_counters_.spawn_failures;
 						drop = true;
@@ -858,10 +889,13 @@ namespace cs2glaz
 		}
 		if (!decoy_functions_.ready)
 		{
+			kick_all_ghosts("cs2glaz decoys turned off");
+			ghost_slots_.store(0);
 			remove_all_decoys(true);
 			return;
 		}
 		publish_decoy_transmit();
+		publish_ghost_transmit();
 	}
 
 	void plugin::walk_decoy(CEntityInstance* entity, decoy_slot& slot, const player_state& viewer, std::span<const vec3> enemies,
@@ -1296,6 +1330,7 @@ namespace cs2glaz
 						   value(counters.runs_ended),
 						   bullet_impact_listening_ ? " and bullet_impact" : (bullet_impact_tried_ ? " (bullet_impact unavailable)" : ""));
 		}
+		print_ghost_status();
 		// The server's honest coincidences: what every player's real reports are
 		// weighed against until his own controls say more.
 		META_CONPRINTF("[CS2GLAZ] decoy reports since load: aims=%llu shots=%llu at real decoys over %.0f s; aims=%llu shots=%llu at control twins "

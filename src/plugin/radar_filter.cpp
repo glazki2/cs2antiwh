@@ -68,13 +68,17 @@ namespace cs2glaz
 		// One message per player is expected; one addressed to several players
 		// or to everyone is left alone rather than guessing whose view applies.
 		const int filter = cs2glaz_radar_filter.Get();
-		if (filter <= 0 || !settings::current().enable || !disabled_reason_.empty() || clients == nullptr
-			|| std::popcount(clients[0]) != 1 || !result || !visibility_snapshot_fresh(result->captured, std::chrono::steady_clock::now()))
+		const bool filter_players = filter > 0 && settings::current().enable && disabled_reason_.empty() && clients != nullptr
+									&& std::popcount(clients[0]) == 1 && result && visibility_snapshot_fresh(result->captured, std::chrono::steady_clock::now());
+		// Entries about a ghost player are dropped from every message, whoever it
+		// is for: nobody but its viewer has it.
+		const bool filter_ghosts = ghost_slots_.load(std::memory_order_relaxed) != 0;
+		if (!filter_players && !filter_ghosts)
 		{
 			radar_stats_.skipped_messages.fetch_add(1, std::memory_order_relaxed);
 			return;
 		}
-		const uint32_t recipient = static_cast<uint32_t>(std::countr_zero(clients[0]));
+		const uint32_t recipient = filter_players ? static_cast<uint32_t>(std::countr_zero(clients[0])) : 0u;
 		const radar_sight sight = filter >= 2 ? radar_sight::own : radar_sight::team;
 
 		google::protobuf::Message* const message = const_cast<CNetMessage*>(data)->ToPB<google::protobuf::Message>();
@@ -107,12 +111,18 @@ namespace cs2glaz
 		for (int entry = 0; entry < count; ++entry)
 		{
 			const google::protobuf::Message& update = reflection->GetRepeatedMessage(*message, updates, entry);
-			const int target = radar_entry_target(*result, update.GetReflection()->GetInt32(update, index_field));
-			if (target < 0)
+			const int entity = update.GetReflection()->GetInt32(update, index_field);
+			if (filter_ghosts && ghost_radar_entity(entity))
+			{
+				ghost_counters_.radar_entries++;
+				continue;
+			}
+			const int target = filter_players ? radar_entry_target(*result, entity) : -1;
+			if (filter_players && target < 0)
 			{
 				radar_stats_.unmatched_entries.fetch_add(1, std::memory_order_relaxed);
 			}
-			else if (!radar_entry_allowed(*result, recipient, target, sight))
+			else if (filter_players && !radar_entry_allowed(*result, recipient, target, sight))
 			{
 				continue;
 			}

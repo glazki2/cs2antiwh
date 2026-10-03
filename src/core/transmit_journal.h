@@ -27,6 +27,7 @@ namespace cs2glaz
 		decoy,			// a decoy: not (or no longer) proven hidden, or another viewer's
 		decoy_control,	// a control twin, sent to nobody
 		decoy_parked,	// parked for reuse, or removed
+		ghost,			// a ghost player's controller, pawn or items (sent to its viewer only)
 	};
 
 	inline const char* withhold_reason_name(withhold_reason reason)
@@ -47,6 +48,8 @@ namespace cs2glaz
 				return "control decoy";
 			case withhold_reason::decoy_parked:
 				return "parked decoy";
+			case withhold_reason::ghost:
+				return "ghost player";
 			case withhold_reason::unknown:
 				break;
 		}
@@ -205,6 +208,7 @@ namespace cs2glaz
 			case withhold_reason::decoy:
 			case withhold_reason::decoy_control:
 			case withhold_reason::decoy_parked:
+			case withhold_reason::ghost:
 				++counts.decoys;
 				break;
 			case withhold_reason::unknown:

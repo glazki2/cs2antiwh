@@ -103,6 +103,9 @@ namespace cs2glaz
 			game_event_manager_vtable_ = compatibility_.game_event_manager_vtable();
 			game_event_load_hook_.AddGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
 			game_event_load_hooked_ = true;
+			// Game events about ghost players are not broadcast (ghosts.cpp).
+			game_event_fire_hook_.AddGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
+			game_event_fire_hooked_ = true;
 		}
 		if (!compatibility_.valid())
 		{
@@ -123,6 +126,9 @@ namespace cs2glaz
 
 	bool plugin::Unload(char* error, size_t max_length)
 	{
+		kick_all_ghosts("cs2glaz unloaded");
+		ghost_slots_.store(0);
+		ghost_event_slots_.store(0);
 		remove_all_decoys(true);
 		if (game_events_ != nullptr)
 		{
@@ -139,6 +145,11 @@ namespace cs2glaz
 			game_event_load_hook_.RemoveGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
 		}
 		game_event_load_hooked_ = false;
+		if (game_event_fire_hooked_)
+		{
+			game_event_fire_hook_.RemoveGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
+		}
+		game_event_fire_hooked_ = false;
 		automatic_baker_.stop();
 		worker_.stop();
 		updater_.unload();
@@ -231,7 +242,10 @@ namespace cs2glaz
 
 	void plugin::OnLevelShutdown()
 	{
-		// The map's entities, decoys included, go away with it.
+		// The map's entities, decoys included, go away with it; ghost players
+		// are kicked rather than carried into the next map.
+		kick_all_ghosts("cs2glaz map change");
+		ghost_slots_.store(0);
 		remove_all_decoys(false);
 		decoy_spots_.clear();
 		// Records stay (by SteamID, since load); the map's part goes to the log.
@@ -510,7 +524,7 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_entity <index> - What entity N is and when CS2GLAZ withheld it from or sent it again to each player "
 					   "(for a client crash \"CopyExistingEntity: missing client entity N\").\n");
 		META_CONPRINTF("[CS2GLAZ] runtime switches (reset on restart): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
-					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2/3), cs2glaz_decoy_kick.\n");
+					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2/3), cs2glaz_decoy_kick, cs2glaz_decoy_ghosts (experimental, 0-2).\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_suspect [steamid64|slot|name] [minutes] - Watch a player first with decoys (CSVILKA does it on its detections).\n");
 	}
 
@@ -736,8 +750,10 @@ namespace cs2glaz
 		}
 		finish_limited_validation(simulating);
 		const runtime_configuration& configuration = settings::current();
-		if ((!configuration.enable || !disabled_reason_.empty()) && decoys_live_.load())
+		if ((!configuration.enable || !disabled_reason_.empty()) && (decoys_live_.load() || ghost_slots_.load() != 0))
 		{
+			kick_all_ghosts("cs2glaz off");
+			ghost_slots_.store(0);
 			prune_decoy_graveyard(entity_system());
 			remove_all_decoys(true);
 		}

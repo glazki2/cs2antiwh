@@ -216,6 +216,8 @@ namespace cs2glaz
 		// others but withheld from its viewer too; reports at it are his honest
 		// coincidences.
 		bool control {};
+		// Driven by a ghost player's pawn (ghosts.cpp) instead of a prop.
+		bool ghost {};
 		std::chrono::steady_clock::time_point spawned_at;
 		std::chrono::steady_clock::time_point expires;
 		float aim_ms {};
@@ -314,6 +316,52 @@ namespace cs2glaz
 		uint64_t undelivered {}; // real decoys moved after the engine kept them from their viewer
 		uint64_t latched_ticks {}; // sent through a moment without a fresh proof (k_decoy_latch_ms)
 		uint64_t runs_ended {};	   // retired because their one run reached its end
+	};
+
+	// A fake player that exists for one viewer only (ghosts.cpp): ESPs that
+	// draw only players (controllers 1-64 and their pawns) show it, and its
+	// pawn stands in for one of his decoys.
+	inline constexpr size_t k_max_ghosts = 2;
+
+	struct ghost_player
+	{
+		int slot {-1};						  // its player slot; -1 none
+		uint32_t viewer {k_max_players};	  // the one player who receives it
+		uint8_t team {};					  // the team it plays on (its viewer's enemy)
+		std::string name;
+		std::chrono::steady_clock::time_point created_at;
+		std::chrono::steady_clock::time_point last_join_attempt;
+		std::chrono::steady_clock::time_point released_at; // last decoy run over
+		std::chrono::steady_clock::time_point unused_since;
+		uint32_t join_attempts {};
+		uint32_t driving_id {}; // the decoy slot id it stands in for; 0 none
+		CEntityHandle pawn;		// its pawn while alive and kept harmless
+		bool harmless {};		// fields applied this update
+		bool has_bomb {};
+		int32_t health {};		// when it was last made harmless
+		std::chrono::steady_clock::time_point bomb_since;
+	};
+
+	// What CheckTransmit needs about a ghost; guarded by the transmit lock.
+	struct ghost_transmit_entry
+	{
+		int controller {-1};	// entity index of its controller
+		uint32_t viewer {k_max_players};
+		CEntityHandle pawn;		// sent to the viewer only through its decoy slot
+		CEntityHandle observer; // never sent
+	};
+
+	struct ghost_counters
+	{
+		uint64_t created {};
+		uint64_t kicked {};
+		uint64_t join_commands {};
+		uint64_t runs {};
+		uint64_t suicides {}; // its team had nobody else alive
+		uint64_t bomb_drops {};
+		uint64_t observers_moved {};
+		uint64_t events_hidden {};
+		uint64_t radar_entries {};
 	};
 
 	struct view_sample
@@ -503,6 +551,29 @@ namespace cs2glaz
 		void publish_decoy_transmit();
 		void withhold_decoys(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count, const visibility_result* result,
 							 std::chrono::steady_clock::time_point now);
+		// Ghost players (ghosts.cpp).
+		bool ghosts_available(std::string& reason) const;
+		void update_ghosts(CGameEntitySystem* system, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
+		bool ghost_take(CGameEntitySystem* system, uint32_t viewer, decoy_slot& slot, std::chrono::steady_clock::time_point now);
+		void ghost_release(uint32_t decoy_id, std::chrono::steady_clock::time_point now);
+		bool ghost_pawn_alive(CGameEntitySystem* system, CEntityHandle pawn) const;
+		void ghost_command(int slot, const char* command);
+		void kick_ghost(ghost_player& ghost, const char* reason);
+		void kick_all_ghosts(const char* reason);
+		void publish_ghost_transmit();
+		void withhold_ghosts(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count);
+		bool ghost_event(IGameEvent* event) const;
+		bool ghost_slot(int slot) const
+		{
+			return slot >= 0 && slot < static_cast<int>(k_max_players) && ((ghost_event_slots_.load(std::memory_order_relaxed) >> slot) & 1u) != 0;
+		}
+		bool ghost_capture_slot(uint32_t slot) const
+		{
+			return slot < k_max_players && ((ghost_slots_.load(std::memory_order_relaxed) >> slot) & 1u) != 0;
+		}
+		bool ghost_radar_entity(int index) const;
+		void print_ghost_status() const;
+		KHook::Return<bool> khook_fire_event(IGameEventManager2* manager, IGameEvent* event, bool dont_broadcast);
 		void decoy_weapon_fire(IGameEvent* event);
 		void decoy_bullet_impact(IGameEvent* event);
 		void decoy_shot(uint32_t shooter, vec3 eye, vec3 direction);
@@ -535,6 +606,8 @@ namespace cs2glaz
 			check_transmit_hook_ {&ISource2GameEntities::CheckTransmit, this, nullptr, &plugin::khook_check_transmit};
 		KHook::Virtual<IGameEventManager2, int, const char*, bool> game_event_load_hook_ {&IGameEventManager2::LoadEventsFromFile, this, nullptr,
 																						 &plugin::khook_load_events_from_file};
+		KHook::Virtual<IGameEventManager2, bool, IGameEvent*, bool> game_event_fire_hook_ {&IGameEventManager2::FireEvent, this,
+																						  &plugin::khook_fire_event, nullptr};
 		KHook::Virtual<IGameEventSystem, void, CSplitScreenSlot, bool, int, const uint64*, INetworkMessageInternal*, const CNetMessage*, unsigned long,
 					   NetChannelBufType_t>
 			post_event_hook_ {&IGameEventSystem::PostEventAbstract, this, &plugin::khook_post_event, nullptr};
@@ -550,6 +623,7 @@ namespace cs2glaz
 		bool game_frame_hooked_ {};
 		bool check_transmit_hooked_ {};
 		bool game_event_load_hooked_ {};
+		bool game_event_fire_hooked_ {};
 		std::string map_;
 		std::string pending_map_;
 		std::string disabled_reason_ {"no map loaded"};
@@ -699,6 +773,18 @@ namespace cs2glaz
 		decoy_exposure decoy_server_ {};
 		decoy_counters decoy_counters_;
 		std::array<view_sample, k_max_players> last_view_ {};
+		std::array<ghost_player, k_max_ghosts> ghosts_ {};
+		std::array<ghost_transmit_entry, k_max_ghosts> ghost_transmit_ {}; // transmit lock
+		std::array<std::atomic<int>, k_max_ghosts> ghost_pawn_index_ {};   // for the radar filter
+		std::atomic<uint64_t> ghost_slots_ {};		 // slots that are ghosts now
+		std::atomic<uint64_t> ghost_event_slots_ {}; // the same, plus slots kicked in the last seconds
+		std::array<std::chrono::steady_clock::time_point, k_max_players> ghost_kicked_at_ {};
+		bool ghost_creating_ {};
+		uint32_t ghost_lost_ {}; // ghosts that disappeared without CS2GLAZ kicking them
+		std::string ghost_error_; // ghosts turned off until the plugin reloads
+		std::chrono::steady_clock::time_point ghost_next_create_ {};
+		uint32_t ghost_name_seed_ {0x9e3779b9u};
+		mutable ghost_counters ghost_counters_ {};
 		bool weapon_fire_listening_ {};
 		bool bullet_impact_listening_ {};
 		bool bullet_impact_tried_ {};

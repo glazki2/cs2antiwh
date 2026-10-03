@@ -80,6 +80,11 @@ namespace cs2glaz
 		uint32_t observer_pawn {};
 		uint32_t observer_services {};
 		uint32_t observer_target {};
+		// Ghost players (decoys a player-only ESP draws).
+		uint32_t takes_damage {};
+		uint32_t move_type {};
+		uint32_t actual_move_type {};
+		uint32_t pawn_is_alive {};
 	};
 
 	struct smoke_private_layout
@@ -299,6 +304,11 @@ namespace cs2glaz
 			return shadow_strength_available_;
 		}
 
+		bool ghost_schema_available() const
+		{
+			return ghost_schema_available_;
+		}
+
 		uint8_t render_none_value() const
 		{
 			return static_cast<uint8_t>(render_none_value_);
@@ -355,6 +365,7 @@ namespace cs2glaz
 		bool decoy_schema_available_ {};
 		bool collision_attribute_available_ {};
 		bool shadow_strength_available_ {};
+		bool ghost_schema_available_ {};
 		int render_none_value_ {-1};
 		bool scene_hierarchy_schema_available_ {};
 		bool smoke_gamedata_available_ {};

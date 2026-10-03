@@ -584,6 +584,9 @@ namespace cs2glaz
 								  && optional(fields_.render_color, "CBaseModelEntity", "m_clrRender")
 								  && optional(fields_.model_collision, "CBaseModelEntity", "m_Collision");
 		shadow_strength_available_ = optional(fields_.shadow_strength, "CBaseModelEntity", "m_flShadowStrength");
+		ghost_schema_available_ = optional(fields_.takes_damage, "CBaseEntity", "m_bTakesDamage") && optional(fields_.move_type, "CBaseEntity", "m_MoveType")
+								  && optional(fields_.actual_move_type, "CBaseEntity", "m_nActualMoveType")
+								  && optional(fields_.pawn_is_alive, "CCSPlayerController", "m_bPawnIsAlive");
 		const auto field_anywhere = [&](uint32_t& target, const char* class_name, const char* field_name)
 		{ return resolve_field(schema, class_name, field_name, target) || resolve_global_field(schema, class_name, field_name, target); };
 		collision_attribute_available_ = optional(fields_.collision_attribute, "CCollisionProperty", "m_collisionAttribute")
