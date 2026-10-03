@@ -221,18 +221,18 @@ namespace cs2glaz
 	// The server's honest coincidence rate, reports per decoy-second: every
 	// player's reports at control twins over their readiness, drawn towards
 	// the prior while there is little of it.
-	inline double decoy_server_rate(const decoy_exposure& server)
+	inline double decoy_server_rate(const decoy_exposure& server, double prior_rate = k_decoy_prior_rate)
 	{
-		return (static_cast<double>(server.control_reports) + k_decoy_prior_rate * k_decoy_server_prior_seconds)
+		return (static_cast<double>(server.control_reports) + prior_rate * k_decoy_server_prior_seconds)
 			   / (std::max(server.control_seconds, 0.0) + k_decoy_server_prior_seconds);
 	}
 
 	// Real reports an honest player would be expected to have: his coincidence
 	// rate (his own controls, drawn towards the server's rate when he has little
 	// control time) times his real decoy readiness.
-	inline double decoy_expected_reports(const decoy_exposure& player, const decoy_exposure& server)
+	inline double decoy_expected_reports(const decoy_exposure& player, const decoy_exposure& server, double prior_rate = k_decoy_prior_rate)
 	{
-		const double player_rate = (static_cast<double>(player.control_reports) + decoy_server_rate(server) * k_decoy_player_prior_seconds)
+		const double player_rate = (static_cast<double>(player.control_reports) + decoy_server_rate(server, prior_rate) * k_decoy_player_prior_seconds)
 								   / (std::max(player.control_seconds, 0.0) + k_decoy_player_prior_seconds);
 		return player_rate * std::max(player.real_seconds, 0.0);
 	}
@@ -241,9 +241,9 @@ namespace cs2glaz
 	// with the same readiness could plausibly have, the expected count plus
 	// three standard deviations (Poisson). An honest player stays at 0 however
 	// long he plays; a wallhack sees only the real decoys.
-	inline double decoy_evidence(const decoy_exposure& player, const decoy_exposure& server)
+	inline double decoy_evidence(const decoy_exposure& player, const decoy_exposure& server, double prior_rate = k_decoy_prior_rate)
 	{
-		const double expected = decoy_expected_reports(player, server);
+		const double expected = decoy_expected_reports(player, server, prior_rate);
 		const double excess = static_cast<double>(player.real_reports) - expected - 3.0 * std::sqrt(expected);
 		return excess > 0.0 ? excess : 0.0;
 	}
@@ -328,6 +328,68 @@ namespace cs2glaz
 		}
 		return false;
 	}
+
+	// Front decoys (cs2glaz_decoy_front): per viewer, an invisible phantom
+	// player standing in plain view a few degrees off his crosshair, the
+	// target an aimbot picks first (the nearest to the crosshair inside its
+	// field of view). An honest player sees nothing there: it is not rendered,
+	// casts no shadow, has no collision and nobody else receives it. It jumps
+	// to another spot every few seconds and whenever a crosshair rests on it,
+	// so an aimbot locked onto it follows it around (the jump test, with a
+	// control twin nobody receives placed and jumped by the same rules).
+	// Spots are recorded floor points in clear view of the eye (an aimbot's
+	// visibility trace passes), away from every player.
+	inline constexpr float k_front_min_distance = 160.0f;
+	inline constexpr float k_front_max_distance = 1200.0f;
+	// Off the crosshair by this much at the body centre, and never on it
+	// (direction_on_decoy): an honest crosshair is not already there.
+	inline constexpr float k_front_min_degrees = 3.0f;
+	inline constexpr float k_front_max_degrees = 20.0f;
+	// Further off than this (the viewer turned away), nearer or further than
+	// these, or out of clear view: placed again.
+	inline constexpr float k_front_keep_degrees = 35.0f;
+	inline constexpr float k_front_keep_min_distance = 96.0f;
+	inline constexpr float k_front_keep_max_distance = 1600.0f;
+	inline constexpr float k_front_player_clearance = 128.0f;
+	inline constexpr float k_front_head_height = 64.0f;
+	// A crosshair resting on it this long makes it jump (an aimbot that locked
+	// on follows; an honest crosshair that happened to be there does not).
+	inline constexpr float k_front_dodge_ms = 300.0f;
+	// Between jumps: the jump window, then a random pause up to this.
+	inline constexpr float k_front_pause_min_ms = 400.0f;
+	inline constexpr float k_front_pause_spread_ms = 2000.0f;
+	// Honest coincidences at front decoys before the server has data: one per
+	// 100 decoy-seconds (they stand near the crosshair, so more than behind
+	// walls).
+	inline constexpr double k_front_prior_rate = 0.01;
+
+	struct front_spot_query
+	{
+		vec3 viewer_eye;
+		float view_pitch_degrees {};
+		float view_yaw_degrees {};
+		std::span<const vec3> players; // every other living player (feet)
+		std::span<const vec3> taken;   // the viewer's other front decoy
+		const vec3* from {};		   // a jump from here: also decoy_jump_distance_ok
+		uint32_t seed {};
+	};
+
+	// Degrees between the view and the line from the eye to a body's centre.
+	float front_offset_degrees(vec3 eye, float pitch_degrees, float yaw_degrees, vec3 origin);
+
+	// The rules without traces: distance, offset, not on the crosshair, away
+	// from players and from the line to any of them, apart on screen from the
+	// taken spots, and a jump's distance from query.from.
+	bool front_spot_rules(const front_spot_query& query, vec3 candidate);
+
+	// Among recorded floor spots meeting front_spot_rules whose centre and head
+	// the map leaves in clear view of the eye, one near the crosshair (the
+	// smallest offset after a random spread). False when none qualifies.
+	bool choose_front_spot(const bvh8_data& data, const decoy_spot_history& history, const front_spot_query& query, vec3& spot);
+
+	// Whether a front decoy standing at origin may stay: within the keep
+	// limits, away from players, and in clear view of the eye.
+	bool front_spot_keeps(const bvh8_data& data, const front_spot_query& query, vec3 origin);
 
 	// Blind hits: gun damage to an enemy whose pawn CS2GLAZ had not sent to the
 	// attacker for k_blind_hit_unsent_ms. Honest players get some (spraying a

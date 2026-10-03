@@ -218,6 +218,9 @@ namespace cs2glaz
 		bool control {};
 		// Driven by a ghost player's pawn (ghosts.cpp) instead of a prop.
 		bool ghost {};
+		// A front decoy (front_decoys.cpp): in plain view near the crosshair,
+		// never through a wall; a control one has no entity at all.
+		bool front {};
 		std::chrono::steady_clock::time_point spawned_at;
 		std::chrono::steady_clock::time_point expires;
 		float aim_ms {};
@@ -294,7 +297,14 @@ namespace cs2glaz
 		double blind_evidence_marked {}; // whole blind-hit evidence last acted on
 		double real_seconds {};	   // readiness of his real decoys, summed
 		double control_seconds {}; // readiness of his control twins, summed
-		double evidence_at_kick {}; // decoy_evidence when cs2glaz_decoy_kick last kicked him
+		// Front decoys (front_decoys.cpp): weighed against their own controls.
+		uint32_t front_jumps {};
+		uint32_t front_shots {};
+		uint32_t front_control_jumps {};
+		uint32_t front_control_shots {};
+		double front_real_seconds {};
+		double front_control_seconds {};
+		double evidence_at_kick {}; // evidence (decoy_player_evidence) when cs2glaz_decoy_kick last kicked him
 		double evidence_reported {}; // whole evidence last reported to CSVILKA
 		uint32_t kicks {};
 		bool this_map {};
@@ -303,6 +313,17 @@ namespace cs2glaz
 		{
 			return {static_cast<uint64_t>(aims) + shots + jumps, static_cast<uint64_t>(control_aims) + control_shots + control_jumps, real_seconds,
 					control_seconds};
+		}
+
+		decoy_exposure front_exposure() const
+		{
+			return {static_cast<uint64_t>(front_jumps) + front_shots, static_cast<uint64_t>(front_control_jumps) + front_control_shots,
+					front_real_seconds, front_control_seconds};
+		}
+
+		bool anything() const
+		{
+			return aims + shots + jumps + front_jumps + front_shots + blind_hits != 0;
 		}
 	};
 
@@ -332,6 +353,15 @@ namespace cs2glaz
 		uint64_t gun_hits {};	   // since load, by humans on enemies
 		uint64_t blind_hits {};
 		uint64_t runs_ended {};	   // retired because their one run reached its end
+		// Front decoys (front_decoys.cpp).
+		uint64_t front_runs {};		 // runs of a phantom's body in front of its viewer
+		uint64_t front_jumps {};	 // jumps (and placements) made while ready, twins included
+		uint64_t front_follows {};
+		uint64_t front_control_follows {};
+		uint64_t front_shots {};
+		uint64_t front_control_shots {};
+		uint64_t front_no_spot {}; // no recorded floor spot in clear view near the crosshair
+		uint64_t front_dodges {};  // jumps made because a crosshair rested on it
 	};
 
 	// A fake player that exists for one viewer only (ghosts.cpp): ESPs that
@@ -362,7 +392,7 @@ namespace cs2glaz
 	// slot above the server's player count (no client, no player slot taken)
 	// whose pawn handle points at a decoy prop. It carries the name of the
 	// hidden enemy it stands in for. Only its viewer receives it.
-	inline constexpr size_t k_max_phantoms = 16;
+	inline constexpr size_t k_max_phantoms = 32;
 
 	struct phantom_player
 	{
@@ -374,6 +404,8 @@ namespace cs2glaz
 		uint32_t target {k_max_players}; // the enemy whose name and model it carries
 		uint8_t team {};
 		uint32_t driving_id {};
+		// Its body is its viewer's front decoy (front_decoys.cpp), not a stand-in.
+		bool front {};
 		std::chrono::steady_clock::time_point created_at;
 		std::chrono::steady_clock::time_point released_at;
 		std::chrono::steady_clock::time_point idle_since;
@@ -384,6 +416,27 @@ namespace cs2glaz
 		int controller {}; // entity index; 0 none
 		uint32_t viewer {k_max_players};
 		CEntityHandle body;
+		uint32_t front_run {}; // its body runs as its viewer's front decoy: that decoy's id; 0 not
+	};
+
+	// A viewer's front decoys (front_decoys.cpp): the real one in his
+	// phantom's body and its control twin with no entity, placed and jumped by
+	// the same rules.
+	struct front_decoy
+	{
+		decoy_slot real;
+		decoy_slot control;
+		std::chrono::steady_clock::time_point retry_at;	  // no spot or phantom: try again then
+		std::chrono::steady_clock::time_point stopped_at; // its body's last run ended (k_decoy_reuse_quarantine_ms)
+	};
+
+	// When a phantom's body reached its viewer as his front decoy: the engine
+	// had it in his list. Guarded by the transmit lock.
+	struct front_delivery
+	{
+		uint32_t run {};
+		std::chrono::steady_clock::time_point first_sent;
+		std::chrono::steady_clock::time_point last_sent;
 	};
 
 	// What CheckTransmit needs about a ghost; guarded by the transmit lock.
@@ -627,6 +680,14 @@ namespace cs2glaz
 			return slot < k_max_players && ((phantom_slots_.load(std::memory_order_relaxed) >> slot) & 1u) != 0;
 		}
 		void print_phantom_status() const;
+		// Front decoys (front_decoys.cpp).
+		bool front_enabled() const;
+		phantom_player* front_phantom(uint32_t viewer);
+		void update_front_decoys(CGameEntitySystem* system, const visibility_snapshot& value, float elapsed_ms, std::chrono::steady_clock::time_point now);
+		void stop_front_decoys(uint32_t viewer, std::chrono::steady_clock::time_point now);
+		void front_shot(uint32_t shooter, vec3 eye, vec3 direction, std::span<const vec3> others);
+		void print_front_status() const;
+		double decoy_player_evidence(const decoy_player_record& record) const;
 		void ghost_release(uint32_t decoy_id, std::chrono::steady_clock::time_point now);
 		bool ghost_pawn_alive(CGameEntitySystem* system, CEntityHandle pawn) const;
 		void ghost_command(int slot, const char* command);
@@ -863,6 +924,9 @@ namespace cs2glaz
 		std::array<std::chrono::steady_clock::time_point, k_max_players> ghost_kicked_at_ {};
 		std::array<phantom_player, k_max_phantoms> phantoms_ {};
 		std::array<phantom_transmit_entry, k_max_phantoms> phantom_transmit_ {}; // transmit lock
+		std::array<front_delivery, k_max_phantoms> front_delivery_ {};			 // transmit lock
+		std::array<front_decoy, k_max_players> front_decoys_ {};
+		decoy_exposure front_server_ {};
 		std::atomic<uint64_t> phantom_slots_ {}; // entity slots (index - 1) holding phantom controllers
 		std::string phantom_error_;				 // phantoms turned off until the plugin reloads
 		std::chrono::steady_clock::time_point phantom_next_create_ {};

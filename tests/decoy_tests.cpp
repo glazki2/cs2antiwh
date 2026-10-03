@@ -485,6 +485,91 @@ namespace
 		assert(!decoy_jump_update(broken, std::nanf(""), true, 15.0f) && broken.done);
 	}
 
+	void test_front_spots()
+	{
+		// Floor spots on a grid ahead of the viewer, who looks along +x.
+		decoy_spot_history history;
+		for (float x = -400.0f; x <= 1600.0f; x += 48.0f)
+		{
+			for (float y = -700.0f; y <= 700.0f; y += 48.0f)
+			{
+				history.record({x, y, 0.0f});
+			}
+		}
+		const bvh8_data open = decoy_world({{{5000, 5000, -10}, {5010, 5000, -10}, {5000, 5010, -10}}});
+		const vec3 eye {0, 0, 64};
+		std::vector<vec3> players {{600, 60, 0}};
+		front_spot_query query {eye, 0.0f, 0.0f, players, {}, nullptr, 7};
+		vec3 spot;
+		assert(choose_front_spot(open, history, query, spot));
+		// In front, off the crosshair but close to it, never on it, in clear view,
+		// away from the player and not in line with him.
+		const float offset = front_offset_degrees(eye, 0.0f, 0.0f, spot);
+		assert(offset >= k_front_min_degrees && offset <= k_front_max_degrees);
+		assert(!aim_on_decoy(eye, 0.0f, 0.0f, spot));
+		assert(spot.x > 0.0f);
+		assert(std::hypot(spot.x - 600.0f, spot.y - 60.0f) >= k_front_player_clearance);
+		assert(!direction_on_any_player(eye, {spot.x - eye.x, spot.y - eye.y, spot.z + k_decoy_center_height - eye.z}, players));
+		assert(front_spot_keeps(open, query, spot));
+		// Seeds spread it over several places, all meeting the rules.
+		int different = 0;
+		for (uint32_t seed = 1; seed < 30; ++seed)
+		{
+			vec3 other;
+			query.seed = seed;
+			assert(choose_front_spot(open, history, query, other));
+			assert(front_spot_rules(query, other));
+			different += std::fabs(other.x - spot.x) + std::fabs(other.y - spot.y) > 1.0f ? 1 : 0;
+		}
+		assert(different > 0);
+
+		// Its twin is apart from it on screen; a jump lands 12-50 degrees away.
+		const std::vector<vec3> taken {spot};
+		front_spot_query twin {eye, 0.0f, 0.0f, players, taken, nullptr, 11};
+		vec3 second;
+		assert(choose_front_spot(open, history, twin, second));
+		assert(decoy_angle_between(eye, spot, second) >= k_decoy_jump_min_degrees);
+		front_spot_query jump {eye, 0.0f, 0.0f, players, {}, &spot, 13};
+		vec3 landed;
+		assert(choose_front_spot(open, history, jump, landed));
+		assert(decoy_jump_distance_ok(eye, spot, landed));
+
+		// A wall across the view: only spots in clear view, in front of it.
+		const bvh8_data wall = decoy_world(wall_at_200());
+		for (uint32_t seed = 1; seed < 20; ++seed)
+		{
+			vec3 near;
+			query.seed = seed;
+			if (choose_front_spot(wall, history, query, near))
+			{
+				assert(near.x < 200.0f);
+				assert(!segment_blocked(wall, eye, {near.x, near.y, near.z + k_decoy_center_height}).blocked);
+			}
+		}
+		// Kept while in view; placed again once the viewer turns away, a player
+		// comes next to it, or a wall stands between.
+		query.seed = 7;
+		assert(front_spot_keeps(open, query, spot));
+		const front_spot_query turned {eye, 0.0f, 90.0f, players, {}, nullptr, 7};
+		assert(!front_spot_keeps(open, turned, spot));
+		const std::vector<vec3> crowding {{spot.x + 20.0f, spot.y, 0.0f}};
+		const front_spot_query crowded {eye, 0.0f, 0.0f, crowding, {}, nullptr, 7};
+		assert(!front_spot_keeps(open, crowded, spot));
+		assert(!front_spot_keeps(wall, query, {900.0f, 0.0f, 0.0f}));
+		// Looking at the sky or with bad numbers: nothing.
+		const front_spot_query sky {eye, -89.0f, 0.0f, players, {}, nullptr, 7};
+		assert(!choose_front_spot(open, history, sky, spot));
+		const front_spot_query broken {eye, std::nanf(""), 0.0f, players, {}, nullptr, 7};
+		assert(!choose_front_spot(open, history, broken, spot));
+		assert(!front_spot_rules(broken, {500.0f, 30.0f, 0.0f}));
+
+		// Its evidence is weighed with its own, higher prior.
+		const decoy_exposure server {};
+		const decoy_exposure player {5, 0, 100.0, 0.0};
+		assert(decoy_expected_reports(player, server, k_front_prior_rate) > decoy_expected_reports(player, server));
+		assert(decoy_evidence(player, server, k_front_prior_rate) < decoy_evidence(player, server));
+	}
+
 	void test_blind_hits()
 	{
 		// Before data, the prior share (5%).
@@ -515,5 +600,6 @@ void run_decoy_tests()
 	test_decoy_view_preference();
 	test_decoy_one_run();
 	test_decoy_jump();
+	test_front_spots();
 	test_blind_hits();
 }

@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <utility>
+#include <vector>
 
 namespace cs2glaz
 {
@@ -227,6 +230,124 @@ namespace cs2glaz
 			}
 		}
 		return decoy_proof::hidden;
+	}
+
+	float front_offset_degrees(vec3 eye, float pitch_degrees, float yaw_degrees, vec3 origin)
+	{
+		if (!finite(eye) || !finite(origin) || !std::isfinite(pitch_degrees) || !std::isfinite(yaw_degrees))
+		{
+			return 180.0f;
+		}
+		const vec3 center = body_center(origin);
+		return angle_degrees(view_forward(pitch_degrees, yaw_degrees), {center.x - eye.x, center.y - eye.y, center.z - eye.z});
+	}
+
+	namespace
+	{
+
+		// front_spot_rules with the view direction (unit length) worked out once:
+		// most spots fail the distance or the cone, cheaply, before the rest.
+		bool front_rules(const front_spot_query& query, vec3 forward, vec3 candidate)
+		{
+			static const float cos_min = std::cos(k_front_min_degrees * k_degrees_to_radians);
+			static const float cos_max = std::cos(k_front_max_degrees * k_degrees_to_radians);
+			const vec3 eye = query.viewer_eye;
+			const vec3 center = body_center(candidate);
+			const vec3 to_center {center.x - eye.x, center.y - eye.y, center.z - eye.z};
+			const float distance_squared = to_center.x * to_center.x + to_center.y * to_center.y + to_center.z * to_center.z;
+			if (!std::isfinite(distance_squared) || distance_squared < k_front_min_distance * k_front_min_distance
+				|| distance_squared > k_front_max_distance * k_front_max_distance)
+			{
+				return false;
+			}
+			const float cosine = (forward.x * to_center.x + forward.y * to_center.y + forward.z * to_center.z) / std::sqrt(distance_squared);
+			if (!(cosine <= cos_min && cosine >= cos_max) || direction_on_decoy(eye, forward, candidate)
+				|| !far_from_all(candidate, query.players, k_front_player_clearance))
+			{
+				return false;
+			}
+			// Not in line with a player either way: an aim at one would be an aim
+			// at the other.
+			if (direction_on_any_player(eye, to_center, query.players)
+				|| std::any_of(query.players.begin(), query.players.end(),
+							   [&](vec3 player)
+							   {
+								   const vec3 player_center = body_center(player);
+								   return direction_on_decoy(eye, {player_center.x - eye.x, player_center.y - eye.y, player_center.z - eye.z}, candidate);
+							   }))
+			{
+				return false;
+			}
+			if (std::any_of(query.taken.begin(), query.taken.end(),
+							[&](vec3 other) { return decoy_angle_between(eye, other, candidate) < k_decoy_jump_min_degrees; }))
+			{
+				return false;
+			}
+			return query.from == nullptr || decoy_jump_distance_ok(eye, *query.from, candidate);
+		}
+
+		bool front_query_valid(const front_spot_query& query)
+		{
+			return finite(query.viewer_eye) && std::isfinite(query.view_pitch_degrees) && std::isfinite(query.view_yaw_degrees);
+		}
+
+	} // namespace
+
+	bool front_spot_rules(const front_spot_query& query, vec3 candidate)
+	{
+		return front_query_valid(query) && finite(candidate)
+			   && front_rules(query, view_forward(query.view_pitch_degrees, query.view_yaw_degrees), candidate);
+	}
+
+	bool choose_front_spot(const bvh8_data& data, const decoy_spot_history& history, const front_spot_query& query, vec3& spot)
+	{
+		const std::span<const vec3> points = history.points();
+		if (points.empty() || !front_query_valid(query))
+		{
+			return false;
+		}
+		const vec3 forward = view_forward(query.view_pitch_degrees, query.view_yaw_degrees);
+		uint32_t state = query.seed == 0 ? 0x27d4eb2fu : query.seed;
+		// Near the crosshair first, spread by up to 6 degrees so it does not
+		// always take the same place.
+		std::vector<std::pair<float, uint32_t>> passing;
+		for (uint32_t index = 0; index < points.size(); ++index)
+		{
+			if (front_rules(query, forward, points[index]))
+			{
+				const float spread = static_cast<float>(decoy_random(state) % 600u) / 100.0f;
+				passing.emplace_back(front_offset_degrees(query.viewer_eye, query.view_pitch_degrees, query.view_yaw_degrees, points[index]) + spread,
+									 index);
+			}
+		}
+		constexpr size_t k_traced = 8;
+		const size_t traced = std::min(passing.size(), k_traced);
+		std::partial_sort(passing.begin(), passing.begin() + static_cast<std::ptrdiff_t>(traced), passing.end());
+		for (size_t rank = 0; rank < traced; ++rank)
+		{
+			const vec3 candidate = points[passing[rank].second];
+			const vec3 head {candidate.x, candidate.y, candidate.z + k_front_head_height};
+			if (!segment_blocked(data, query.viewer_eye, body_center(candidate)).blocked && !segment_blocked(data, query.viewer_eye, head).blocked)
+			{
+				spot = candidate;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool front_spot_keeps(const bvh8_data& data, const front_spot_query& query, vec3 origin)
+	{
+		const vec3 eye = query.viewer_eye;
+		if (!finite(origin) || !finite(eye))
+		{
+			return false;
+		}
+		const vec3 center = body_center(origin);
+		const float distance = std::sqrt(distance_sq(center, eye));
+		return distance >= k_front_keep_min_distance && distance <= k_front_keep_max_distance
+			   && front_offset_degrees(eye, query.view_pitch_degrees, query.view_yaw_degrees, origin) <= k_front_keep_degrees
+			   && far_from_all(origin, query.players, k_front_player_clearance * 0.5f) && !segment_blocked(data, eye, center).blocked;
 	}
 
 	float decoy_follow_degrees(vec3 eye_before, vec3 forward_before, vec3 decoy_before, vec3 eye_now, vec3 forward_now, vec3 decoy_now)

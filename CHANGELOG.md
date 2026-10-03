@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0
+
+Front decoys: an invisible fake enemy in front of every player, against aimbots.
+
+- `cs2glaz_decoy_front 1` (0 off by default, needs `cs2glaz_decoys` 1 or 3 and `cs2glaz_decoy_phantoms`): each human player on a team gets a phantom player (no client, no player slot, an enemy's name and model) whose body stands in plain view 3-20 degrees off his crosshair, 160-1200 units away, on a floor spot players have stood on, with the map clear between his eye and its centre and head (an aimbot's own visibility trace passes), at least 128 units from every player and never in line with one (`choose_front_spot`). It is not rendered, casts no shadow, has no collision, and only he receives it, only while he is alive.
+- It jumps 12-50 degrees on his screen every 1.3-3.3 s and as soon as a crosshair has rested on it for 300 ms, and is placed again when he turns more than 35 degrees away, comes closer than 96 units, or a wall comes between (`front_spot_keeps`). An aimbot that picks the enemy nearest the crosshair locks onto it and drags the view after every jump.
+- Every jump while it reaches his client is a jump test (`decoy_jump_update`): an aim that lands on the new spot after 120 ms and stays 150 ms is logged as `event=front_jump`; a shot whose line passes through it (`weapon_fire` or `bullet_impact`, once per spot) as `event=front_shot`. A control twin with no entity, placed and jumped by the same rules and ready exactly when the real one is, gives each player's honest coincidence rate (`control_front_jump`, `control_front_shot`). Front reports are weighed against their own controls with a prior of one per 100 s (`k_front_prior_rate`); the evidence used for kicks, CSVILKA and `cs2glaz_status` is the sum of the front and the behind-the-wall evidence.
+- Front decoys take every phantom: hidden decoys use props (or ghosts) meanwhile. A front phantom stays while its viewer is on a team, is replaced when the enemy it imitates leaves that team, and is made again after a round restart (one new phantom every 300 ms). Its body goes to its viewer in one run at a time, never again sooner than 1 s after a run ended, and a run the engine kept from him for 1.5 s ends.
+- A triggerbot that fires on the game's own crosshair target is not fooled (the client's trace cannot hit a body without collision, and one with collision would stop honest players' bullets); one that works from bones, and an aimbot's automatic shot, are logged.
+- `cs2glaz_decoy_phantoms` now goes up to 32. The decoy log has the front counts, seconds and expectation on every line; `cs2glaz_status` has a `front decoys:` line and front counts per suspect.
+
 ## 0.12.0
 
 Phantom players: decoys for player-only ESPs that take no player slot and carry the hidden enemy's name.

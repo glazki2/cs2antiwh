@@ -10,7 +10,9 @@
 // handle: a phantom's points at a decoy prop with the hidden enemy's model,
 // health 100 and his team, and the controller carries his name. Only its
 // viewer receives the controller, and the prop only while it stands in for
-// one of his decoys (delivery, walking, jumps and reports as for any decoy).
+// one of his decoys (delivery, walking, jumps and reports as for any decoy)
+// or, with cs2glaz_decoy_front 1, while it runs as his front decoy
+// (front_decoys.cpp; every phantom is a front one then).
 //
 // Nothing in the game expects a controller without a client, so this is the
 // least proven part of CS2GLAZ: test it on your own server with your own
@@ -30,8 +32,9 @@ namespace cs2glaz
 
 		CConVar<int> cs2glaz_decoy_phantoms("cs2glaz_decoy_phantoms", FCVAR_NONE,
 											"Experimental phantom players for player-only ESPs: up to this many controllers without a client (no "
-											"player slot taken), one per viewer, carrying the hidden enemy's name and standing in for his decoys; "
-											"0 off (needs cs2glaz_decoys and -maxplayers below 64; test servers; resets on restart)",
+											"player slot taken), one per viewer, carrying the hidden enemy's name and standing in for his decoys "
+											"(or, with cs2glaz_decoy_front 1, standing in front of him); 0 off (needs cs2glaz_decoys and -maxplayers "
+											"below 64; test servers; resets on restart)",
 											0, true, 0, true, static_cast<int>(k_max_phantoms));
 
 		using create_entity_fn = CEntityInstance* (*)(const char*, int);
@@ -246,7 +249,8 @@ namespace cs2glaz
 							  std::chrono::steady_clock::time_point now)
 	{
 		std::string reason;
-		if (system == nullptr || slot.control || phantom_limit() == 0 || !phantoms_available(reason))
+		// Front decoys take every phantom: hidden decoys are props (or ghosts) then.
+		if (system == nullptr || slot.control || phantom_limit() == 0 || front_enabled() || !phantoms_available(reason))
 		{
 			return false;
 		}
@@ -322,6 +326,10 @@ namespace cs2glaz
 			discard_decoy_entity(system->GetEntityInstance(phantom.controller));
 			discard_decoy_entity(system->GetEntityInstance(phantom.body));
 		}
+		if (phantom.front)
+		{
+			stop_front_decoys(phantom.viewer, std::chrono::steady_clock::now());
+		}
 		if (phantom.driving_id != 0)
 		{
 			for (auto& row : decoys_)
@@ -349,6 +357,11 @@ namespace cs2glaz
 			remove_phantom(phantom, remove_entities);
 		}
 		phantom_slots_.store(0);
+		const auto now = std::chrono::steady_clock::now();
+		for (uint32_t viewer = 0; viewer < k_max_players; ++viewer)
+		{
+			stop_front_decoys(viewer, now);
+		}
 		if (any)
 		{
 			publish_phantom_transmit();
@@ -374,8 +387,11 @@ namespace cs2glaz
 			CEntityInstance* controller = system->GetEntityInstance(phantom.controller);
 			CEntityInstance* body = system->GetEntityInstance(phantom.body);
 			CEntityInstance* viewer = system->GetEntityInstance(CEntityIndex(static_cast<int>(phantom.viewer + 1u)));
-			const bool viewer_ok = viewer != nullptr && human_player(phantom.viewer) && value.players[phantom.viewer].valid
-								   && enemy_of(field<uint8_t>(viewer, fields.team)) == phantom.team
+			// A front phantom stays while its viewer is on a team, dead or alive
+			// (its body goes to him only while he is alive); a stand-in only while
+			// he is alive, and never once front decoys take the phantoms.
+			const bool viewer_ok = viewer != nullptr && human_player(phantom.viewer) && enemy_of(field<uint8_t>(viewer, fields.team)) == phantom.team
+								   && (phantom.front || value.players[phantom.viewer].valid) && phantom.front == front_enabled()
 								   && (decoy_mode() != 3 || is_suspect(phantom.viewer, now));
 			if (controller == nullptr || body == nullptr)
 			{
@@ -384,7 +400,7 @@ namespace cs2glaz
 				remove_phantom(phantom, true);
 				continue;
 			}
-			if (!viewer_ok || (phantom.driving_id == 0 && now - phantom.idle_since >= k_phantom_idle_remove))
+			if (!viewer_ok || (phantom.driving_id == 0 && now - phantom.idle_since >= k_phantom_idle_remove && !phantom.front))
 			{
 				remove_phantom(phantom, true);
 			}
@@ -397,28 +413,35 @@ namespace cs2glaz
 		for (size_t index = 0; index < phantoms_.size(); ++index)
 		{
 			const phantom_player& phantom = phantoms_[index];
-			phantom_transmit_[index] = phantom.index == 0 ? phantom_transmit_entry {} : phantom_transmit_entry {phantom.index, phantom.viewer, phantom.body};
+			const uint32_t front_run =
+				phantom.index != 0 && phantom.front && phantom.viewer < k_max_players ? front_decoys_[phantom.viewer].real.id : 0u;
+			phantom_transmit_[index] =
+				phantom.index == 0 ? phantom_transmit_entry {} : phantom_transmit_entry {phantom.index, phantom.viewer, phantom.body, front_run};
 		}
 	}
 
 	// A phantom's controller goes to its viewer only; its body reaches him only
-	// through the decoy slot it stands in for (withhold_decoys), and nobody else.
+	// through the decoy slot it stands in for (withhold_decoys) or while it runs
+	// as his front decoy, and nobody else.
 	void plugin::withhold_phantoms(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count)
 	{
 		if (system == nullptr || phantom_slots_.load(std::memory_order_relaxed) == 0)
 		{
 			return;
 		}
-		for (const phantom_transmit_entry& entry : phantom_transmit_)
+		const auto now = std::chrono::steady_clock::now();
+		for (size_t entry_index = 0; entry_index < phantom_transmit_.size(); ++entry_index)
 		{
+			const phantom_transmit_entry& entry = phantom_transmit_[entry_index];
 			if (entry.controller <= 0)
 			{
 				continue;
 			}
 			const int body = entity_index(entry.body.IsValid() ? system->GetEntityInstance(entry.body) : nullptr);
 			const bool standing_in = entry.viewer < k_max_players
-									 && std::any_of(decoy_transmit_[entry.viewer].begin(), decoy_transmit_[entry.viewer].end(),
-													[&](const decoy_transmit_entry& decoy) { return decoy.id != 0 && decoy.handle == entry.body; });
+									 && (entry.front_run != 0
+										 || std::any_of(decoy_transmit_[entry.viewer].begin(), decoy_transmit_[entry.viewer].end(),
+														[&](const decoy_transmit_entry& decoy) { return decoy.id != 0 && decoy.handle == entry.body; }));
 			for (int i = 0; i < count; ++i)
 			{
 				CCheckTransmitInfo* info = infos[i];
@@ -436,6 +459,18 @@ namespace cs2glaz
 				if (valid_networked_edict_index(body) && (!viewer || !standing_in))
 				{
 					withhold_entity(slot, info->m_pTransmitEntity, info->m_pTransmitAlways, body, withhold_reason::ghost);
+				}
+				else if (valid_networked_edict_index(body) && entry.front_run != 0 && info->m_pTransmitEntity->IsBitSet(body))
+				{
+					// The engine packed its body for him: his front decoy reaches him.
+					front_delivery& sent = front_delivery_[entry_index];
+					if (sent.run != entry.front_run)
+					{
+						sent = {};
+						sent.run = entry.front_run;
+						sent.first_sent = now;
+					}
+					sent.last_sent = now;
 				}
 			}
 		}
@@ -455,7 +490,8 @@ namespace cs2glaz
 			if (phantom.index != 0)
 			{
 				META_CONPRINTF("[CS2GLAZ] phantom entity %d team %u viewer %u imitating slot %u%s\n", phantom.index, static_cast<unsigned>(phantom.team),
-							   phantom.viewer, phantom.target, phantom.driving_id != 0 ? " standing in for a decoy" : "");
+							   phantom.viewer, phantom.target,
+							   phantom.front ? " in front of him" : (phantom.driving_id != 0 ? " standing in for a decoy" : ""));
 			}
 		}
 	}

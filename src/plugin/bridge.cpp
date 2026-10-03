@@ -136,13 +136,16 @@ namespace cs2glaz
 		}
 		const decoy_player_record& record = found->second;
 		const decoy_exposure exposure = record.exposure();
-		evidence = {record.aims + record.jumps, // a followed jump is an aim that followed
-					record.shots,
-					record.control_aims + record.control_shots + record.control_jumps,
-					exposure.real_seconds,
-					exposure.control_seconds,
-					decoy_expected_reports(exposure, decoy_server_),
-					decoy_evidence(exposure, decoy_server_)};
+		const decoy_exposure front = record.front_exposure();
+		// Front decoys (front_decoys.cpp) count with the others: their own
+		// controls and expectation, summed.
+		evidence = {record.aims + record.jumps + record.front_jumps, // a followed jump is an aim that followed
+					record.shots + record.front_shots,
+					record.control_aims + record.control_shots + record.control_jumps + record.front_control_jumps + record.front_control_shots,
+					exposure.real_seconds + front.real_seconds,
+					exposure.control_seconds + front.control_seconds,
+					decoy_expected_reports(exposure, decoy_server_) + decoy_expected_reports(front, front_server_, k_front_prior_rate),
+					decoy_player_evidence(record)};
 		return true;
 	}
 
