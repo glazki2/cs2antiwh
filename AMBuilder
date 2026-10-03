@@ -134,6 +134,7 @@ plugin.sources += [
   os.path.join(root, 'src', 'plugin', 'ghosts.cpp'),
   os.path.join(root, 'src', 'plugin', 'journal.cpp'),
   os.path.join(root, 'src', 'plugin', 'occluders.cpp'),
+  os.path.join(root, 'src', 'plugin', 'phantoms.cpp'),
   os.path.join(root, 'src', 'plugin', 'plugin.cpp'),
   os.path.join(root, 'src', 'plugin', 'radar_filter.cpp'),
   os.path.join(root, 'src', 'plugin', 'runtime_compatibility.cpp'),

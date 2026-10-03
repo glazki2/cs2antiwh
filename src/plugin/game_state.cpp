@@ -166,6 +166,10 @@ namespace cs2glaz
 			*live = {};
 		}
 		lifecycle_key key;
+		if (phantom_slot(slot))
+		{
+			return key; // a phantom's controller is no player (phantoms.cpp)
+		}
 		CEntityInstance* controller_entity = system == nullptr ? nullptr : system->GetEntityInstance(CEntityIndex(static_cast<int>(slot + 1u)));
 		key.has_controller = controller_entity != nullptr;
 		if (controller_entity == nullptr)

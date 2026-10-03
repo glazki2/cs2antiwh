@@ -462,7 +462,8 @@ namespace cs2glaz
 		ghost_event_slots_.store(slots | lingering);
 	}
 
-	bool plugin::ghost_take(CGameEntitySystem* system, uint32_t viewer, decoy_slot& slot, std::chrono::steady_clock::time_point now)
+	bool plugin::ghost_take(CGameEntitySystem* system, uint32_t viewer, decoy_slot& slot, const std::string& model,
+							std::chrono::steady_clock::time_point now)
 	{
 		if (system == nullptr || slot.control)
 		{
@@ -497,7 +498,8 @@ namespace cs2glaz
 			++ghost_counters_.runs;
 			return true;
 		}
-		return false;
+		// No fake client free for him: a phantom, which takes no player slot.
+		return phantom_take(system, viewer, slot, model, now);
 	}
 
 	void plugin::ghost_release(uint32_t decoy_id, std::chrono::steady_clock::time_point now)
@@ -508,6 +510,15 @@ namespace cs2glaz
 			{
 				ghost.driving_id = 0;
 				ghost.released_at = now;
+			}
+		}
+		for (phantom_player& phantom : phantoms_)
+		{
+			if (decoy_id != 0 && phantom.driving_id == decoy_id)
+			{
+				phantom.driving_id = 0;
+				phantom.released_at = now;
+				phantom.idle_since = now;
 			}
 		}
 	}
@@ -685,6 +696,7 @@ namespace cs2glaz
 						   ghost.viewer < k_max_players ? std::to_string(ghost.viewer).c_str() : "none", ghost.pawn.IsValid() ? " alive" : " dead or joining",
 						   ghost.driving_id != 0 ? " standing in for a decoy" : "", ghost.has_bomb ? " (dropping the bomb)" : "");
 		}
+		print_phantom_status();
 	}
 
 } // namespace cs2glaz

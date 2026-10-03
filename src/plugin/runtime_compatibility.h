@@ -85,6 +85,10 @@ namespace cs2glaz
 		uint32_t move_type {};
 		uint32_t actual_move_type {};
 		uint32_t pawn_is_alive {};
+		// Phantom players (controllers without a client).
+		uint32_t pawn_health {};
+		uint32_t connected {};
+		uint32_t controller_pawn {};
 	};
 
 	struct smoke_private_layout
@@ -309,6 +313,11 @@ namespace cs2glaz
 			return ghost_schema_available_;
 		}
 
+		bool phantom_schema_available() const
+		{
+			return phantom_schema_available_;
+		}
+
 		uint8_t render_none_value() const
 		{
 			return static_cast<uint8_t>(render_none_value_);
@@ -366,6 +375,7 @@ namespace cs2glaz
 		bool collision_attribute_available_ {};
 		bool shadow_strength_available_ {};
 		bool ghost_schema_available_ {};
+		bool phantom_schema_available_ {};
 		int render_none_value_ {-1};
 		bool scene_hierarchy_schema_available_ {};
 		bool smoke_gamedata_available_ {};

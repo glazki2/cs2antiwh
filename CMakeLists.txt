@@ -219,6 +219,7 @@ set(CS2GLAZ_PLUGIN_SOURCES
   "${CMAKE_SOURCE_DIR}/src/plugin/ghosts.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/journal.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/occluders.cpp"
+  "${CMAKE_SOURCE_DIR}/src/plugin/phantoms.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/plugin.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/radar_filter.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/runtime_compatibility.cpp"

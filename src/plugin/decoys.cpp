@@ -525,6 +525,7 @@ namespace cs2glaz
 		{
 			kick_all_ghosts("cs2glaz decoys off");
 			ghost_slots_.store(0);
+			remove_all_phantoms(true);
 			if (decoys_live_.load() || std::any_of(decoys_.begin(), decoys_.end(), [](const auto& row)
 													{ return std::any_of(row.begin(), row.end(), [](const decoy_slot& slot) { return slot.id != 0; }); }))
 			{
@@ -548,6 +549,7 @@ namespace cs2glaz
 		{
 			kick_all_ghosts("cs2glaz decoys unavailable");
 			ghost_slots_.store(0);
+			remove_all_phantoms(true);
 			if (decoys_live_.load())
 			{
 				remove_all_decoys(true);
@@ -555,6 +557,7 @@ namespace cs2glaz
 			return;
 		}
 		update_ghosts(system, value, now);
+		update_phantoms(system, value, now);
 		if (!weapon_fire_listening_ && game_events_ != nullptr)
 		{
 			weapon_fire_listening_ = game_events_->AddListener(this, "weapon_fire", true);
@@ -724,7 +727,7 @@ namespace cs2glaz
 					const std::string model = entity_model_name(pawn);
 					// A ghost player stands in for a real decoy when its viewer has one
 					// ready: a cheat that draws only players sees it.
-					if (ghost_take(system, viewer_slot, slot, now))
+					if (ghost_take(system, viewer_slot, slot, model, now))
 					{
 						slot.spawned_at = now;
 						slot.pause_until = now + std::chrono::milliseconds(k_pause_min_ms + decoy_random(decoy_seed_) % k_pause_spread_ms);
@@ -918,11 +921,13 @@ namespace cs2glaz
 		{
 			kick_all_ghosts("cs2glaz decoys turned off");
 			ghost_slots_.store(0);
+			remove_all_phantoms(true);
 			remove_all_decoys(true);
 			return;
 		}
 		publish_decoy_transmit();
 		publish_ghost_transmit();
+		publish_phantom_transmit();
 	}
 
 	bool plugin::jump_decoy(CEntityInstance* entity, decoy_slot& slot, const player_state& viewer, std::span<const vec3> enemies,

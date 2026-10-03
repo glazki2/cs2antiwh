@@ -128,6 +128,7 @@ namespace cs2glaz
 	{
 		kick_all_ghosts("cs2glaz unloaded");
 		ghost_slots_.store(0);
+		remove_all_phantoms(true);
 		ghost_event_slots_.store(0);
 		remove_all_decoys(true);
 		if (game_events_ != nullptr)
@@ -252,6 +253,7 @@ namespace cs2glaz
 		// are kicked rather than carried into the next map.
 		kick_all_ghosts("cs2glaz map change");
 		ghost_slots_.store(0);
+		remove_all_phantoms(false); // the map takes its entities with it
 		remove_all_decoys(false);
 		decoy_spots_.clear();
 		// Records stay (by SteamID, since load); the map's part goes to the log.
@@ -530,7 +532,7 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_entity <index> - What entity N is and when CS2GLAZ withheld it from or sent it again to each player "
 					   "(for a client crash \"CopyExistingEntity: missing client entity N\").\n");
 		META_CONPRINTF("[CS2GLAZ] runtime switches (reset on restart): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
-					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2/3), cs2glaz_decoy_kick, cs2glaz_decoy_ghosts (experimental, 0-2).\n");
+					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2/3), cs2glaz_decoy_kick, cs2glaz_decoy_ghosts (experimental, 0-2), cs2glaz_decoy_phantoms (experimental, 0-16).\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_suspect [steamid64|slot|name] [minutes] - Watch a player first with decoys (CSVILKA does it on its detections).\n");
 	}
 
@@ -756,10 +758,11 @@ namespace cs2glaz
 		}
 		finish_limited_validation(simulating);
 		const runtime_configuration& configuration = settings::current();
-		if ((!configuration.enable || !disabled_reason_.empty()) && (decoys_live_.load() || ghost_slots_.load() != 0))
+		if ((!configuration.enable || !disabled_reason_.empty()) && (decoys_live_.load() || ghost_slots_.load() != 0 || phantom_slots_.load() != 0))
 		{
 			kick_all_ghosts("cs2glaz off");
 			ghost_slots_.store(0);
+			remove_all_phantoms(true);
 			prune_decoy_graveyard(entity_system());
 			remove_all_decoys(true);
 		}

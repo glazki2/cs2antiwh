@@ -587,6 +587,10 @@ namespace cs2glaz
 		ghost_schema_available_ = optional(fields_.takes_damage, "CBaseEntity", "m_bTakesDamage") && optional(fields_.move_type, "CBaseEntity", "m_MoveType")
 								  && optional(fields_.actual_move_type, "CBaseEntity", "m_nActualMoveType")
 								  && optional(fields_.pawn_is_alive, "CCSPlayerController", "m_bPawnIsAlive");
+		phantom_schema_available_ = ghost_schema_available_ && player_name_schema_available_
+									&& optional(fields_.pawn_health, "CCSPlayerController", "m_iPawnHealth")
+									&& optional(fields_.connected, "CBasePlayerController", "m_iConnected")
+									&& optional(fields_.controller_pawn, "CBasePlayerController", "m_hPawn");
 		const auto field_anywhere = [&](uint32_t& target, const char* class_name, const char* field_name)
 		{ return resolve_field(schema, class_name, field_name, target) || resolve_global_field(schema, class_name, field_name, target); };
 		collision_attribute_available_ = optional(fields_.collision_attribute, "CCollisionProperty", "m_collisionAttribute")

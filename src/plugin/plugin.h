@@ -358,6 +358,34 @@ namespace cs2glaz
 		std::chrono::steady_clock::time_point bomb_since;
 	};
 
+	// A phantom player (phantoms.cpp): a player controller entity in an entity
+	// slot above the server's player count (no client, no player slot taken)
+	// whose pawn handle points at a decoy prop. It carries the name of the
+	// hidden enemy it stands in for. Only its viewer receives it.
+	inline constexpr size_t k_max_phantoms = 16;
+
+	struct phantom_player
+	{
+		int index {};		  // its controller's entity index; 0 none
+		CEntityHandle controller;
+		CEntityHandle body;	  // the decoy prop its pawn handle points at
+		void* teleport {};	  // the body's Teleport
+		uint32_t viewer {k_max_players};
+		uint32_t target {k_max_players}; // the enemy whose name and model it carries
+		uint8_t team {};
+		uint32_t driving_id {};
+		std::chrono::steady_clock::time_point created_at;
+		std::chrono::steady_clock::time_point released_at;
+		std::chrono::steady_clock::time_point idle_since;
+	};
+
+	struct phantom_transmit_entry
+	{
+		int controller {}; // entity index; 0 none
+		uint32_t viewer {k_max_players};
+		CEntityHandle body;
+	};
+
 	// What CheckTransmit needs about a ghost; guarded by the transmit lock.
 	struct ghost_transmit_entry
 	{
@@ -378,6 +406,9 @@ namespace cs2glaz
 		uint64_t observers_moved {};
 		uint64_t events_hidden {};
 		uint64_t radar_entries {};
+		uint64_t phantoms_created {};
+		uint64_t phantoms_removed {};
+		uint64_t phantom_runs {};
 	};
 
 	enum class decoy_report : uint8_t
@@ -577,7 +608,25 @@ namespace cs2glaz
 		// Ghost players (ghosts.cpp).
 		bool ghosts_available(std::string& reason) const;
 		void update_ghosts(CGameEntitySystem* system, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
-		bool ghost_take(CGameEntitySystem* system, uint32_t viewer, decoy_slot& slot, std::chrono::steady_clock::time_point now);
+		bool ghost_take(CGameEntitySystem* system, uint32_t viewer, decoy_slot& slot, const std::string& model,
+						std::chrono::steady_clock::time_point now);
+		// Phantom players (phantoms.cpp).
+		bool phantoms_available(std::string& reason) const;
+		int phantom_limit() const;
+		bool phantom_take(CGameEntitySystem* system, uint32_t viewer, decoy_slot& slot, const std::string& model,
+						  std::chrono::steady_clock::time_point now);
+		phantom_player* create_phantom(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, const std::string& model,
+									   std::chrono::steady_clock::time_point now);
+		void remove_phantom(phantom_player& phantom, bool remove_entities);
+		void remove_all_phantoms(bool remove_entities);
+		void update_phantoms(CGameEntitySystem* system, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
+		void publish_phantom_transmit();
+		void withhold_phantoms(CGameEntitySystem* system, CCheckTransmitInfo** infos, int count);
+		bool phantom_slot(uint32_t slot) const
+		{
+			return slot < k_max_players && ((phantom_slots_.load(std::memory_order_relaxed) >> slot) & 1u) != 0;
+		}
+		void print_phantom_status() const;
 		void ghost_release(uint32_t decoy_id, std::chrono::steady_clock::time_point now);
 		bool ghost_pawn_alive(CGameEntitySystem* system, CEntityHandle pawn) const;
 		void ghost_command(int slot, const char* command);
@@ -812,6 +861,11 @@ namespace cs2glaz
 		std::atomic<uint64_t> ghost_slots_ {};		 // slots that are ghosts now
 		std::atomic<uint64_t> ghost_event_slots_ {}; // the same, plus slots kicked in the last seconds
 		std::array<std::chrono::steady_clock::time_point, k_max_players> ghost_kicked_at_ {};
+		std::array<phantom_player, k_max_phantoms> phantoms_ {};
+		std::array<phantom_transmit_entry, k_max_phantoms> phantom_transmit_ {}; // transmit lock
+		std::atomic<uint64_t> phantom_slots_ {}; // entity slots (index - 1) holding phantom controllers
+		std::string phantom_error_;				 // phantoms turned off until the plugin reloads
+		std::chrono::steady_clock::time_point phantom_next_create_ {};
 		bool ghost_creating_ {};
 		uint32_t ghost_lost_ {}; // ghosts that disappeared without CS2GLAZ kicking them
 		std::string ghost_error_; // ghosts turned off until the plugin reloads

@@ -66,6 +66,7 @@ It explains the intent of the code. The engine and file-format details are still
 | `src/core/transmit_masks.h` | Parse gamedata numbers, read the private full-update flag, and apply the selected withhold mode to one entity bit. |
 | `src/core/transmit_journal.h` | Per-recipient record of entities CS2GLAZ took from a client or sent to it again, for client crash analysis. |
 | `src/plugin/ghosts.cpp` | Ghost players: fake clients on one viewer's enemy team, sent only to him, standing in for his decoys so player-only ESPs draw them. |
+| `src/plugin/phantoms.cpp` | Phantom players: client-less controllers above the player count whose pawn is a decoy prop, sent to one viewer. |
 | `src/plugin/journal.cpp` | Fills the journal after each CheckTransmit, prints it on a timed-out disconnect, and `cs2glaz_entity`. |
 | `src/core/decoy_logic.*` | Decoy floor-spot history and choice, the hidden-from-every-origin proof, and the aim test. |
 | `src/core/signature_scan.*` | Parse byte patterns and find exactly-once matches in the server's code (decoys only). |
@@ -185,6 +186,10 @@ Every clear goes through `withhold_entity`, which also marks the entity, with it
 ### Ghost players (`cs2glaz_decoy_ghosts`, `src/plugin/ghosts.cpp`)
 
 `update_ghosts` runs at the start of `update_decoys`. It creates at most one fake client per enemy team (`CreateFakeClient`, with `ghost_creating_` set so the connect events are not broadcast), runs `jointeam` as the fake client through `ICvar::DispatchConCommand` with its player slot, and every update makes its live pawn harmless (`m_bTakesDamage`, `m_MoveType`/`m_nActualMoveType` none, solid none, zero interaction masks). It drops a carried bomb with `use weapon_c4` / `drop`, runs `kill` when no other player of its team is alive, and clears dead players' `m_hObserverTarget` when it points at a ghost. `ghost_take` lets a ghost pawn stand in for a real decoy slot (`decoy_slot::ghost`); `remove_decoy` releases it instead of parking a prop, and it is reused only after `k_decoy_reuse_quarantine_ms`. `ghost_slots_` keeps ghost slots out of `capture`; `withhold_ghosts` (after `withhold_decoys` in CheckTransmit) sends the controller to the viewer only and its items, observer pawn and attached entities to nobody; `khook_fire_event` refires events about a ghost with `bDontBroadcast`; the radar filter drops entries about ghost pawns. Failures kick the ghost and set `ghost_error_` until the plugin reloads.
+
+### Phantom players (`cs2glaz_decoy_phantoms`, `src/plugin/phantoms.cpp`)
+
+`ghost_take` falls back to `phantom_take` when no fake-client ghost is free. `create_phantom` makes a decoy prop (the body) and a `cs_player_controller` with `UTIL_CreateEntityByName(name, index)` in the highest free entity index above `maxClients`, sets team, the target's name, connected state, alive and health fields and both pawn handles to the body before and after `DispatchSpawn`, and never writes them again. `phantom_slots_` makes `player_lifecycle` skip those slots. `withhold_phantoms` (after `withhold_ghosts`) sends the controller to its viewer only and the body only while it is in his decoy table. `update_phantoms` removes phantoms whose entities vanished, whose viewer is no longer eligible, or that stayed idle 30 s; `remove_phantom` discards both entities into the decoy graveyard.
 
 ## Thread and data ownership
 

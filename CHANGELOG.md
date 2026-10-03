@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0
+
+Phantom players: decoys for player-only ESPs that take no player slot and carry the hidden enemy's name.
+
+- `cs2glaz_decoy_phantoms N` (0 off by default, up to 16, needs `cs2glaz_decoys` and `-maxplayers` below 64): a `cs_player_controller` entity without a client, created with `UTIL_CreateEntityByName`'s forced index in the highest free entity slot above the player count (slots the engine never gives a client, but which external ESPs walk), one per viewer, watched players first (only them in mode 3).
+- Its pawn handle (`m_hPlayerPawn`, `m_hPawn`) points at a decoy prop with the hidden enemy's model, his team, health 100 and no damage; the controller carries his name (`m_iszPlayerName` copied), `m_bPawnIsAlive`, `m_iPawnHealth` 100 and the connected state, all set before it is first sent and never changed afterwards (another enemy to imitate means a new phantom, at most every 2 s).
+- The controller goes to its viewer only and the prop only while it stands in for one of his real decoys, through the same delivery, walking, jumps and reports. A fake-client ghost is used first when one is free.
+- Player loops of CS2GLAZ skip phantom slots. A phantom is removed when its prop or controller disappears (round restart), its viewer leaves, changes team or (mode 3) is no longer watched, after 30 s unused, on a map change and on unload; both entities stay withheld from everyone until deleted.
+- The least proven feature: the game never expects a controller without a client. Any creation failure turns phantoms off until the plugin reloads. `cs2glaz_status` lists them.
+
 ## 0.11.0
 
 Two more ways to catch a wallhack.
