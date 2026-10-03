@@ -83,6 +83,11 @@ namespace cs2glaz
 
 	} // namespace
 
+	int plugin::front_mode() const
+	{
+		return std::clamp(cs2glaz_decoy_front.Get(), 0, 2);
+	}
+
 	bool plugin::front_enabled() const
 	{
 		return cs2glaz_decoy_front.Get() != 0 && decoy_mode() != 0 && phantom_limit() > 0;
@@ -195,8 +200,8 @@ namespace cs2glaz
 				stop_front_decoys(viewer_slot, now);
 				continue;
 			}
-			std::vector<vec3> others; // every other living player: aims and shots at them prove nothing
-			std::vector<uint32_t> enemies;
+			fixed_list<vec3, k_max_players> others; // every other living player: aims and shots at them prove nothing
+			fixed_list<uint32_t, k_max_players> enemies;
 			for (uint32_t target = 0; target < k_max_players; ++target)
 			{
 				const player_state& other = value.players[target];
@@ -285,7 +290,11 @@ namespace cs2glaz
 			};
 			const auto place = [&](decoy_slot& slot, const decoy_slot& twin, bool control)
 			{
-				const std::vector<vec3> taken = twin.id != 0 ? std::vector<vec3> {twin.origin} : std::vector<vec3> {};
+				fixed_list<vec3, 1> taken;
+				if (twin.id != 0)
+				{
+					taken.push_back(twin.origin);
+				}
 				const front_spot_query query {viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others, taken, nullptr, decoy_random(decoy_seed_),
 											viewer.origin};
 				vec3 spot;
@@ -387,7 +396,11 @@ namespace cs2glaz
 					}
 				}
 				slot->aim_ms = aim_on ? slot->aim_ms + std::max(elapsed_ms, 0.0f) : 0.0f;
-				const std::vector<vec3> taken = twin.id != 0 ? std::vector<vec3> {twin.origin} : std::vector<vec3> {};
+				fixed_list<vec3, 1> taken;
+				if (twin.id != 0)
+				{
+					taken.push_back(twin.origin);
+				}
 				front_spot_query query {viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others, taken, nullptr, decoy_random(decoy_seed_),
 											viewer.origin};
 				// At his side is no place for a decoy, and a hittable body must

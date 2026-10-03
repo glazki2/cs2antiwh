@@ -1,0 +1,378 @@
+<title>Разбор приманок CS2GLAZ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a moderator's desk. Log input on top, suspects ranked by evidence, then the chosen player's timeline by round. */
+:root {
+  --bg: #eef1f0;
+  --surface: #f9fbfa;
+  --line: #d3dbd8;
+  --ink: #142320;
+  --muted: #5b6b67;
+  --accent: #1f6f8b;
+  --accent-soft: #dcebf0;
+  --warn: #9a6412;
+  --warn-soft: #f6ead2;
+  --crit: #b33a26;
+  --crit-soft: #f6dcd6;
+  --calm: #2f6d4c;
+  --calm-soft: #dcefe3;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1615; --surface: #16201e; --line: #283632; --ink: #e3ece9; --muted: #8fa19c;
+    --accent: #6bb8d3; --accent-soft: #17323b; --warn: #e3a943; --warn-soft: #3a2c12;
+    --crit: #f07a64; --crit-soft: #3e1d17; --calm: #7cc79c; --calm-soft: #17301f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1615; --surface: #16201e; --line: #283632; --ink: #e3ece9; --muted: #8fa19c;
+  --accent: #6bb8d3; --accent-soft: #17323b; --warn: #e3a943; --warn-soft: #3a2c12;
+  --crit: #f07a64; --crit-soft: #3e1d17; --calm: #7cc79c; --calm-soft: #17301f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); }
+.page { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 56px; display: grid; gap: 28px; }
+header { display: grid; gap: 6px; }
+h1 { font: 600 clamp(26px, 4vw, 34px)/1.1 var(--font-display); margin: 0; letter-spacing: .01em; text-wrap: balance; }
+h2 { font: 600 20px/1.2 var(--font-display); margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); max-width: 68ch; margin: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.input-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+textarea { width: 100%; min-height: 150px; resize: vertical; font: 12.5px/1.45 var(--font-data); color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+textarea:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, .file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+button, .file { font: 500 14px var(--font-body); border-radius: 6px; padding: 7px 14px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.file { position: relative; display: inline-flex; }
+.note { font-size: 13px; color: var(--muted); }
+.example-flag { font: 500 12px var(--font-data); text-transform: uppercase; letter-spacing: .06em; color: var(--warn); background: var(--warn-soft); padding: 2px 8px; border-radius: 4px; }
+.summary { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 14px; color: var(--muted); }
+.summary b { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+.filters { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; font-size: 14px; }
+.filters label { display: inline-flex; gap: 6px; align-items: center; }
+select, input[type="search"] { font: 14px var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { text-align: left; font: 500 11.5px var(--font-body); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-data); font-size: 13px; }
+tbody tr.player { cursor: pointer; }
+tbody tr.player:hover { background: var(--accent-soft); }
+tbody tr.player.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.name { font-weight: 600; }
+.sid { font: 12px var(--font-data); color: var(--muted); }
+.pill { display: inline-block; font: 600 13px var(--font-data); padding: 2px 8px; border-radius: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill.calm { color: var(--calm); background: var(--calm-soft); }
+.pill.warn { color: var(--warn); background: var(--warn-soft); }
+.pill.crit { color: var(--crit); background: var(--crit-soft); }
+.vs { font: 13px var(--font-data); white-space: nowrap; }
+.vs .ctl { color: var(--muted); }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag { font: 500 11.5px var(--font-body); padding: 1px 7px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.tag.kick { color: var(--crit); border-color: var(--crit); }
+.tag.vilka { color: var(--accent); border-color: var(--accent); }
+.detail-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+.detail-head a { color: var(--accent); font-size: 14px; }
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 22px; font-size: 13.5px; color: var(--muted); }
+.legend b { color: var(--ink); font-weight: 600; }
+.ev { font: 13px var(--font-data); }
+.ev.real { color: var(--crit); font-weight: 500; }
+.ev.control { color: var(--muted); }
+.ev.info { color: var(--accent); }
+.where { font: 13px var(--font-data); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.copy { font: 12px var(--font-data); padding: 2px 8px; }
+.empty { color: var(--muted); padding: 18px 4px; }
+@media (max-width: 640px) {
+  .hide-narrow { display: none; }
+  .panel { padding: 14px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  tbody tr.player { transition: background-color .12s; }
+}
+</style>
+
+<div class="page">
+  <header>
+    <h1>Разбор приманок CS2GLAZ</h1>
+    <p class="lede">Вставьте содержимое <code>addons/cs2glaz/logs/decoys.log</code> или откройте сам файл. Страница ранжирует игроков по доказательствам и показывает, в каком раунде и на какой минуте искать момент в демке. Лог разбирается только в этом браузере и никуда не отправляется.</p>
+  </header>
+
+  <section class="panel" aria-labelledby="input-title">
+    <div class="input-row">
+      <h2 id="input-title">Лог</h2>
+      <span class="example-flag" id="example-flag">пример, не ваши данные</span>
+    </div>
+    <textarea id="log" spellcheck="false" aria-label="Содержимое decoys.log"></textarea>
+    <div class="input-row">
+      <button class="primary" id="parse" type="button">Разобрать</button>
+      <label class="file" for="file">Открыть decoys.log<input id="file" type="file" accept=".log,.txt,text/plain"></label>
+      <button id="clear" type="button">Очистить</button>
+      <span class="note" id="status"></span>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="suspects-title">
+    <h2 id="suspects-title">Игроки</h2>
+    <div class="summary" id="summary"></div>
+    <div class="filters">
+      <label>Показывать
+        <select id="min-evidence">
+          <option value="0">всех</option>
+          <option value="1" selected>доказательства от 1</option>
+          <option value="3">доказательства от 3</option>
+        </select>
+      </label>
+      <label>Поиск <input type="search" id="search" placeholder="ник или SteamID64"></label>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Игрок</th>
+            <th class="num">Доказательства</th>
+            <th class="num">Ожидалось бы</th>
+            <th>Приманки за стеной</th>
+            <th>Фронтальные</th>
+            <th class="num hide-narrow">Слепые попадания</th>
+            <th class="hide-narrow">Последний раз</th>
+            <th>Отметки</th>
+          </tr>
+        </thead>
+        <tbody id="players"></tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <div><b>Доказательства</b>: насколько сообщения игрока о настоящих приманках превышают его же честный фон по контрольным двойникам. 1 и выше стоит проверить, 3 и выше сильный случай.</div>
+      <div><b>Приманки за стеной</b>: прицел / выстрел / след прыжка по настоящим приманкам, через косую черту то же по контрольным, которые ему не отправлялись.</div>
+      <div><b>Фронтальные</b>: прыжки и выстрелы по невидимому фантому у прицела (аимбот, триггербот), рядом его контроль.</div>
+      <div><b>Слепые попадания</b>: попадания по врагу, которого его клиент в тот момент не получал.</div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="detail-title" id="detail">
+    <div class="detail-head">
+      <h2 id="detail-title">Хронология</h2>
+      <a id="profile" href="#" target="_blank" rel="noopener" hidden>Профиль Steam</a>
+    </div>
+    <p class="note">Для демки: откройте раунд и перемотайте на указанное время от начала раунда (заморозка входит в это время). Тик серверный: в GOTV-демке, записанной с начала карты, он близок к тику демки; кнопка копирует <code>demo_gototick</code>.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Время UTC</th>
+            <th>Карта, раунд</th>
+            <th>Событие</th>
+            <th class="num hide-narrow">Дистанция</th>
+            <th class="num">Доказательства</th>
+            <th class="hide-narrow">Тик</th>
+          </tr>
+        </thead>
+        <tbody id="timeline"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+const SAMPLE = `2026-10-03 19:02:11Z map=de_mirage tick=40211 round=4 round_time=0:41 player="sample_honest" steamid=76561198000000001 event=control_aim distance=1210 aims=0 shots=0 jumps=0 control_aims=1 control_shots=0 control_jumps=0 gun_hits=3 blind_hits=0 real_seconds=180 control_seconds=60 expected=0.40 front_jumps=0 front_shots=0 control_front_jumps=0 control_front_shots=0 front_seconds=0 control_front_seconds=0 front_expected=0.00 evidence=0.00
+2026-10-03 19:05:37Z map=de_mirage tick=53402 round=6 round_time=0:58 player="sample_walls" steamid=76561198000000002 event=aim distance=1540 aims=3 shots=0 jumps=1 control_aims=0 control_shots=0 control_jumps=0 gun_hits=5 blind_hits=1 real_seconds=240 control_seconds=80 expected=0.30 front_jumps=0 front_shots=0 control_front_jumps=0 control_front_shots=0 front_seconds=0 control_front_seconds=0 front_expected=0.00 evidence=2.40
+2026-10-03 19:07:02Z map=de_mirage tick=58840 round=7 round_time=0:27 player="sample_walls" steamid=76561198000000002 event=shot distance=980 aims=4 shots=1 jumps=1 control_aims=0 control_shots=0 control_jumps=0 gun_hits=6 blind_hits=1 real_seconds=262 control_seconds=88 expected=0.32 front_jumps=0 front_shots=0 control_front_jumps=0 control_front_shots=0 front_seconds=0 control_front_seconds=0 front_expected=0.00 evidence=3.60
+2026-10-03 19:07:02Z map=de_mirage tick=58840 round=7 round_time=0:27 player="sample_walls" steamid=76561198000000002 event=reported_to_csvilka aims=4 shots=1 jumps=1 control_aims=0 control_shots=0 control_jumps=0 gun_hits=6 blind_hits=1 real_seconds=262 control_seconds=88 expected=0.32 front_jumps=0 front_shots=0 control_front_jumps=0 control_front_shots=0 front_seconds=0 control_front_seconds=0 front_expected=0.00 evidence=3.60
+2026-10-03 19:09:15Z map=de_mirage tick=67352 round=8 round_time=1:12 player="sample_aimbot" steamid=76561198000000003 event=front_jump distance=640 aims=0 shots=0 jumps=0 control_aims=0 control_shots=0 control_jumps=0 gun_hits=9 blind_hits=0 real_seconds=0 control_seconds=0 expected=0.00 front_jumps=4 front_shots=1 control_front_jumps=0 control_front_shots=0 front_seconds=310 control_front_seconds=95 front_expected=0.05 evidence=4.10
+2026-10-03 19:12:40Z map=de_mirage tick=80470 round=10 round_time=0:15 player="sample_aimbot" steamid=76561198000000003 event=kick distance=700 aims=0 shots=0 jumps=0 control_aims=0 control_shots=0 control_jumps=0 gun_hits=11 blind_hits=0 real_seconds=0 control_seconds=0 expected=0.00 front_jumps=6 front_shots=2 control_front_jumps=0 control_front_shots=0 front_seconds=402 control_front_seconds=120 front_expected=0.06 evidence=5.30`;
+
+const EVENTS = {
+  aim: ["real", "держал прицел на приманке за стеной"],
+  shot: ["real", "выстрелил в приманку за стеной"],
+  jump: ["real", "прицел проследил прыжок приманки"],
+  front_jump: ["real", "прицел проследил фронтальную приманку"],
+  front_shot: ["real", "выстрелил во фронтальную приманку"],
+  blind_hit: ["real", "попал по невидимому ему врагу"],
+  blind_hit_evidence: ["real", "слепые попадания выше фона"],
+  control_aim: ["control", "контроль: прицел на двойнике"],
+  control_shot: ["control", "контроль: выстрел в двойника"],
+  control_jump: ["control", "контроль: след прыжка двойника"],
+  control_front_jump: ["control", "контроль: фронтальный двойник"],
+  control_front_shot: ["control", "контроль: выстрел во фронтального двойника"],
+  reported_to_csvilka: ["info", "передано в CSVILKA"],
+  whitelisted: ["info", "в белом списке CSVILKA, не кикнут"],
+  kick: ["real", "кикнут по доказательствам"],
+  map_summary: ["info", "итог карты"],
+};
+
+const $ = (id) => document.getElementById(id);
+let players = [];
+let selected = null;
+
+function parseLine(line) {
+  const head = line.match(/^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ)\s+(.*)$/);
+  if (!head) return null;
+  let rest = head[2];
+  const named = rest.match(/\bplayer="(.*)" steamid=(\d+)/);
+  if (!named) return null;
+  const entry = { time: head[1], name: named[1], steamid: named[2] };
+  rest = rest.replace(named[0], "");
+  for (const [, key, value] of rest.matchAll(/(\w+)=(\S+)/g)) entry[key] = value;
+  return entry;
+}
+
+function num(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseLog(text) {
+  const byId = new Map();
+  let lines = 0, skipped = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    lines++;
+    const entry = parseLine(line);
+    if (!entry || !entry.event) { skipped++; continue; }
+    let player = byId.get(entry.steamid);
+    if (!player) {
+      player = { steamid: entry.steamid, name: entry.name, events: [], kicked: false, vilka: false, whitelisted: false, maxEvidence: 0 };
+      byId.set(entry.steamid, player);
+    }
+    player.name = entry.name || player.name;
+    player.events.push(entry);
+    player.last = entry;
+    player.maxEvidence = Math.max(player.maxEvidence, num(entry.evidence));
+    if (entry.event === "kick") player.kicked = true;
+    if (entry.event === "reported_to_csvilka") player.vilka = true;
+    if (entry.event === "whitelisted") player.whitelisted = true;
+  }
+  const list = [...byId.values()];
+  list.sort((a, b) => num(b.last.evidence) - num(a.last.evidence) || b.maxEvidence - a.maxEvidence);
+  return { list, lines, skipped };
+}
+
+function evidencePill(value) {
+  const n = num(value);
+  const kind = n >= 3 ? "crit" : n >= 1 ? "warn" : "calm";
+  return `<span class="pill ${kind}">${n.toFixed(2)}</span>`;
+}
+
+function esc(text) {
+  return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function where(entry) {
+  const parts = [entry.map || "?"];
+  if (entry.round) parts.push(`раунд ${entry.round}${entry.warmup === "1" ? " (разминка)" : ""}`);
+  if (entry.round_time) parts.push(entry.round_time);
+  return parts.join(", ");
+}
+
+function renderPlayers() {
+  const min = num($("min-evidence").value);
+  const query = $("search").value.trim().toLowerCase();
+  const shown = players.filter((p) => p.maxEvidence >= min || min === 0)
+    .filter((p) => !query || p.name.toLowerCase().includes(query) || p.steamid.includes(query));
+  const body = $("players");
+  if (!shown.length) {
+    body.innerHTML = `<tr><td colspan="8" class="empty">${players.length ? "Никто не проходит фильтр. Выберите «всех», чтобы увидеть остальных." : "Пока нет строк лога. Вставьте decoys.log выше и нажмите «Разобрать»."}</td></tr>`;
+    return;
+  }
+  body.innerHTML = shown.map((p) => {
+    const l = p.last;
+    const tags = [
+      p.kicked ? '<span class="tag kick">кикнут</span>' : "",
+      p.vilka ? '<span class="tag vilka">в CSVILKA</span>' : "",
+      p.whitelisted ? '<span class="tag">белый список</span>' : "",
+    ].join("");
+    return `<tr class="player${selected === p.steamid ? " active" : ""}" data-id="${esc(p.steamid)}" tabindex="0">
+      <td><div class="name">${esc(p.name)}</div><div class="sid">${esc(p.steamid)}</div></td>
+      <td class="num">${evidencePill(l.evidence)}</td>
+      <td class="num">${num(l.expected).toFixed(2)}${num(l.front_expected) ? " / " + num(l.front_expected).toFixed(2) : ""}</td>
+      <td class="vs">${num(l.aims)}/${num(l.shots)}/${num(l.jumps)} <span class="ctl">· ${num(l.control_aims)}/${num(l.control_shots)}/${num(l.control_jumps)}</span><br><span class="ctl">${num(l.real_seconds)} с · ${num(l.control_seconds)} с</span></td>
+      <td class="vs">${num(l.front_jumps)}/${num(l.front_shots)} <span class="ctl">· ${num(l.control_front_jumps)}/${num(l.control_front_shots)}</span><br><span class="ctl">${num(l.front_seconds)} с · ${num(l.control_front_seconds)} с</span></td>
+      <td class="num hide-narrow">${num(l.blind_hits)}</td>
+      <td class="where hide-narrow">${esc(where(l))}</td>
+      <td><div class="tags">${tags}</div></td>
+    </tr>`;
+  }).join("");
+}
+
+function renderTimeline() {
+  const body = $("timeline");
+  const player = players.find((p) => p.steamid === selected);
+  const profile = $("profile");
+  if (!player) {
+    $("detail-title").textContent = "Хронология";
+    profile.hidden = true;
+    body.innerHTML = `<tr><td colspan="6" class="empty">Выберите игрока в таблице выше.</td></tr>`;
+    return;
+  }
+  $("detail-title").textContent = `Хронология: ${player.name}`;
+  profile.href = `https://steamcommunity.com/profiles/${encodeURIComponent(player.steamid)}`;
+  profile.hidden = false;
+  body.innerHTML = player.events.map((e) => {
+    const [kind, text] = EVENTS[e.event] || ["info", e.event];
+    const tick = e.tick ? `<button class="copy" type="button" data-copy="demo_gototick ${esc(e.tick)}">${esc(e.tick)}</button>` : "";
+    return `<tr>
+      <td class="where">${esc(e.time.replace("Z", ""))}</td>
+      <td class="where">${esc(where(e))}</td>
+      <td><span class="ev ${kind}">${esc(text)}</span></td>
+      <td class="num hide-narrow">${e.distance ? esc(e.distance) : ""}</td>
+      <td class="num">${evidencePill(e.evidence)}</td>
+      <td class="hide-narrow">${tick}</td>
+    </tr>`;
+  }).join("");
+}
+
+function run(isExample) {
+  const result = parseLog($("log").value);
+  players = result.list;
+  if (!players.some((p) => p.steamid === selected)) selected = players[0] ? players[0].steamid : null;
+  $("example-flag").hidden = !isExample;
+  const strong = players.filter((p) => num(p.last.evidence) >= 3).length;
+  const check = players.filter((p) => num(p.last.evidence) >= 1).length;
+  $("summary").innerHTML = `<span>Игроков <b>${players.length}</b></span><span>стоит проверить <b>${check}</b></span><span>сильных случаев <b>${strong}</b></span><span>кикнуто <b>${players.filter((p) => p.kicked).length}</b></span>`;
+  $("status").textContent = result.lines ? `Строк разобрано: ${result.lines - result.skipped}${result.skipped ? `, пропущено: ${result.skipped}` : ""}` : "";
+  renderPlayers();
+  renderTimeline();
+}
+
+$("parse").addEventListener("click", () => run(false));
+$("clear").addEventListener("click", () => { $("log").value = ""; selected = null; run(false); $("log").focus(); });
+$("file").addEventListener("change", (event) => {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { $("log").value = String(reader.result || ""); selected = null; run(false); };
+  reader.onerror = () => { $("status").textContent = "Не удалось прочитать файл. Скопируйте его содержимое в поле выше."; };
+  reader.readAsText(file);
+});
+$("min-evidence").addEventListener("change", renderPlayers);
+$("search").addEventListener("input", renderPlayers);
+const pick = (row) => { if (!row) return; selected = row.dataset.id; renderPlayers(); renderTimeline(); };
+$("players").addEventListener("click", (event) => pick(event.target.closest("tr.player")));
+$("players").addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pick(event.target.closest("tr.player")); } });
+$("timeline").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-copy]");
+  if (!button) return;
+  const text = button.dataset.copy;
+  try {
+    await navigator.clipboard.writeText(text);
+    button.textContent = "скопировано";
+  } catch {
+    button.textContent = text;
+    const range = document.createRange();
+    range.selectNodeContents(button);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+});
+
+$("log").value = SAMPLE;
+run(true);
+</script>

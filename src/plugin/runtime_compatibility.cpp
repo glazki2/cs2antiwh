@@ -600,6 +600,10 @@ namespace cs2glaz
 									&& optional(fields_.pawn_health, "CCSPlayerController", "m_iPawnHealth")
 									&& optional(fields_.connected, "CBasePlayerController", "m_iConnected")
 									&& optional(fields_.controller_pawn, "CBasePlayerController", "m_hPawn");
+		round_schema_available_ = optional(fields_.game_rules, "CCSGameRulesProxy", "m_pGameRules")
+								  && optional(fields_.total_rounds_played, "CCSGameRules", "m_totalRoundsPlayed")
+								  && optional(fields_.round_start_time, "CCSGameRules", "m_fRoundStartTime")
+								  && optional(fields_.warmup_period, "CCSGameRules", "m_bWarmupPeriod");
 		const auto field_anywhere = [&](uint32_t& target, const char* class_name, const char* field_name)
 		{ return resolve_field(schema, class_name, field_name, target) || resolve_global_field(schema, class_name, field_name, target); };
 		collision_attribute_available_ = optional(fields_.collision_attribute, "CCollisionProperty", "m_collisionAttribute")

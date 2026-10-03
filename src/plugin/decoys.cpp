@@ -234,23 +234,27 @@ namespace cs2glaz
 
 	void plugin::resolve_decoy_functions()
 	{
-		decoy_functions_ = {};
+		decoy_functions_ = find_decoy_functions();
 		decoy_functions_resolved_ = true;
-		decoy_functions& functions = decoy_functions_;
+	}
+
+	decoy_functions plugin::find_decoy_functions() const
+	{
+		decoy_functions functions;
 		if (!compatibility_.valid() || api_ == nullptr)
 		{
 			functions.error = "CS2GLAZ is not active on this server build";
-			return;
+			return functions;
 		}
 		if (!compatibility_.decoy_schema_available())
 		{
 			functions.error = "missing schema fields (model name, collision or render mode)";
-			return;
+			return functions;
 		}
 		std::unordered_map<std::string, std::string> values;
 		if (!read_signatures(values, functions.error))
 		{
-			return;
+			return functions;
 		}
 		const auto find = [&](const char* key, void*& output)
 		{
@@ -279,6 +283,7 @@ namespace cs2glaz
 			functions.teleport_vtable_index = static_cast<uint32_t>(index);
 		}
 		functions.ready = functions.error.empty();
+		return functions;
 	}
 
 	void plugin::discard_decoy_entity(CEntityInstance* entity)
@@ -624,7 +629,7 @@ namespace cs2glaz
 			const player_state& other = value.players[target];
 			return other.valid && target != viewer_slot && (value.filter_teammates || other.team != viewer.team);
 		};
-		std::vector<vec3> living;
+		fixed_list<vec3, k_max_players> living;
 		for (const player_state& player : value.players)
 		{
 			if (player.valid)
@@ -666,8 +671,8 @@ namespace cs2glaz
 		{
 			const player_state& viewer = value.players[viewer_slot];
 			const bool eligible = viewer.valid && human_player(viewer_slot) && (!watched_only || watched[viewer_slot]);
-			std::vector<vec3> enemies;
-			std::vector<vec3> others; // every other living player, for aims a real player explains
+			fixed_list<vec3, k_max_players> enemies;
+			fixed_list<vec3, k_max_players> others; // every other living player, for aims a real player explains
 			for (uint32_t target = 0; eligible && target < k_max_players; ++target)
 			{
 				if (enemies_of(viewer, viewer_slot, target))
@@ -869,7 +874,7 @@ namespace cs2glaz
 				}
 				if (!drop && slot.spawned && entity != nullptr && slot.teleport != nullptr)
 				{
-					std::vector<vec3> taken;
+					fixed_list<vec3, k_max_decoys_per_viewer> taken;
 					for (const decoy_slot& other : decoys_[viewer_slot])
 					{
 						if (&other != &slot && other.id != 0)
@@ -910,7 +915,7 @@ namespace cs2glaz
 					{
 						break;
 					}
-					std::vector<vec3> taken;
+					fixed_list<vec3, k_max_decoys_per_viewer> taken;
 					for (const decoy_slot& slot : row)
 					{
 						if (slot.id != 0)
@@ -1319,7 +1324,7 @@ namespace cs2glaz
 			return;
 		}
 		CGameEntitySystem* system = entity_system();
-		std::vector<vec3> others;
+		fixed_list<vec3, k_max_players> others;
 		for (uint32_t player = 0; player < k_max_players; ++player)
 		{
 			if (player != shooter && result->players[player].valid)
@@ -1456,13 +1461,25 @@ namespace cs2glaz
 			{
 				record->front_printed_at = now;
 			}
+			const match_moment moment = current_moment();
+			char where[64] {};
+			if (moment.round > 0)
+			{
+				std::snprintf(where, sizeof(where), " at round %d%s", moment.round, moment.warmup ? " (warmup)" : "");
+				if (moment.round_seconds >= 0.0f)
+				{
+					const size_t used = std::strlen(where);
+					std::snprintf(where + used, sizeof(where) - used, ", %d:%02d into it", static_cast<int>(moment.round_seconds) / 60,
+								  static_cast<int>(moment.round_seconds) % 60);
+				}
+			}
 			META_CONPRINTF("[CS2GLAZ] decoy: \"%s\" %llu %s %s (%.0f units). Since load: %llu at real ones in %.0f s of them, "
-						   "%llu at controls in %.0f s; an honest player would have about %.1f; evidence %.1f - suspect, check the demo\n",
+						   "%llu at controls in %.0f s; an honest player would have about %.1f; evidence %.1f - suspect, check the demo%s\n",
 						   record->name.c_str(), static_cast<unsigned long long>(xuid),
 						   shot ? "shot at" : (kind == decoy_report::jump ? "followed the jump of" : "aimed at"),
 						   slot.front ? "an invisible front decoy (an aimbot or triggerbot?)" : "a decoy through a wall", distance,
 						   static_cast<unsigned long long>(exposure.real_reports), exposure.real_seconds,
-						   static_cast<unsigned long long>(exposure.control_reports), exposure.control_seconds, expected, evidence);
+						   static_cast<unsigned long long>(exposure.control_reports), exposure.control_seconds, expected, evidence, where);
 		}
 		write_decoy_log(xuid,
 						slot.front ? (shot ? "front_shot" : "front_jump") : (shot ? "shot" : (kind == decoy_report::jump ? "jump" : "aim")),
@@ -1514,6 +1531,59 @@ namespace cs2glaz
 		write_decoy_log(xuid, "kick", static_cast<int>(distance), *record);
 	}
 
+	plugin::match_moment plugin::current_moment() const
+	{
+		match_moment moment;
+		INetworkGameServer* server = g_pNetworkServerService == nullptr ? nullptr : g_pNetworkServerService->GetIGameServer();
+		CGlobalVars* globals = server == nullptr ? nullptr : server->GetGlobals();
+		if (globals == nullptr)
+		{
+			return moment;
+		}
+		moment.tick = globals->tickcount;
+		CGameEntitySystem* system = entity_system();
+		if (system == nullptr || !compatibility_.round_schema_available())
+		{
+			return moment;
+		}
+		CEntityInstance* proxy = game_rules_proxy_.IsValid() ? system->GetEntityInstance(game_rules_proxy_) : nullptr;
+		if (proxy == nullptr)
+		{
+			// One walk of the entity list per map: the proxy lives as long as the map.
+			CEntityIdentity* identity = system->m_EntityList.m_pFirstActiveEntity;
+			for (uint32_t scanned = 0; identity != nullptr && scanned < k_entity_scan_hard_limit; identity = identity->m_pNext, ++scanned)
+			{
+				const char* name = identity->m_designerName.String();
+				if (name != nullptr && std::strcmp(name, "cs_gamerules") == 0 && identity->m_pInstance != nullptr)
+				{
+					proxy = identity->m_pInstance;
+					game_rules_proxy_ = entity_handle(proxy);
+					break;
+				}
+			}
+		}
+		const schema_offsets& fields = compatibility_.fields();
+		const std::byte* rules = nullptr;
+		int32_t rounds = 0;
+		float started = 0.0f;
+		bool warmup = false;
+		if (proxy == nullptr
+			|| !runtime_compatibility::safe_read(reinterpret_cast<const std::byte*>(proxy) + fields.game_rules, &rules, sizeof(rules)) || rules == nullptr
+			|| !runtime_compatibility::safe_read(rules + fields.total_rounds_played, &rounds, sizeof(rounds))
+			|| !runtime_compatibility::safe_read(rules + fields.round_start_time, &started, sizeof(started))
+			|| !runtime_compatibility::safe_read(rules + fields.warmup_period, &warmup, sizeof(warmup)) || rounds < 0 || rounds > 1000)
+		{
+			return moment;
+		}
+		moment.round = rounds + 1;
+		moment.warmup = warmup;
+		if (std::isfinite(started) && started > 0.0f && globals->curtime >= started)
+		{
+			moment.round_seconds = globals->curtime - started;
+		}
+		return moment;
+	}
+
 	void plugin::write_decoy_log(uint64_t xuid, const char* event, int distance, const decoy_player_record& record) const
 	{
 		if (api_ == nullptr)
@@ -1537,7 +1607,25 @@ namespace cs2glaz
 					  exposure.real_seconds, exposure.control_seconds, decoy_expected_reports(exposure, decoy_server_), record.front_jumps,
 					  record.front_shots, record.front_control_jumps, record.front_control_shots, front.real_seconds, front.control_seconds,
 					  decoy_expected_reports(front, front_server_, k_front_prior_rate), decoy_player_evidence(record));
-		log << utc_timestamp() << " map=" << map_ << " player=\"" << record.name << "\" steamid=" << xuid << " event=" << event;
+		log << utc_timestamp() << " map=" << map_;
+		const match_moment moment = current_moment();
+		if (moment.tick >= 0)
+		{
+			log << " tick=" << moment.tick;
+		}
+		if (moment.round > 0)
+		{
+			char round[64] {};
+			std::snprintf(round, sizeof(round), " round=%d%s", moment.round, moment.warmup ? " warmup=1" : "");
+			log << round;
+			if (moment.round_seconds >= 0.0f)
+			{
+				std::snprintf(round, sizeof(round), " round_time=%d:%02d", static_cast<int>(moment.round_seconds) / 60,
+							  static_cast<int>(moment.round_seconds) % 60);
+				log << round;
+			}
+		}
+		log << " player=\"" << record.name << "\" steamid=" << xuid << " event=" << event;
 		if (distance >= 0)
 		{
 			log << " distance=" << distance;

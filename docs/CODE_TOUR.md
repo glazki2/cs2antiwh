@@ -71,6 +71,9 @@ It explains the intent of the code. The engine and file-format details are still
 | `src/core/decoy_logic.*` | Decoy floor-spot history and choice, the hidden-from-every-origin proof, and the aim test. |
 | `src/core/signature_scan.*` | Parse byte patterns and find exactly-once matches in the server's code (decoys only). |
 | `src/plugin/decoys.cpp` | Experimental decoys: entity lifecycle, per-viewer transmit, aim/shot reports (`cs2glaz_decoys`). |
+| `src/plugin/selftest.cpp` | `cs2glaz_selftest`: read-only checks of every part CS2GLAZ depends on, each with OK/OFF/WARN/FAIL and what to do. |
+| `src/core/fixed_list.h` | Fixed-capacity stack list for the per-tick player and decoy lists (no heap allocation per tick). |
+| `tools/decoy-review.html` | Standalone page that parses a pasted `decoys.log` into suspects ranked by evidence, with round and round time for demos. |
 | `src/plugin/bridge.cpp` | The bridge with CSVILKA (`anticheat_bridge.h`): Metamod interface query and unload, watched players (`cs2glaz_suspect`), decoy evidence sent to CSVILKA. |
 | `src/core/subprocess.*` | Start external tools with argument lists, timeouts, cancellation, and captured output. |
 | `src/baker/` | Command-line bake sequence, the native binary-KV3 and map-physics reader (`kv3.*`, `physics_import.*`), the shared bake recipe (`physics_recipe.*`), and the optional GLB parity reader. |

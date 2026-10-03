@@ -466,6 +466,18 @@ namespace cs2glaz
 			return;
 		}
 		const auto now = std::chrono::steady_clock::now();
+		// Each recipient's slot, read once instead of once per phantom.
+		std::array<int, k_max_players> slots;
+		const int recipients = std::min(count, static_cast<int>(k_max_players));
+		for (int i = 0; i < recipients; ++i)
+		{
+			slots[i] = -1;
+			const CCheckTransmitInfo* info = infos[i];
+			if (info != nullptr && info->m_pTransmitEntity != nullptr && info->m_pTransmitAlways != nullptr)
+			{
+				std::memcpy(&slots[i], reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(int));
+			}
+		}
 		for (size_t entry_index = 0; entry_index < phantom_transmit_.size(); ++entry_index)
 		{
 			const phantom_transmit_entry& entry = phantom_transmit_[entry_index];
@@ -478,15 +490,14 @@ namespace cs2glaz
 									 && (entry.front_run != 0
 										 || std::any_of(decoy_transmit_[entry.viewer].begin(), decoy_transmit_[entry.viewer].end(),
 														[&](const decoy_transmit_entry& decoy) { return decoy.id != 0 && decoy.handle == entry.body; }));
-			for (int i = 0; i < count; ++i)
+			for (int i = 0; i < recipients; ++i)
 			{
 				CCheckTransmitInfo* info = infos[i];
 				if (info == nullptr || info->m_pTransmitEntity == nullptr || info->m_pTransmitAlways == nullptr)
 				{
 					continue;
 				}
-				int slot = -1;
-				std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
+				const int slot = slots[i];
 				const bool viewer = slot >= 0 && static_cast<uint32_t>(slot) == entry.viewer;
 				if (!viewer)
 				{

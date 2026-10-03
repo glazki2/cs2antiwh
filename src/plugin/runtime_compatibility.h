@@ -89,6 +89,11 @@ namespace cs2glaz
 		uint32_t pawn_health {};
 		uint32_t connected {};
 		uint32_t controller_pawn {};
+		// The round for decoy log lines (cs_gamerules).
+		uint32_t game_rules {};
+		uint32_t total_rounds_played {};
+		uint32_t round_start_time {};
+		uint32_t warmup_period {};
 	};
 
 	struct smoke_private_layout
@@ -322,6 +327,11 @@ namespace cs2glaz
 			return phantom_schema_available_;
 		}
 
+		bool round_schema_available() const
+		{
+			return round_schema_available_;
+		}
+
 		uint8_t render_none_value() const
 		{
 			return static_cast<uint8_t>(render_none_value_);
@@ -380,6 +390,7 @@ namespace cs2glaz
 		bool shadow_strength_available_ {};
 		bool ghost_schema_available_ {};
 		bool phantom_schema_available_ {};
+		bool round_schema_available_ {};
 		int render_none_value_ {-1};
 		bool scene_hierarchy_schema_available_ {};
 		bool smoke_gamedata_available_ {};

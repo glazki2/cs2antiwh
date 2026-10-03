@@ -216,6 +216,7 @@ set(CS2GLAZ_PLUGIN_SOURCES
   "${CMAKE_SOURCE_DIR}/src/plugin/bridge.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/decoys.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/front_decoys.cpp"
+  "${CMAKE_SOURCE_DIR}/src/plugin/selftest.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/game_state.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/ghosts.cpp"
   "${CMAKE_SOURCE_DIR}/src/plugin/journal.cpp"

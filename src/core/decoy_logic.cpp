@@ -321,7 +321,9 @@ namespace cs2glaz
 		uint32_t state = query.seed == 0 ? 0x27d4eb2fu : query.seed;
 		// Near the crosshair first, spread by up to 6 degrees so it does not
 		// always take the same place.
-		std::vector<std::pair<float, uint32_t>> passing;
+		// Kept between calls: up to k_max_decoy_spots entries, allocated once.
+		thread_local std::vector<std::pair<float, uint32_t>> passing;
+		passing.clear();
 		for (uint32_t index = 0; index < points.size(); ++index)
 		{
 			if (front_rules(query, forward, points[index]))

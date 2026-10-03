@@ -579,6 +579,7 @@ namespace cs2glaz
 	void plugin::print_help() const
 	{
 		META_CONPRINTF("[CS2GLAZ] administrator commands:\n");
+		META_CONPRINTF("[CS2GLAZ] cs2glaz_selftest - Check every part CS2GLAZ depends on, with what to fix (start here).\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_status - Show concise protection, map, configuration, and performance health.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_metrics - Show the complete technical runtime counters.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_reload - Transactionally reload cs2glaz.cfg.\n");
@@ -588,8 +589,8 @@ namespace cs2glaz
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_props [radius] - Solid entities near each player and whether they block sight.\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_entity <index> - What entity N is and when CS2GLAZ withheld it from or sent it again to each player "
 					   "(for a client crash \"CopyExistingEntity: missing client entity N\").\n");
-		META_CONPRINTF("[CS2GLAZ] runtime switches (reset on restart): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
-					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2/3), cs2glaz_decoy_kick, cs2glaz_decoy_ghosts (experimental, 0-2), cs2glaz_decoy_phantoms (experimental, 0-32), cs2glaz_decoy_front (experimental, 0/1).\n");
+		META_CONPRINTF("[CS2GLAZ] runtime switches (put them in cs2glaz.cfg: it is applied again on every map): cs2glaz_radar_filter, cs2glaz_filter_dead, cs2glaz_filter_full_updates, "
+					   "cs2glaz_dynamic_occluders, cs2glaz_result_wait_ms, cs2glaz_decoys (experimental, 0/1/2/3), cs2glaz_decoy_kick, cs2glaz_decoy_ghosts (experimental, 0-2), cs2glaz_decoy_phantoms (experimental, 0-32), cs2glaz_decoy_front (experimental, 0/1/2).\n");
 		META_CONPRINTF("[CS2GLAZ] cs2glaz_suspect [steamid64|slot|name] [minutes] - Watch a player first with decoys (CSVILKA does it on its detections).\n");
 	}
 

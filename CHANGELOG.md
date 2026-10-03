@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0
+
+A one-command self-check, demo positions in the decoy log, a review page, and fewer allocations per tick.
+
+- `cs2glaz_selftest`: checks the game build and gamedata, the configuration, the GameFrame and CheckTransmit hooks and the transmit layout, protection on the current map, the work per tick (worker p99 and game-thread capture plus transmit against one 15.6 ms tick), smoke, the game event manager and each listened event, the radar filter, `mp_playerid`, decoys (a fresh signature scan into a local copy and the Teleport index checked against the world entity's vtable), phantoms, front decoys (including why the triggerbot mode is off), ghosts and CSVILKA. Each line is OK, OFF, WARN or FAIL with what to do; nothing is changed. With `cs2glaz_decoys 0` it says to set decoys in `cs2glaz.cfg`, since the cfg is applied again on every map and a console value does not last.
+- The signature scan for decoys is `find_decoy_functions() const`; `resolve_decoy_functions` stores its result as before.
+- Every `decoys.log` line has `tick=` (server tick), `round=` (from `CCSGameRules::m_totalRoundsPlayed`, plus `warmup=1`) and `round_time=m:ss` (since `m_fRoundStartTime`), read through `cs_gamerules` with guarded reads; the console report says `at round N, m:ss into it`. Missing schema fields leave the round out.
+- `tools/decoy-review.html`: paste or open `decoys.log`; players are ranked by evidence with real and control counts, front decoys, blind hits, CSVILKA and kick marks, and each one's timeline gives map, round, round time and a copyable `demo_gototick`. It runs entirely in the browser.
+- Per-tick lists of players, enemies and taken spots in decoys, front decoys, ghosts and shot checks are fixed-capacity stack lists (`fixed_list.h`) instead of `std::vector`: measured in a micro-benchmark with 20 players, building one tick's lists went from about 9-10 us to 0.8 us. The front spot choice reuses its candidate buffer (about 3 us to 1.9 us per placement with 4096 spots). `withhold_phantoms` reads each recipient's slot once per CheckTransmit instead of once per phantom.
+- `cs2glaz_help` lists `cs2glaz_selftest`, says runtime switches belong in `cs2glaz.cfg`, and gives `cs2glaz_decoy_front` as 0/1/2.
+
 ## 0.13.2
 
 Game events on CS2 builds the gamedata does not verify (every build since 1.41.7.4, the current 1.41.8.8 included).

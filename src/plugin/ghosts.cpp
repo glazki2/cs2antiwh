@@ -189,7 +189,7 @@ namespace cs2glaz
 			kick_ghost(ghost, "cs2glaz ghost failed");
 		};
 		// Viewers that may have a ghost, watched players first; in mode 3 only them.
-		std::vector<uint32_t> viewers;
+		fixed_list<uint32_t, k_max_players> viewers;
 		for (int pass = 0; pass < 2; ++pass)
 		{
 			for (uint32_t slot = 0; slot < k_max_players; ++slot)

@@ -6,6 +6,7 @@
 
 #include "anticheat_bridge.h"
 #include "automatic_baker.h"
+#include "fixed_list.h"
 #include "lifecycle_guard.h"
 #include "map_source.h"
 #include "runtime_compatibility.h"
@@ -532,6 +533,7 @@ namespace cs2glaz
 		std::string slot_name(CGameEntitySystem* system, uint32_t slot) const;
 		void filter_radar_message(const uint64* clients, const CNetMessage* data);
 		void print_help() const;
+		void run_selftest(); // cs2glaz_selftest (selftest.cpp)
 		void reload_config();
 		void check_config() const;
 		void check_update();
@@ -653,6 +655,7 @@ namespace cs2glaz
 		int decoy_mode() const;
 		int decoy_entity_mode() const; // how a decoy entity is drawn: 1 not at all, 2 drawn (testing)
 		void resolve_decoy_functions();
+		decoy_functions find_decoy_functions() const; // the signature scan alone, changes nothing
 		// cs2glaz.signatures.txt: this platform's entries, and a pattern that
 		// must occur exactly once in the server's code.
 		bool read_signatures(std::unordered_map<std::string, std::string>& values, std::string& error) const;
@@ -694,6 +697,7 @@ namespace cs2glaz
 		}
 		void print_phantom_status() const;
 		// Front decoys (front_decoys.cpp).
+		int front_mode() const; // cs2glaz_decoy_front, 0..2
 		bool front_enabled() const;
 		bool front_hittable() const;
 		void front_bullet_check(vec3 eye, vec3 impact);
@@ -732,6 +736,15 @@ namespace cs2glaz
 						std::span<const vec3> taken, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
 		void blind_hit_event(IGameEvent* event);
 		void note_pawns_sent(CCheckTransmitInfo** infos, int count, const visibility_result* result);
+		// Where in the match a decoy log line happened, to find it in a demo.
+		struct match_moment
+		{
+			int tick {-1};
+			int round {};		   // 1-based; 0 unknown
+			float round_seconds {-1.0f}; // since the round started (freeze time included)
+			bool warmup {};
+		};
+		match_moment current_moment() const;
 		void write_decoy_log(uint64_t xuid, const char* event, int distance, const decoy_player_record& record) const;
 		void write_decoy_map_summary();
 		void print_decoy_status() const;
@@ -932,6 +945,7 @@ namespace cs2glaz
 		// Last time CheckTransmit sent everything without the lock (journal clock).
 		std::atomic<double> everything_sent_at_ {-1.0e9};
 		bool player_hurt_listening_ {};
+		mutable CEntityHandle game_rules_proxy_; // cs_gamerules, found again when it goes
 		std::array<ghost_player, k_max_ghosts> ghosts_ {};
 		std::array<ghost_transmit_entry, k_max_ghosts> ghost_transmit_ {}; // transmit lock
 		std::array<std::atomic<int>, k_max_ghosts> ghost_pawn_index_ {};   // for the radar filter
