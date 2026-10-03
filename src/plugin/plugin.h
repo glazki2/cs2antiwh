@@ -225,6 +225,10 @@ namespace cs2glaz
 		vec3 aim_origin;   // where it stood at the previous on-target sample
 		bool aim_reported {};
 		bool shot_reported {};
+		// The jump test (decoy_jump_update): once per decoy.
+		bool jumped {};
+		std::chrono::steady_clock::time_point jump_at;
+		decoy_jump_state jump;
 		// Reports count only while it has reached the viewer's client long enough
 		// (decoy_delivery_ready); a crosshair already on it before then must
 		// leave it first.
@@ -282,6 +286,12 @@ namespace cs2glaz
 		uint32_t shots {};
 		uint32_t control_aims {};
 		uint32_t control_shots {};
+		uint32_t jumps {};		   // jumps of real decoys his aim followed
+		uint32_t control_jumps {}; // the same at control twins
+		// Blind hits: gun hits, and those on an enemy not sent to him.
+		uint32_t gun_hits {};
+		uint32_t blind_hits {};
+		double blind_evidence_marked {}; // whole blind-hit evidence last acted on
 		double real_seconds {};	   // readiness of his real decoys, summed
 		double control_seconds {}; // readiness of his control twins, summed
 		double evidence_at_kick {}; // decoy_evidence when cs2glaz_decoy_kick last kicked him
@@ -291,7 +301,8 @@ namespace cs2glaz
 
 		decoy_exposure exposure() const
 		{
-			return {static_cast<uint64_t>(aims) + shots, static_cast<uint64_t>(control_aims) + control_shots, real_seconds, control_seconds};
+			return {static_cast<uint64_t>(aims) + shots + jumps, static_cast<uint64_t>(control_aims) + control_shots + control_jumps, real_seconds,
+					control_seconds};
 		}
 	};
 
@@ -315,6 +326,11 @@ namespace cs2glaz
 		uint64_t control_shots {};
 		uint64_t undelivered {}; // real decoys moved after the engine kept them from their viewer
 		uint64_t latched_ticks {}; // sent through a moment without a fresh proof (k_decoy_latch_ms)
+		uint64_t jumps {};		   // decoys (and twins) that made their jump
+		uint64_t jump_follows {};
+		uint64_t control_jump_follows {};
+		uint64_t gun_hits {};	   // since load, by humans on enemies
+		uint64_t blind_hits {};
 		uint64_t runs_ended {};	   // retired because their one run reached its end
 	};
 
@@ -362,6 +378,13 @@ namespace cs2glaz
 		uint64_t observers_moved {};
 		uint64_t events_hidden {};
 		uint64_t radar_entries {};
+	};
+
+	enum class decoy_report : uint8_t
+	{
+		aim,
+		shot,
+		jump,
 	};
 
 	struct view_sample
@@ -579,7 +602,11 @@ namespace cs2glaz
 		void decoy_shot(uint32_t shooter, vec3 eye, vec3 direction);
 		bool live_view(uint32_t slot, view_sample& view) const;
 		decoy_player_record* decoy_record(uint32_t viewer);
-		void report_decoy(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, bool shot, float distance);
+		void report_decoy(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, decoy_report kind, float distance);
+		bool jump_decoy(CEntityInstance* entity, decoy_slot& slot, const player_state& viewer, std::span<const vec3> enemies, std::span<const vec3> living,
+						std::span<const vec3> taken, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
+		void blind_hit_event(IGameEvent* event);
+		void note_pawns_sent(CCheckTransmitInfo** infos, int count, const visibility_result* result);
 		void write_decoy_log(uint64_t xuid, const char* event, int distance, const decoy_player_record& record) const;
 		void write_decoy_map_summary();
 		void print_decoy_status() const;
@@ -773,6 +800,12 @@ namespace cs2glaz
 		decoy_exposure decoy_server_ {};
 		decoy_counters decoy_counters_;
 		std::array<view_sample, k_max_players> last_view_ {};
+		// When each target's pawn was last in each recipient's final lists
+		// (journal clock, seconds), for blind hits; transmit lock.
+		std::array<std::array<double, k_max_players>, k_max_players> pawn_sent_at_ {};
+		// Last time CheckTransmit sent everything without the lock (journal clock).
+		std::atomic<double> everything_sent_at_ {-1.0e9};
+		bool player_hurt_listening_ {};
 		std::array<ghost_player, k_max_ghosts> ghosts_ {};
 		std::array<ghost_transmit_entry, k_max_ghosts> ghost_transmit_ {}; // transmit lock
 		std::array<std::atomic<int>, k_max_ghosts> ghost_pawn_index_ {};   // for the radar filter

@@ -559,6 +559,10 @@ namespace cs2glaz
 		{
 			weapon_fire_listening_ = game_events_->AddListener(this, "weapon_fire", true);
 		}
+		if (!player_hurt_listening_ && game_events_ != nullptr)
+		{
+			player_hurt_listening_ = game_events_->AddListener(this, "player_hurt", true);
+		}
 		if (!bullet_impact_tried_ && weapon_fire_listening_ && game_events_ != nullptr)
 		{
 			// Tried once (game events are loaded by now): an unknown event must not
@@ -807,13 +811,29 @@ namespace cs2glaz
 						if (slot.aim_ms >= k_aim_report_ms && slot.aim_turn >= k_aim_min_tracking_degrees && !slot.aim_reported)
 						{
 							slot.aim_reported = true;
-							report_decoy(system, viewer_slot, slot, false, distance_units(viewer.eye, slot.origin));
+							report_decoy(system, viewer_slot, slot, decoy_report::aim, distance_units(viewer.eye, slot.origin));
 						}
 					}
 					else
 					{
 						slot.aim_ms = 0.0f;
 						slot.aim_turn = 0.0f;
+					}
+				}
+				// The jump test: did the crosshair land on the spot it jumped to?
+				if (slot.jumped && !slot.jump.done)
+				{
+					const float since = std::chrono::duration<float, std::milli>(now - slot.jump_at).count();
+					const bool on_new = slot.ready && aim_on
+										&& !aim_on_any_player(viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others);
+					if (!slot.ready || drop)
+					{
+						slot.jump.done = true; // no longer on his client: the test proves nothing
+					}
+					else if (decoy_jump_update(slot.jump, since, on_new, elapsed_ms))
+					{
+						slot.aim_reported = true; // one report for this decoy's following
+						report_decoy(system, viewer_slot, slot, decoy_report::jump, distance_units(viewer.eye, slot.origin));
 					}
 				}
 				if (!drop && slot.spawned && entity != nullptr && slot.teleport != nullptr)
@@ -826,7 +846,14 @@ namespace cs2glaz
 							taken.push_back(other.origin);
 						}
 					}
-					walk_decoy(entity, slot, viewer, enemies, living, taken, now, elapsed_ms, value);
+					const float ready_ms = std::chrono::duration<float, std::milli>(now - delivered_since).count();
+					const bool jump_due = slot.ready && !slot.jumped && !slot.moving && !aim_on && sent.id == slot.id
+										  && ready_ms >= k_decoy_reaction_ms + std::clamp(rtt_ms, 0.0f, 500.0f) + k_decoy_jump_after_ready_ms
+										  && decoy_random(decoy_seed_) % 32u == 0;
+					if (!(jump_due && jump_decoy(entity, slot, viewer, enemies, living, taken, value, now)))
+					{
+						walk_decoy(entity, slot, viewer, enemies, living, taken, now, elapsed_ms, value);
+					}
 				}
 				if (drop)
 				{
@@ -896,6 +923,42 @@ namespace cs2glaz
 		}
 		publish_decoy_transmit();
 		publish_ghost_transmit();
+	}
+
+	bool plugin::jump_decoy(CEntityInstance* entity, decoy_slot& slot, const player_state& viewer, std::span<const vec3> enemies,
+							std::span<const vec3> living, std::span<const vec3> taken, const visibility_snapshot& value,
+							std::chrono::steady_clock::time_point now)
+	{
+		// Another hidden spot, on the same part of his screen but clearly apart,
+		// not where his crosshair already is.
+		for (int attempt = 0; attempt < 4; ++attempt)
+		{
+			vec3 spot;
+			const decoy_spot_query query {viewer.eye, enemies, living, taken, decoy_random(decoy_seed_), viewer.eye_yaw_degrees};
+			if (!choose_decoy_spot(data_, value.occluders, decoy_spots_, query, spot) || !decoy_jump_distance_ok(viewer.eye, slot.origin, spot)
+				|| aim_on_decoy(viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, spot))
+			{
+				continue;
+			}
+			slot.origin = spot;
+			slot.goal = spot;
+			slot.moving = false;
+			// It stands still after the jump, so following it means finding it.
+			slot.pause_until = now + std::chrono::milliseconds(static_cast<int>(k_decoy_jump_window_ms) + decoy_random(decoy_seed_) % 600u);
+			slot.jumped = true;
+			slot.jump_at = now;
+			slot.jump = {};
+			slot.aim_ms = 0.0f;
+			slot.aim_turn = 0.0f;
+			slot.aim_origin = spot;
+			const Vector origin(spot.x, spot.y, spot.z);
+			const QAngle angles(0.0f, slot.yaw, 0.0f);
+			const Vector stop(0.0f, 0.0f, 0.0f);
+			reinterpret_cast<teleport_fn>(slot.teleport)(entity, &origin, &angles, &stop);
+			++decoy_counters_.jumps;
+			return true;
+		}
+		return false;
 	}
 
 	void plugin::walk_decoy(CEntityInstance* entity, decoy_slot& slot, const player_state& viewer, std::span<const vec3> enemies,
@@ -1060,6 +1123,103 @@ namespace cs2glaz
 		}
 	}
 
+	void plugin::note_pawns_sent(CCheckTransmitInfo** infos, int count, const visibility_result* result)
+	{
+		const double now = journal_now();
+		if (result == nullptr || !visibility_snapshot_fresh(result->captured, std::chrono::steady_clock::now()) || !settings::current().enable
+			|| !disabled_reason_.empty())
+		{
+			// No hiding now (failing open, or off): every enemy went to everyone.
+			everything_sent_at_.store(now);
+			return;
+		}
+		for (int i = 0; i < count; ++i)
+		{
+			CCheckTransmitInfo* info = infos[i];
+			if (info == nullptr || info->m_pTransmitEntity == nullptr || info->m_pTransmitAlways == nullptr)
+			{
+				continue;
+			}
+			int slot = -1;
+			std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
+			if (slot < 0 || slot >= static_cast<int>(k_max_players))
+			{
+				continue;
+			}
+			for (uint32_t target = 0; target < k_max_players; ++target)
+			{
+				const player_state& player = result->players[target];
+				const int index = player.pawn_entity;
+				if (player.valid && valid_networked_edict_index(index)
+					&& (info->m_pTransmitEntity->IsBitSet(index) || info->m_pTransmitAlways->IsBitSet(index)))
+				{
+					pawn_sent_at_[static_cast<size_t>(slot)][target] = now;
+				}
+			}
+		}
+	}
+
+	// player_hurt: a human's gun hit on an enemy whose pawn CS2GLAZ had not
+	// sent him for k_blind_hit_unsent_ms (blind_hit_evidence).
+	void plugin::blind_hit_event(IGameEvent* event)
+	{
+		if (event == nullptr || decoy_mode() == 0 || !gun(event->GetString(game_event_key("weapon"), "")))
+		{
+			return;
+		}
+		const int attacker = event->GetPlayerSlot(game_event_key("attacker")).Get();
+		const int victim = event->GetPlayerSlot(game_event_key("userid")).Get();
+		if (attacker < 0 || victim < 0 || attacker >= static_cast<int>(k_max_players) || victim >= static_cast<int>(k_max_players) || attacker == victim
+			|| ghost_slot(attacker) || ghost_slot(victim) || !human_player(static_cast<uint32_t>(attacker)))
+		{
+			return;
+		}
+		CGameEntitySystem* system = entity_system();
+		const lifecycle_key shooter = player_lifecycle(static_cast<uint32_t>(attacker), system, nullptr);
+		const lifecycle_key target = player_lifecycle(static_cast<uint32_t>(victim), system, nullptr);
+		if ((shooter.team != k_team_t && shooter.team != k_team_ct) || (target.team != k_team_t && target.team != k_team_ct)
+			|| shooter.team == target.team)
+		{
+			return;
+		}
+		decoy_player_record* record = decoy_record(static_cast<uint32_t>(attacker));
+		if (record == nullptr)
+		{
+			return;
+		}
+		const double now = journal_now();
+		double sent_at = 0.0;
+		{
+			std::lock_guard<std::mutex> lock(transmit_state_mutex_);
+			sent_at = pawn_sent_at_[static_cast<size_t>(attacker)][static_cast<size_t>(victim)];
+		}
+		const bool blind = (now - std::max(sent_at, everything_sent_at_.load())) * 1000.0 > k_blind_hit_unsent_ms;
+		++record->gun_hits;
+		++decoy_counters_.gun_hits;
+		if (!blind)
+		{
+			return;
+		}
+		++record->blind_hits;
+		++decoy_counters_.blind_hits;
+		record->name = slot_name(system, static_cast<uint32_t>(attacker));
+		record->this_map = true;
+		const uint64_t xuid = engine_->GetClientXUID(CPlayerSlot(attacker));
+		write_decoy_log(xuid, "blind_hit", -1, *record);
+		const double share = blind_hit_server_share(decoy_counters_.blind_hits, decoy_counters_.gun_hits);
+		const double evidence = blind_hit_evidence(record->blind_hits, record->gun_hits, share);
+		if (evidence >= 1.0 && std::floor(evidence) > record->blind_evidence_marked)
+		{
+			record->blind_evidence_marked = std::floor(evidence);
+			META_CONPRINTF("[CS2GLAZ] blind hits: \"%s\" %llu hit enemies CS2GLAZ had not sent him %u times of %u gun hits (an honest player: about "
+						   "%.1f); evidence %.1f - weak alone (a sound ESP or radar hack?), his decoys come first now\n",
+						   record->name.c_str(), static_cast<unsigned long long>(xuid), record->blind_hits, record->gun_hits,
+						   static_cast<double>(record->gun_hits) * share, evidence);
+			write_decoy_log(xuid, "blind_hit_evidence", -1, *record);
+			mark_suspect(xuid, 30.0f * 60.0f, "blind hits", "cs2glaz");
+		}
+	}
+
 	void plugin::decoy_weapon_fire(IGameEvent* event)
 	{
 		if (event == nullptr || decoy_mode() == 0 || !decoy_functions_.ready || !gun(event->GetString(game_event_key("weapon"), "")))
@@ -1137,7 +1297,7 @@ namespace cs2glaz
 				continue;
 			}
 			slot.shot_reported = true;
-			report_decoy(system, shooter, slot, true, distance_units(eye, slot.origin));
+			report_decoy(system, shooter, slot, decoy_report::shot, distance_units(eye, slot.origin));
 		}
 	}
 
@@ -1160,7 +1320,8 @@ namespace cs2glaz
 			if (decoy_players_.size() >= k_max_decoy_players)
 			{
 				// Players with nothing against them go first.
-				std::erase_if(decoy_players_, [](const auto& entry) { return entry.second.aims + entry.second.shots == 0; });
+				std::erase_if(decoy_players_, [](const auto& entry)
+							  { return entry.second.aims + entry.second.shots + entry.second.jumps == 0 && entry.second.blind_hits == 0; });
 				if (decoy_players_.size() >= k_max_decoy_players)
 				{
 					return nullptr;
@@ -1171,7 +1332,7 @@ namespace cs2glaz
 		return &found->second;
 	}
 
-	void plugin::report_decoy(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, bool shot, float distance)
+	void plugin::report_decoy(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, decoy_report kind, float distance)
 	{
 		decoy_player_record* record = decoy_record(viewer);
 		if (record == nullptr)
@@ -1185,24 +1346,53 @@ namespace cs2glaz
 		{
 			// No client ever had it: an honest coincidence, the baseline the real
 			// reports are weighed against. Logged for the record only.
-			shot ? ++record->control_shots : ++record->control_aims;
-			shot ? ++decoy_counters_.control_shots : ++decoy_counters_.control_aims;
+			switch (kind)
+			{
+				case decoy_report::aim:
+					++record->control_aims;
+					++decoy_counters_.control_aims;
+					break;
+				case decoy_report::shot:
+					++record->control_shots;
+					++decoy_counters_.control_shots;
+					break;
+				case decoy_report::jump:
+					++record->control_jumps;
+					++decoy_counters_.control_jump_follows;
+					break;
+			}
 			++decoy_server_.control_reports;
-			write_decoy_log(xuid, shot ? "control_shot" : "control_aim", static_cast<int>(distance), *record);
+			write_decoy_log(xuid, kind == decoy_report::shot ? "control_shot" : (kind == decoy_report::jump ? "control_jump" : "control_aim"),
+							static_cast<int>(distance), *record);
 			return;
 		}
-		shot ? ++record->shots : ++record->aims;
-		shot ? ++decoy_counters_.shots : ++decoy_counters_.aims;
+		switch (kind)
+		{
+			case decoy_report::aim:
+				++record->aims;
+				++decoy_counters_.aims;
+				break;
+			case decoy_report::shot:
+				++record->shots;
+				++decoy_counters_.shots;
+				break;
+			case decoy_report::jump:
+				++record->jumps;
+				++decoy_counters_.jump_follows;
+				break;
+		}
+		const bool shot = kind == decoy_report::shot;
 		++decoy_server_.real_reports;
 		const decoy_exposure exposure = record->exposure();
 		const double expected = decoy_expected_reports(exposure, decoy_server_);
 		const double evidence = decoy_evidence(exposure, decoy_server_);
 		META_CONPRINTF("[CS2GLAZ] decoy: \"%s\" %llu %s a decoy through a wall (%.0f units). Since load: %llu at real decoys in %.0f s of them, "
 					   "%llu at controls in %.0f s; an honest player would have about %.1f; evidence %.1f - suspect, check the demo\n",
-					   record->name.c_str(), static_cast<unsigned long long>(xuid), shot ? "shot at" : "aimed at", distance,
+					   record->name.c_str(), static_cast<unsigned long long>(xuid),
+					   shot ? "shot at" : (kind == decoy_report::jump ? "followed the jump of" : "aimed at"), distance,
 					   static_cast<unsigned long long>(exposure.real_reports), exposure.real_seconds,
 					   static_cast<unsigned long long>(exposure.control_reports), exposure.control_seconds, expected, evidence);
-		write_decoy_log(xuid, shot ? "shot" : "aim", static_cast<int>(distance), *record);
+		write_decoy_log(xuid, shot ? "shot" : (kind == decoy_report::jump ? "jump" : "aim"), static_cast<int>(distance), *record);
 		// CSVILKA weighs it together with its own checks and punishes by its own
 		// rules: every whole point of new evidence goes to it.
 		if (evidence >= 1.0 && std::floor(evidence) > record->evidence_reported)
@@ -1273,8 +1463,9 @@ namespace cs2glaz
 		{
 			log << " distance=" << distance;
 		}
-		log << " aims=" << record.aims << " shots=" << record.shots << " control_aims=" << record.control_aims << " control_shots=" << record.control_shots
-			<< " " << numbers << "\n";
+		log << " aims=" << record.aims << " shots=" << record.shots << " jumps=" << record.jumps << " control_aims=" << record.control_aims
+			<< " control_shots=" << record.control_shots << " control_jumps=" << record.control_jumps << " gun_hits=" << record.gun_hits
+			<< " blind_hits=" << record.blind_hits << " " << numbers << "\n";
 	}
 
 	void plugin::write_decoy_map_summary()
@@ -1342,7 +1533,7 @@ namespace cs2glaz
 		std::vector<std::pair<uint64_t, const decoy_player_record*>> suspects;
 		for (const auto& [xuid, record] : decoy_players_)
 		{
-			if (record.aims + record.shots != 0)
+			if (record.aims + record.shots + record.jumps != 0)
 			{
 				suspects.emplace_back(xuid, &record);
 			}
@@ -1358,11 +1549,39 @@ namespace cs2glaz
 		{
 			const decoy_player_record& record = *suspects[index].second;
 			const decoy_exposure exposure = record.exposure();
-			META_CONPRINTF("[CS2GLAZ] decoy suspect: \"%s\" %llu aims=%u shots=%u in %.0f s of real decoys; control aims=%u shots=%u in %.0f s; "
-						   "expected %.1f; evidence %.1f; kicks=%u\n",
-						   record.name.c_str(), value(suspects[index].first), record.aims, record.shots, exposure.real_seconds, record.control_aims,
-						   record.control_shots, exposure.control_seconds, decoy_expected_reports(exposure, decoy_server_),
-						   decoy_evidence(exposure, decoy_server_), record.kicks);
+			META_CONPRINTF("[CS2GLAZ] decoy suspect: \"%s\" %llu aims=%u shots=%u jumps=%u in %.0f s of real decoys; control aims=%u shots=%u "
+						   "jumps=%u in %.0f s; expected %.1f; evidence %.1f; kicks=%u\n",
+						   record.name.c_str(), value(suspects[index].first), record.aims, record.shots, record.jumps, exposure.real_seconds,
+						   record.control_aims, record.control_shots, record.control_jumps, exposure.control_seconds,
+						   decoy_expected_reports(exposure, decoy_server_), decoy_evidence(exposure, decoy_server_), record.kicks);
+		}
+		// Blind hits: weak evidence of a sound ESP or radar hack, the channels
+		// hiding enemies does not close.
+		const double share = blind_hit_server_share(counters.blind_hits, counters.gun_hits);
+		META_CONPRINTF("[CS2GLAZ] decoy jumps=%llu followed=%llu (at control twins %llu); blind hits since load: %llu of %llu gun hits on enemies "
+					   "(server share %.1f%%)\n",
+					   value(counters.jumps), value(counters.jump_follows), value(counters.control_jump_follows), value(counters.blind_hits),
+					   value(counters.gun_hits), 100.0 * share);
+		std::vector<std::pair<uint64_t, const decoy_player_record*>> blind;
+		for (const auto& [xuid, record] : decoy_players_)
+		{
+			if (blind_hit_evidence(record.blind_hits, record.gun_hits, share) > 0.0)
+			{
+				blind.emplace_back(xuid, &record);
+			}
+		}
+		std::sort(blind.begin(), blind.end(),
+				  [&](const auto& left, const auto& right)
+				  {
+					  return blind_hit_evidence(left.second->blind_hits, left.second->gun_hits, share)
+							 > blind_hit_evidence(right.second->blind_hits, right.second->gun_hits, share);
+				  });
+		for (size_t index = 0; index < blind.size() && index < 5; ++index)
+		{
+			const decoy_player_record& record = *blind[index].second;
+			META_CONPRINTF("[CS2GLAZ] blind-hit suspect: \"%s\" %llu %u of %u gun hits on enemies not sent to him; expected %.1f; evidence %.1f\n",
+						   record.name.c_str(), value(blind[index].first), record.blind_hits, record.gun_hits,
+						   static_cast<double>(record.gun_hits) * share, blind_hit_evidence(record.blind_hits, record.gun_hits, share));
 		}
 		print_bridge_status();
 	}

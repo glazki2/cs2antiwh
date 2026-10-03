@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0
+
+Two more ways to catch a wallhack.
+
+- Decoy jump test. Every decoy (prop, ghost or control twin) jumps once in its life: after it has reached its viewer's client for a second, it is teleported to another hidden spot 12-50 degrees away as he sees it (`choose_decoy_spot`, so on his screen when he looks its way) and stands still for about a second. An honest player sees neither spot; a wallhack draws the box jumping. A crosshair that was not on the new spot and lands on it after 120 ms, within 0.9 s, and stays 150 ms followed the jump (`decoy_jump_update`): it counts as a report in the same evidence as aims and shots, logged as `event=jump` (`control_jump` at twins, which jump the same way and keep the comparison fair). CSVILKA receives it among the aims. `cs2glaz_status`: `decoy jumps=... followed=...`.
+- Blind hits. CS2GLAZ notes when each enemy's pawn last went to each player. A gun hit (`player_hurt`) on an enemy not sent to the shooter for 1.5 s is a blind hit (`event=blind_hit`). Honest players have some (spraying a smoke, wallbanging a known spot, a teammate's call), so a player's blind hits are weighed against the server's share among all gun hits, expected plus three deviations (`blind_hit_evidence`). It is weak evidence, but it is what hiding enemies cannot stop: a sound ESP or a radar hack. Each whole point puts the player under watch for 30 minutes (his decoys and ghosts first); it never kicks by itself. Times when CS2GLAZ sent every enemy (failing open, off) never count. `cs2glaz_status` lists the share and up to five blind-hit suspects; the decoy log has `jumps`, `gun_hits` and `blind_hits` on every line.
+
 ## 0.10.0
 
 Ghost players: decoys that a cheat drawing only players shows. Most cheats, external ESPs above all, walk the player controllers in entity slots 1-64 and follow each one's pawn; a prop decoy is never among them, so they never drew one.

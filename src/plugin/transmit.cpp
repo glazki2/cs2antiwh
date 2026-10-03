@@ -391,11 +391,13 @@ namespace cs2glaz
 			// journal starts a fresh comparison.
 			pair_decisions_stale_.store(true);
 			journal_stale_.store(true);
+			everything_sent_at_.store(journal_now());
 			return;
 		}
 		if (infos == nullptr || count <= 0 || count > static_cast<int>(k_max_players) || transmit_layout_invalid_.load(std::memory_order_relaxed))
 		{
 			journal_stale_.store(true);
+			everything_sent_at_.store(journal_now());
 			return;
 		}
 		if (!transmit_lists_verified_)
@@ -440,6 +442,7 @@ namespace cs2glaz
 		}
 		apply_check_transmit(infos, count, result, filtering, now);
 		finish_transmit_journal(infos, count);
+		note_pawns_sent(infos, count, result.get());
 		record_timing();
 	}
 

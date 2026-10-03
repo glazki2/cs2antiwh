@@ -256,6 +256,101 @@ namespace cs2glaz
 		return threshold > 0 && std::isfinite(evidence) && evidence >= evidence_at_last_kick + static_cast<double>(threshold);
 	}
 
+	// The jump test. A ready decoy is teleported once to another hidden spot,
+	// k_decoy_jump_min_degrees to k_decoy_jump_max_degrees away as seen from
+	// its viewer (on his screen if he looks its way). An honest player cannot
+	// see either spot; a wallhack draws the box jumping. A crosshair that was
+	// not on the new spot and lands on it after a reaction, within the window,
+	// and stays there, followed the jump. Control twins jump the same way.
+	inline constexpr float k_decoy_jump_min_degrees = 12.0f;
+	inline constexpr float k_decoy_jump_max_degrees = 50.0f;
+	inline constexpr float k_decoy_jump_reaction_ms = 120.0f;
+	inline constexpr float k_decoy_jump_window_ms = 900.0f;
+	inline constexpr float k_decoy_jump_hold_ms = 150.0f;
+	// Ready this long before it jumps, so a wallhack had it on screen.
+	inline constexpr float k_decoy_jump_after_ready_ms = 1000.0f;
+
+	// Degrees between the directions from the eye to two decoys' centres.
+	inline float decoy_angle_between(vec3 eye, vec3 first_origin, vec3 second_origin)
+	{
+		const vec3 a {first_origin.x - eye.x, first_origin.y - eye.y, first_origin.z + k_decoy_center_height - eye.z};
+		const vec3 b {second_origin.x - eye.x, second_origin.y - eye.y, second_origin.z + k_decoy_center_height - eye.z};
+		const float length = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z) * std::sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
+		if (!(length > 1e-3f) || !std::isfinite(length))
+		{
+			return 0.0f;
+		}
+		const float cosine = std::clamp((a.x * b.x + a.y * b.y + a.z * b.z) / length, -1.0f, 1.0f);
+		return std::acos(cosine) * 57.29578f;
+	}
+
+	inline bool decoy_jump_distance_ok(vec3 eye, vec3 from, vec3 to)
+	{
+		const float degrees = decoy_angle_between(eye, from, to);
+		return degrees >= k_decoy_jump_min_degrees && degrees <= k_decoy_jump_max_degrees;
+	}
+
+	// One update of the jump test. Returns true when the jump was followed;
+	// done is set once the test is over either way.
+	struct decoy_jump_state
+	{
+		float on_ms {}; // continuously on the new spot since the reaction time
+		bool done {};
+	};
+
+	inline bool decoy_jump_update(decoy_jump_state& state, float since_jump_ms, bool aim_on_new_spot, float elapsed_ms)
+	{
+		if (state.done)
+		{
+			return false;
+		}
+		if (!std::isfinite(since_jump_ms) || since_jump_ms > k_decoy_jump_window_ms)
+		{
+			state.done = true;
+			return false;
+		}
+		if (!aim_on_new_spot)
+		{
+			state.on_ms = 0.0f;
+			return false;
+		}
+		if (since_jump_ms < k_decoy_jump_reaction_ms)
+		{
+			// Already there before anyone could react: proves nothing.
+			state.done = true;
+			return false;
+		}
+		state.on_ms += std::isfinite(elapsed_ms) ? std::max(elapsed_ms, 0.0f) : 0.0f;
+		if (state.on_ms >= k_decoy_jump_hold_ms)
+		{
+			state.done = true;
+			return true;
+		}
+		return false;
+	}
+
+	// Blind hits: gun damage to an enemy whose pawn CS2GLAZ had not sent to the
+	// attacker for k_blind_hit_unsent_ms. Honest players get some (spraying a
+	// smoke, wallbanging a common spot, a teammate's call); a sound ESP or a
+	// radar hack gets many more. A player's blind hits are weighed against the
+	// server's share of blind hits among all gun hits, like decoy evidence.
+	inline constexpr double k_blind_hit_unsent_ms = 1500.0;
+	inline constexpr double k_blind_prior_share = 0.05;
+	inline constexpr double k_blind_server_prior_hits = 500.0;
+
+	inline double blind_hit_server_share(uint64_t server_blind, uint64_t server_hits)
+	{
+		return (static_cast<double>(server_blind) + k_blind_prior_share * k_blind_server_prior_hits)
+			   / (static_cast<double>(server_hits) + k_blind_server_prior_hits);
+	}
+
+	inline double blind_hit_evidence(uint64_t blind, uint64_t hits, double server_share)
+	{
+		const double expected = static_cast<double>(hits) * std::clamp(std::isfinite(server_share) ? server_share : 1.0, 0.0, 1.0);
+		const double excess = static_cast<double>(blind) - expected - 3.0 * std::sqrt(expected);
+		return excess > 0.0 ? excess : 0.0;
+	}
+
 	// Small deterministic generator for spots and lifetimes.
 	inline uint32_t decoy_random(uint32_t& state)
 	{

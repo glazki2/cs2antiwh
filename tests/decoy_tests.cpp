@@ -442,6 +442,64 @@ namespace
 		static_assert(k_decoy_reuse_quarantine_ms >= 2.0f * 500.0f);
 	}
 
+	void test_decoy_jump()
+	{
+		// Angles as seen from the eye: 500 units ahead, 200 to the side is ~21.8 degrees.
+		const vec3 eye {0, 0, 64};
+		const vec3 ahead {500, 0, 64 - k_decoy_center_height};
+		const vec3 side {500, 200, 64 - k_decoy_center_height};
+		assert(std::fabs(decoy_angle_between(eye, ahead, side) - 21.8f) < 0.1f);
+		assert(decoy_angle_between(eye, ahead, ahead) < 0.01f);
+		assert(decoy_jump_distance_ok(eye, ahead, side));
+		assert(!decoy_jump_distance_ok(eye, ahead, {500, 50, 64 - k_decoy_center_height}));	 // too close: ~5.7
+		assert(!decoy_jump_distance_ok(eye, ahead, {-500, 0, 64 - k_decoy_center_height})); // behind him: 180
+		assert(decoy_angle_between(eye, eye, ahead) == 0.0f || std::isfinite(decoy_angle_between(eye, eye, ahead)));
+
+		// Followed: off the new spot until the reaction, then on it for the hold.
+		decoy_jump_state followed;
+		assert(!decoy_jump_update(followed, 50.0f, false, 15.6f));
+		assert(!decoy_jump_update(followed, 200.0f, true, 15.6f));
+		bool reported = false;
+		for (float since = 215.6f; since < 400.0f && !reported; since += 15.6f)
+		{
+			reported = decoy_jump_update(followed, since, true, 15.6f);
+		}
+		assert(reported && followed.done);
+		assert(!decoy_jump_update(followed, 450.0f, true, 15.6f)); // once only
+
+		// Already there before anyone could react: nothing, and the test ends.
+		decoy_jump_state early;
+		assert(!decoy_jump_update(early, 60.0f, true, 15.6f));
+		assert(early.done);
+		assert(!decoy_jump_update(early, 300.0f, true, 500.0f));
+
+		// Leaving it resets the hold; the window closes the test.
+		decoy_jump_state flick;
+		assert(!decoy_jump_update(flick, 300.0f, true, 100.0f));
+		assert(!decoy_jump_update(flick, 315.0f, false, 15.0f));
+		assert(flick.on_ms == 0.0f);
+		assert(!decoy_jump_update(flick, 330.0f, true, 100.0f));
+		assert(!decoy_jump_update(flick, k_decoy_jump_window_ms + 1.0f, true, 100.0f));
+		assert(flick.done);
+		decoy_jump_state broken;
+		assert(!decoy_jump_update(broken, std::nanf(""), true, 15.0f) && broken.done);
+	}
+
+	void test_blind_hits()
+	{
+		// Before data, the prior share (5%).
+		assert(std::fabs(blind_hit_server_share(0, 0) - k_blind_prior_share) < 1e-9);
+		// Many hits move it to the server's own share.
+		assert(std::fabs(blind_hit_server_share(1000, 10000) - (1000.0 + 25.0) / 10500.0) < 1e-9);
+		// An honest player at the server's share has no evidence however long he plays.
+		assert(blind_hit_evidence(5, 100, 0.05) == 0.0);
+		assert(blind_hit_evidence(50, 1000, 0.05) == 0.0);
+		// 20 hits: expected 1, plus 3 deviations = 4; 6 blind hits give 2.
+		assert(std::fabs(blind_hit_evidence(6, 20, 0.05) - 2.0) < 1e-9);
+		assert(blind_hit_evidence(0, 0, 0.05) == 0.0);
+		assert(blind_hit_evidence(3, 3, std::nan("")) == 0.0); // unknown share counts as everything blind
+	}
+
 } // namespace
 
 void run_decoy_tests()
@@ -456,4 +514,6 @@ void run_decoy_tests()
 	test_decoy_precision();
 	test_decoy_view_preference();
 	test_decoy_one_run();
+	test_decoy_jump();
+	test_blind_hits();
 }

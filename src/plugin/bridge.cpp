@@ -136,9 +136,9 @@ namespace cs2glaz
 		}
 		const decoy_player_record& record = found->second;
 		const decoy_exposure exposure = record.exposure();
-		evidence = {record.aims,
+		evidence = {record.aims + record.jumps, // a followed jump is an aim that followed
 					record.shots,
-					record.control_aims + record.control_shots,
+					record.control_aims + record.control_shots + record.control_jumps,
 					exposure.real_seconds,
 					exposure.control_seconds,
 					decoy_expected_reports(exposure, decoy_server_),

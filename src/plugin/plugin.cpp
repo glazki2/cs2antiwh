@@ -140,6 +140,7 @@ namespace cs2glaz
 		bullet_impact_listening_ = false;
 		bullet_impact_tried_ = false;
 		disconnect_listening_ = false;
+		player_hurt_listening_ = false;
 		if (game_event_load_hooked_)
 		{
 			game_event_load_hook_.RemoveGlobal(reinterpret_cast<IGameEventManager2*>(&game_event_manager_vtable_));
@@ -207,6 +208,11 @@ namespace cs2glaz
 		if (event != nullptr && std::strcmp(event->GetName(), "bullet_impact") == 0)
 		{
 			decoy_bullet_impact(event);
+			return;
+		}
+		if (event != nullptr && std::strcmp(event->GetName(), "player_hurt") == 0)
+		{
+			blind_hit_event(event);
 			return;
 		}
 		if (event != nullptr && std::strcmp(event->GetName(), "player_disconnect") == 0)
