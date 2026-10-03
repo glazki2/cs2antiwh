@@ -99,7 +99,7 @@ namespace cs2glaz
 	}
 
 	phantom_player* plugin::create_phantom(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, const std::string& model,
-										   std::chrono::steady_clock::time_point now)
+										   CEntityInstance* collision_source, std::chrono::steady_clock::time_point now)
 	{
 		const auto free = std::find_if(phantoms_.begin(), phantoms_.end(), [](const phantom_player& phantom) { return phantom.index == 0; });
 		if (system == nullptr || free == phantoms_.end() || model.empty() || slot.target >= k_max_players)
@@ -200,6 +200,36 @@ namespace cs2glaz
 		const QAngle angles(0.0f, slot.yaw, 0.0f);
 		const Vector stop(0.0f, 0.0f, 0.0f);
 		reinterpret_cast<teleport_fn>(teleport)(body, &origin, &angles, &stop);
+		// Against triggerbots (cs2glaz_decoy_front 2): a real player's collision,
+		// written before the body is first sent, so its viewer's client (whose
+		// crosshair trace most triggerbots read) takes it for a player's. The
+		// server made no physics object for it (it was spawned before its model)
+		// and gets none from these fields, so its own traces still pass through;
+		// front_bullet_check turns this off if one ever does not.
+		bool hittable = false;
+		if (collision_source != nullptr)
+		{
+			void* from = reinterpret_cast<std::byte*>(collision_source) + fields.model_collision;
+			void* to = reinterpret_cast<std::byte*>(body) + fields.model_collision;
+			const uint8_t solid_type = field<uint8_t>(from, fields.solid_type);
+			const uint8_t solid_flags = field<uint8_t>(from, fields.solid_flags);
+			const Vector mins = field<Vector>(from, fields.mins);
+			const Vector maxs = field<Vector>(from, fields.maxs);
+			// Only a living player's plain collision: solid, a sane box.
+			if (solid_type != k_solid_none && (solid_flags & k_solid_flag_not_solid) == 0 && mins.x < maxs.x && mins.y < maxs.y && mins.z < maxs.z
+				&& maxs.x - mins.x <= 64.0f && maxs.y - mins.y <= 64.0f && maxs.z - mins.z <= 96.0f)
+			{
+				void* attribute_from = reinterpret_cast<std::byte*>(from) + fields.collision_attribute;
+				void* attribute_to = reinterpret_cast<std::byte*>(to) + fields.collision_attribute;
+				field<Vector>(to, fields.mins) = mins;
+				field<Vector>(to, fields.maxs) = maxs;
+				field<uint64_t>(attribute_to, fields.interacts_as) = field<uint64_t>(attribute_from, fields.interacts_as);
+				field<uint64_t>(attribute_to, fields.interacts_with) = field<uint64_t>(attribute_from, fields.interacts_with);
+				field<uint8_t>(to, fields.solid_flags) = solid_flags;
+				field<uint8_t>(to, fields.solid_type) = solid_type;
+				hittable = true;
+			}
+		}
 		const CEntityHandle body_handle = entity_handle(body);
 		// The controller, in the chosen entity slot, with everything set before it
 		// is first sent: it is never changed afterwards.
@@ -237,6 +267,8 @@ namespace cs2glaz
 		phantom.viewer = viewer;
 		phantom.target = slot.target;
 		phantom.team = team;
+		phantom.hittable = hittable;
+		phantom.entity_mode = decoy_entity_mode();
 		phantom.created_at = now;
 		phantom.idle_since = now;
 		phantom_slots_.fetch_or(uint64_t {1} << (index - 1));
@@ -288,7 +320,7 @@ namespace cs2glaz
 				return false;
 			}
 			phantom_next_create_ = now + k_phantom_create_interval;
-			phantom = create_phantom(system, viewer, slot, model, now);
+			phantom = create_phantom(system, viewer, slot, model, nullptr, now);
 			if (phantom == nullptr)
 			{
 				return false;
@@ -388,10 +420,14 @@ namespace cs2glaz
 			CEntityInstance* body = system->GetEntityInstance(phantom.body);
 			CEntityInstance* viewer = system->GetEntityInstance(CEntityIndex(static_cast<int>(phantom.viewer + 1u)));
 			// A front phantom stays while its viewer is on a team, dead or alive
-			// (its body goes to him only while he is alive); a stand-in only while
-			// he is alive, and never once front decoys take the phantoms.
+			// (its body goes to him only while he is alive), and while its body's
+			// collision matches cs2glaz_decoy_front; a stand-in only while he is
+			// alive, and never once front decoys take the phantoms. Either goes
+			// when cs2glaz_decoys changes between drawn and not drawn: its body
+			// was made for the other.
 			const bool viewer_ok = viewer != nullptr && human_player(phantom.viewer) && enemy_of(field<uint8_t>(viewer, fields.team)) == phantom.team
 								   && (phantom.front || value.players[phantom.viewer].valid) && phantom.front == front_enabled()
+								   && (!phantom.front || phantom.hittable == front_hittable()) && phantom.entity_mode == decoy_entity_mode()
 								   && (decoy_mode() != 3 || is_suspect(phantom.viewer, now));
 			if (controller == nullptr || body == nullptr)
 			{

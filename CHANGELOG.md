@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.1
+
+Front decoys against triggerbots, and fixes from a review of the decoy code.
+
+- `cs2glaz_decoy_front 2` (experimental, the least proven mode): as 1, and each front phantom's body is given the collision of a living enemy's pawn (solid type and flags, box, interaction layers), written before it is first sent. Only its viewer receives it, so only his client treats it as a player's body; a triggerbot that fires when the game's crosshair target is an enemy (`m_iIDEntIndex`) then fires at empty air, and the shot is a `front_shot` report weighed against the control twin. The server never made a physics object for the body (it is spawned before its model), so the server's bullets, which decide every hit, pass through it. Safety: a bullet impact above the body's knees inside its box, with no map geometry within 8 units along the bullet, means the server stopped a bullet in it; the mode then turns off until the plugin reloads and every such body is replaced by a plain one (`front_body_stopped_bullet`). The mode needs `bullet_impact` and turns off as well if a player's collision does not look like a player's. A front decoy never stands within 128 units across (and 96 in height) of its viewer (`front_crowds_viewer`), at placement and while it stays; a hittable body with nowhere else to go leaves his client.
+- Phantoms remember whether their body was made drawn (`cs2glaz_decoys 2`) or not, and are replaced when that changes: switching from 2 to 1 no longer leaves drawn bodies until the next round.
+- With `cs2glaz_decoys 2` (drawn, for tests) front decoys still jump but count nothing: an honest tester who sees one and follows it gets no reports and no kick.
+- Front reports go to the log each time and to the console at most every 5 s per player.
+- `front_decide` (stay, jump, place again) moved to the tested core. `cs2glaz_status` shows the triggerbot mode's state and the bodies made with a player's collision.
+
 ## 0.13.0
 
 Front decoys: an invisible fake enemy in front of every player, against aimbots.

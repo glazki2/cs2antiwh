@@ -563,6 +563,49 @@ namespace
 		assert(!choose_front_spot(open, history, broken, spot));
 		assert(!front_spot_rules(broken, {500.0f, 30.0f, 0.0f}));
 
+		// Never at the viewer's side: across and in height.
+		assert(front_crowds_viewer({0, 0, 0}, {100.0f, 0.0f, 0.0f}));
+		assert(!front_crowds_viewer({0, 0, 0}, {k_front_hittable_clearance + 1.0f, 0.0f, 0.0f}));
+		assert(!front_crowds_viewer({0, 0, 0}, {50.0f, 0.0f, 200.0f})); // a floor below: not in his way
+		assert(!front_crowds_viewer({std::nanf(""), 0, 0}, {10.0f, 0.0f, 0.0f}));
+		const vec3 near_spot {170.0f, 30.0f, 0.0f};
+		front_spot_query beside {eye, 0.0f, 0.0f, players, {}, nullptr, 7};
+		const bool allowed = front_spot_rules(beside, near_spot);
+		beside.viewer_feet = {60.0f, 30.0f, 0.0f};
+		assert(!front_spot_rules(beside, near_spot));
+		assert(!allowed || front_spot_keeps(open, {eye, 0.0f, 0.0f, players, {}, nullptr, 7}, near_spot));
+		assert(!front_spot_keeps(open, beside, near_spot));
+		for (uint32_t seed = 1; seed < 20; ++seed)
+		{
+			front_spot_query placed {eye, 0.0f, 0.0f, players, {}, nullptr, seed, {0.0f, 0.0f, 0.0f}};
+			vec3 kept;
+			if (choose_front_spot(open, history, placed, kept))
+			{
+				assert(!front_crowds_viewer(placed.viewer_feet, kept));
+			}
+		}
+
+		// What it does each update.
+		assert(front_decide(false, true, 0.0f, false) == front_move::replace);
+		assert(front_decide(false, false, 500.0f, true) == front_move::replace);
+		assert(front_decide(true, true, 500.0f, true) == front_move::stay);
+		assert(front_decide(true, false, k_front_dodge_ms, false) == front_move::jump);
+		assert(front_decide(true, false, 0.0f, true) == front_move::jump);
+		assert(front_decide(true, false, k_front_dodge_ms - 1.0f, false) == front_move::stay);
+
+		// A bullet that stopped in the air inside the body, and ones that did not.
+		const vec3 body {600.0f, 300.0f, 0.0f};
+		assert(front_body_stopped_bullet(open, body, eye, {595.0f, 298.0f, 50.0f}));
+		assert(!front_body_stopped_bullet(open, body, eye, {640.0f, 300.0f, 50.0f}));	// beside it
+		assert(!front_body_stopped_bullet(open, body, eye, {600.0f, 300.0f, 3.0f}));	// the floor at its feet
+		assert(!front_body_stopped_bullet(open, body, eye, {600.0f, 300.0f, 20.0f}));	// a chicken at its feet
+		assert(!front_body_stopped_bullet(open, body, eye, {600.0f, 300.0f, 120.0f})); // above it
+		assert(!front_body_stopped_bullet(open, body, {std::nanf(""), 0.0f, 0.0f}, {600.0f, 300.0f, 50.0f}));
+		// A wall through the body's box: the bullet stopped on the wall.
+		const bvh8_data walled = decoy_world({{{600, -400, -100}, {600, 400, -100}, {600, -400, 300}}, {{600, 400, 300}, {600, -400, 300}, {600, 400, -100}}});
+		assert(!front_body_stopped_bullet(walled, {600.0f, 0.0f, 0.0f}, eye, {600.0f, 2.0f, 50.0f}));
+		assert(front_body_stopped_bullet(walled, {580.0f, 0.0f, 0.0f}, eye, {570.0f, 2.0f, 50.0f}));
+
 		// Its evidence is weighed with its own, higher prior.
 		const decoy_exposure server {};
 		const decoy_exposure player {5, 0, 100.0, 0.0};

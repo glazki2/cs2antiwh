@@ -232,6 +232,17 @@ namespace cs2glaz
 		return decoy_proof::hidden;
 	}
 
+	bool front_crowds_viewer(vec3 viewer_feet, vec3 origin)
+	{
+		if (!finite(viewer_feet) || !finite(origin))
+		{
+			return false;
+		}
+		const float x = origin.x - viewer_feet.x;
+		const float y = origin.y - viewer_feet.y;
+		return x * x + y * y < k_front_hittable_clearance * k_front_hittable_clearance && std::fabs(origin.z - viewer_feet.z) < 96.0f;
+	}
+
 	float front_offset_degrees(vec3 eye, float pitch_degrees, float yaw_degrees, vec3 origin)
 	{
 		if (!finite(eye) || !finite(origin) || !std::isfinite(pitch_degrees) || !std::isfinite(yaw_degrees))
@@ -262,7 +273,7 @@ namespace cs2glaz
 			}
 			const float cosine = (forward.x * to_center.x + forward.y * to_center.y + forward.z * to_center.z) / std::sqrt(distance_squared);
 			if (!(cosine <= cos_min && cosine >= cos_max) || direction_on_decoy(eye, forward, candidate)
-				|| !far_from_all(candidate, query.players, k_front_player_clearance))
+				|| !far_from_all(candidate, query.players, k_front_player_clearance) || front_crowds_viewer(query.viewer_feet, candidate))
 			{
 				return false;
 			}
@@ -347,7 +358,30 @@ namespace cs2glaz
 		const float distance = std::sqrt(distance_sq(center, eye));
 		return distance >= k_front_keep_min_distance && distance <= k_front_keep_max_distance
 			   && front_offset_degrees(eye, query.view_pitch_degrees, query.view_yaw_degrees, origin) <= k_front_keep_degrees
-			   && far_from_all(origin, query.players, k_front_player_clearance * 0.5f) && !segment_blocked(data, eye, center).blocked;
+			   && far_from_all(origin, query.players, k_front_player_clearance * 0.5f) && !front_crowds_viewer(query.viewer_feet, origin)
+			   && !segment_blocked(data, eye, center).blocked;
+	}
+
+	bool front_body_stopped_bullet(const bvh8_data& data, vec3 body_origin, vec3 eye, vec3 impact)
+	{
+		if (!finite(body_origin) || !finite(eye) || !finite(impact) || std::fabs(impact.x - body_origin.x) > k_front_body_half_width
+			|| std::fabs(impact.y - body_origin.y) > k_front_body_half_width || impact.z < body_origin.z + k_front_body_floor_margin
+			|| impact.z > body_origin.z + k_front_body_height)
+		{
+			return false;
+		}
+		const vec3 line {impact.x - eye.x, impact.y - eye.y, impact.z - eye.z};
+		const float length = std::sqrt(line.x * line.x + line.y * line.y + line.z * line.z);
+		if (!(length > 1.0f) || !std::isfinite(length))
+		{
+			return false;
+		}
+		// A wall, a box or the floor at the impact: the bullet stopped there, not
+		// in the body.
+		constexpr float k_margin = 8.0f;
+		const vec3 step {line.x / length * k_margin, line.y / length * k_margin, line.z / length * k_margin};
+		return !segment_blocked(data, {impact.x - step.x, impact.y - step.y, impact.z - step.z}, {impact.x + step.x, impact.y + step.y, impact.z + step.z})
+					.blocked;
 	}
 
 	float decoy_follow_degrees(vec3 eye_before, vec3 forward_before, vec3 decoy_before, vec3 eye_now, vec3 forward_now, vec3 decoy_now)

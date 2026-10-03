@@ -1276,6 +1276,8 @@ namespace cs2glaz
 		}
 		if (view.valid && std::isfinite(impact.x) && std::isfinite(impact.y) && std::isfinite(impact.z))
 		{
+			// Anyone's bullet, a bot's too: a hittable front body must never stop one.
+			front_bullet_check(view.eye, impact);
 			decoy_shot(static_cast<uint32_t>(shooter), view.eye, {impact.x - view.eye.x, impact.y - view.eye.y, impact.z - view.eye.z});
 		}
 	}
@@ -1417,13 +1419,23 @@ namespace cs2glaz
 		const double expected =
 			slot.front ? decoy_expected_reports(exposure, front_server_, k_front_prior_rate) : decoy_expected_reports(exposure, decoy_server_);
 		const double evidence = decoy_player_evidence(*record);
-		META_CONPRINTF("[CS2GLAZ] decoy: \"%s\" %llu %s %s (%.0f units). Since load: %llu at real ones in %.0f s of them, "
-					   "%llu at controls in %.0f s; an honest player would have about %.1f; evidence %.1f - suspect, check the demo\n",
-					   record->name.c_str(), static_cast<unsigned long long>(xuid),
-					   shot ? "shot at" : (kind == decoy_report::jump ? "followed the jump of" : "aimed at"),
-					   slot.front ? "an invisible front decoy (an aimbot?)" : "a decoy through a wall", distance,
-					   static_cast<unsigned long long>(exposure.real_reports), exposure.real_seconds,
-					   static_cast<unsigned long long>(exposure.control_reports), exposure.control_seconds, expected, evidence);
+		// An aimbot locked onto a front decoy follows it every second or so:
+		// every report goes to the log, the console gets one every few seconds.
+		const auto now = std::chrono::steady_clock::now();
+		if (!slot.front || now - record->front_printed_at >= std::chrono::seconds(5))
+		{
+			if (slot.front)
+			{
+				record->front_printed_at = now;
+			}
+			META_CONPRINTF("[CS2GLAZ] decoy: \"%s\" %llu %s %s (%.0f units). Since load: %llu at real ones in %.0f s of them, "
+						   "%llu at controls in %.0f s; an honest player would have about %.1f; evidence %.1f - suspect, check the demo\n",
+						   record->name.c_str(), static_cast<unsigned long long>(xuid),
+						   shot ? "shot at" : (kind == decoy_report::jump ? "followed the jump of" : "aimed at"),
+						   slot.front ? "an invisible front decoy (an aimbot or triggerbot?)" : "a decoy through a wall", distance,
+						   static_cast<unsigned long long>(exposure.real_reports), exposure.real_seconds,
+						   static_cast<unsigned long long>(exposure.control_reports), exposure.control_seconds, expected, evidence);
+		}
 		write_decoy_log(xuid,
 						slot.front ? (shot ? "front_shot" : "front_jump") : (shot ? "shot" : (kind == decoy_report::jump ? "jump" : "aim")),
 						static_cast<int>(distance), *record);

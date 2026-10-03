@@ -19,11 +19,18 @@
 // readiness, is his coincidence rate, and only reports beyond it are
 // evidence (decoy_evidence with k_front_prior_rate).
 //
-// What it cannot do: a triggerbot that fires on the game's own crosshair
-// target (the client's trace) never fires at it, because a body that trace
-// could hit would also stop honest players' bullets. An aimbot that checks a
-// field only real player pawns have, or a cheat that recognises a phantom,
-// skips it.
+// Against triggerbots (cs2glaz_decoy_front 2, the least proven part): most
+// triggerbots fire when the game's own crosshair target (the client's trace)
+// is an enemy. In this mode the body carries a real player's collision, so
+// its viewer's client may find it there; the server made no physics object
+// for it, so the server's bullets, which decide every hit, still pass
+// through it, and front_bullet_check turns the mode off for good if one ever
+// stops in it. It keeps 128 units from its viewer, so his own movement never
+// meets it. What his client shows when his bullets cross it, and whether his
+// crosshair trace really finds it, only a test on a real server can tell.
+//
+// An aimbot that checks a field only real player pawns have, or a cheat that
+// recognises a phantom, skips it.
 
 #include <algorithm>
 #include <cmath>
@@ -37,9 +44,10 @@ namespace cs2glaz
 		CConVar<int> cs2glaz_decoy_front("cs2glaz_decoy_front", FCVAR_NONE,
 										 "Experimental front decoys against aimbots: 1 keeps an invisible phantom player a few degrees off every human player's "
 										 "crosshair, sent to him only, jumping away whenever a crosshair rests on it; an aim that follows its jumps or a shot at it "
-										 "is a decoy report; 0 off (needs cs2glaz_decoys 1 or 3 and cs2glaz_decoy_phantoms of at least the player count; test "
-										 "servers first; resets on restart)",
-										 0, true, 0, true, 1);
+										 "is a decoy report; 2 also gives its body a player's collision on his client, for triggerbots that read the game's "
+										 "crosshair target (least proven); 0 off (needs cs2glaz_decoys 1 or 3 and cs2glaz_decoy_phantoms of at least the "
+										 "player count; test servers first; resets on restart)",
+										 0, true, 0, true, 2);
 
 		using teleport_fn = void (*)(CEntityInstance*, const Vector*, const QAngle*, const Vector*);
 
@@ -80,8 +88,44 @@ namespace cs2glaz
 		return cs2glaz_decoy_front.Get() != 0 && decoy_mode() != 0 && phantom_limit() > 0;
 	}
 
+	bool plugin::front_hittable() const
+	{
+		// Only with bullet impacts heard: they are how a body that stops a bullet
+		// on the server is noticed.
+		return front_enabled() && cs2glaz_decoy_front.Get() == 2 && front_hittable_error_.empty() && bullet_impact_listening_
+			   && compatibility_.collision_attribute_available();
+	}
+
+	void plugin::front_bullet_check(vec3 eye, vec3 impact)
+	{
+		if (!front_hittable_error_.empty())
+		{
+			return;
+		}
+		for (uint32_t viewer = 0; viewer < k_max_players; ++viewer)
+		{
+			const decoy_slot& real = front_decoys_[viewer].real;
+			const phantom_player* phantom = real.id != 0 ? front_phantom(viewer) : nullptr;
+			if (phantom == nullptr || !phantom->hittable || !front_body_stopped_bullet(data_, real.origin, eye, impact))
+			{
+				continue;
+			}
+			// The server's bullet stopped in a body nobody can see: it would take
+			// honest players' shots. Every hittable body goes (update_phantoms).
+			front_hittable_error_ = "a front decoy's body stopped a bullet on the server";
+			META_CONPRINTF("[CS2GLAZ] front decoys against triggerbots turned off: a bullet stopped in a front decoy's body on the server "
+						   "(at %.0f %.0f %.0f); cs2glaz_decoy_front 2 works like 1 until the plugin reloads\n",
+						   impact.x, impact.y, impact.z);
+			return;
+		}
+	}
+
 	phantom_player* plugin::front_phantom(uint32_t viewer)
 	{
+		if (viewer >= k_max_players)
+		{
+			return nullptr;
+		}
 		const auto found = std::find_if(phantoms_.begin(), phantoms_.end(),
 										[&](const phantom_player& phantom) { return phantom.index != 0 && phantom.front && phantom.viewer == viewer; });
 		return found == phantoms_.end() ? nullptr : &*found;
@@ -114,6 +158,8 @@ namespace cs2glaz
 			delivery = front_delivery_;
 		}
 		const int mode = decoy_mode();
+		const bool drawn = decoy_entity_mode() == 2;
+		const bool hittable = available && front_hittable();
 		const schema_offsets& fields = compatibility_.fields();
 		const auto quarantine = std::chrono::duration<float, std::milli>(k_decoy_reuse_quarantine_ms);
 		const auto pause = [&]()
@@ -149,7 +195,7 @@ namespace cs2glaz
 				stop_front_decoys(viewer_slot, now);
 				continue;
 			}
-			std::vector<vec3> others;
+			std::vector<vec3> others; // every other living player: aims and shots at them prove nothing
 			std::vector<uint32_t> enemies;
 			for (uint32_t target = 0; target < k_max_players; ++target)
 			{
@@ -188,8 +234,9 @@ namespace cs2glaz
 				CEntityInstance* pawn = system->GetEntityInstance(CEntityIndex(value.players[target].pawn_entity));
 				const std::string model = entity_model_name(pawn);
 				vec3 spot;
-				const front_spot_query query {viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others, {}, nullptr, decoy_random(decoy_seed_)};
-				if (model.empty() || !choose_front_spot(data_, decoy_spots_, query, spot))
+				const front_spot_query query {viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others, {}, nullptr, decoy_random(decoy_seed_),
+											viewer.origin};
+				if (pawn == nullptr || model.empty() || !choose_front_spot(data_, decoy_spots_, query, spot))
 				{
 					front.retry_at = now + k_front_retry;
 					++decoy_counters_.front_no_spot;
@@ -200,13 +247,26 @@ namespace cs2glaz
 				placement.origin = spot;
 				placement.yaw = yaw_towards(spot, viewer.eye);
 				phantom_next_create_ = now + k_front_create_interval;
-				phantom = create_phantom(system, viewer_slot, placement, model, now);
+				phantom = create_phantom(system, viewer_slot, placement, model, hittable ? pawn : nullptr, now);
 				if (phantom == nullptr)
 				{
 					front.retry_at = now + k_front_create_failed_retry;
 					continue;
 				}
 				phantom->front = true;
+				if (hittable && !phantom->hittable)
+				{
+					// The enemy's collision did not look like a living player's: the
+					// mode cannot work on this build. Plain bodies from now on.
+					front_hittable_error_ = "a player's collision did not look like a player's";
+					META_CONPRINTF("[CS2GLAZ] front decoys against triggerbots turned off: %s; cs2glaz_decoy_front 2 works like 1 until the "
+								   "plugin reloads\n",
+								   front_hittable_error_.c_str());
+				}
+				else if (phantom->hittable)
+				{
+					++decoy_counters_.front_hittable_created;
+				}
 				// A new body has never reached anyone.
 				front.stopped_at = {};
 			}
@@ -226,7 +286,8 @@ namespace cs2glaz
 			const auto place = [&](decoy_slot& slot, const decoy_slot& twin, bool control)
 			{
 				const std::vector<vec3> taken = twin.id != 0 ? std::vector<vec3> {twin.origin} : std::vector<vec3> {};
-				const front_spot_query query {viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others, taken, nullptr, decoy_random(decoy_seed_)};
+				const front_spot_query query {viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others, taken, nullptr, decoy_random(decoy_seed_),
+											viewer.origin};
 				vec3 spot;
 				if (!choose_front_spot(data_, decoy_spots_, query, spot))
 				{
@@ -288,7 +349,9 @@ namespace cs2glaz
 				continue;
 			}
 			const float rtt_ms = viewer.rtt_seconds * 1000.0f;
-			const bool ready = delivered_now && decoy_delivery_ready(true, milliseconds(now - sent.first_sent), rtt_ms);
+			// Drawn (cs2glaz_decoys 2, for tests) anyone can see it: it still jumps,
+			// but nothing counts.
+			const bool ready = !drawn && delivered_now && decoy_delivery_ready(true, milliseconds(now - sent.first_sent), rtt_ms);
 			decoy_player_record* record = decoy_record(viewer_slot);
 			if (record != nullptr && record->name.empty())
 			{
@@ -325,24 +388,36 @@ namespace cs2glaz
 				}
 				slot->aim_ms = aim_on ? slot->aim_ms + std::max(elapsed_ms, 0.0f) : 0.0f;
 				const std::vector<vec3> taken = twin.id != 0 ? std::vector<vec3> {twin.origin} : std::vector<vec3> {};
-				front_spot_query query {viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others, taken, nullptr, decoy_random(decoy_seed_)};
+				front_spot_query query {viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, others, taken, nullptr, decoy_random(decoy_seed_),
+											viewer.origin};
+				// At his side is no place for a decoy, and a hittable body must
+				// never meet his movement (front_crowds_viewer, in the keep rules).
 				const bool keeps = front_spot_keeps(data_, query, slot->origin);
 				const bool testing = slot->jumped && !slot->jump.done;
 				const bool dodge = slot->aim_ms >= k_front_dodge_ms;
-				if (keeps && (testing || (!dodge && now < slot->pause_until)))
+				const front_move move = front_decide(keeps, testing, slot->aim_ms, now >= slot->pause_until);
+				if (move == front_move::stay)
 				{
 					continue;
 				}
 				// A jump from a spot it could keep (12-50 degrees on his screen); a
-				// new place near the crosshair when he turned away or it is out of
-				// clear view. Either is a test while it is ready.
+				// new place near the crosshair when he turned away, came close or it
+				// is out of clear view. Either is a test while it is ready.
 				const vec3 from = slot->origin;
-				query.from = keeps ? &from : nullptr;
+				query.from = move == front_move::jump ? &from : nullptr;
 				vec3 spot;
 				if (!choose_front_spot(data_, decoy_spots_, query, spot))
 				{
 					slot->pause_until = now + k_front_retry;
 					++decoy_counters_.front_no_spot;
+					if (!slot->control && phantom->hittable && front_crowds_viewer(viewer.origin, slot->origin))
+					{
+						// Nowhere else to go and too close to him: its body leaves his
+						// client rather than meet his movement.
+						stop_front_decoys(viewer_slot, now);
+						front.retry_at = now + k_front_retry;
+						break;
+					}
 					continue;
 				}
 				slot->origin = spot;
@@ -412,8 +487,11 @@ namespace cs2glaz
 		const char* state = setting == 0								  ? "(off)"
 							: decoy_mode() == 0							  ? "(waiting for cs2glaz_decoys)"
 							: phantom_limit() == 0						  ? "(waiting for cs2glaz_decoy_phantoms)"
-							: !decoy_functions_resolved_ || decoy_functions_.ready ? (phantoms_available(reason) ? "ready" : "(phantoms unavailable)")
-																				   : "(decoys unavailable)";
+							: !decoy_functions_resolved_ || decoy_functions_.ready
+								? (!phantoms_available(reason) ? "(phantoms unavailable)"
+								   : decoy_entity_mode() == 2  ? "drawn for a test (nothing counts)"
+															   : "ready")
+								: "(decoys unavailable)";
 		const auto value = [](uint64_t number) { return static_cast<unsigned long long>(number); };
 		META_CONPRINTF("[CS2GLAZ] front decoys: %d %s running=%u ready=%u runs=%llu jumps=%llu (after a resting crosshair %llu) no_spot=%llu; "
 					   "followed=%llu shots=%llu at real ones over %.0f s; followed=%llu shots=%llu at control twins over %.0f s (an honest "
@@ -422,6 +500,17 @@ namespace cs2glaz
 					   value(counters.front_no_spot), value(counters.front_follows), value(counters.front_shots), front_server_.real_seconds,
 					   value(counters.front_control_follows), value(counters.front_control_shots), front_server_.control_seconds,
 					   60.0 * decoy_server_rate(front_server_, k_front_prior_rate));
+		if (setting == 2)
+		{
+			// Against triggerbots: bodies with a player's collision for their viewer.
+			const char* hittable = !front_hittable_error_.empty()						  ? front_hittable_error_.c_str()
+								   : !bullet_impact_listening_							  ? "waiting for bullet_impact"
+								   : !compatibility_.collision_attribute_available()	  ? "the schema lacks collision attributes"
+								   : front_hittable()									  ? "on"
+																						  : "waiting";
+			META_CONPRINTF("[CS2GLAZ] front decoys against triggerbots: %s; bodies with a player's collision made=%llu\n", hittable,
+						   value(counters.front_hittable_created));
+		}
 	}
 
 } // namespace cs2glaz

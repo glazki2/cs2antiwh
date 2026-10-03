@@ -308,6 +308,7 @@ namespace cs2glaz
 		double evidence_reported {}; // whole evidence last reported to CSVILKA
 		uint32_t kicks {};
 		bool this_map {};
+		std::chrono::steady_clock::time_point front_printed_at; // last front report printed to the console
 
 		decoy_exposure exposure() const
 		{
@@ -362,6 +363,7 @@ namespace cs2glaz
 		uint64_t front_control_shots {};
 		uint64_t front_no_spot {}; // no recorded floor spot in clear view near the crosshair
 		uint64_t front_dodges {};  // jumps made because a crosshair rested on it
+		uint64_t front_hittable_created {}; // phantoms whose body carries a player's collision
 	};
 
 	// A fake player that exists for one viewer only (ghosts.cpp): ESPs that
@@ -406,6 +408,10 @@ namespace cs2glaz
 		uint32_t driving_id {};
 		// Its body is its viewer's front decoy (front_decoys.cpp), not a stand-in.
 		bool front {};
+		// Its body carries a real player's collision for its viewer's client
+		// (cs2glaz_decoy_front 2, against triggerbots).
+		bool hittable {};
+		int entity_mode {}; // decoy_entity_mode its body was made for (drawn or not)
 		std::chrono::steady_clock::time_point created_at;
 		std::chrono::steady_clock::time_point released_at;
 		std::chrono::steady_clock::time_point idle_since;
@@ -669,7 +675,7 @@ namespace cs2glaz
 		bool phantom_take(CGameEntitySystem* system, uint32_t viewer, decoy_slot& slot, const std::string& model,
 						  std::chrono::steady_clock::time_point now);
 		phantom_player* create_phantom(CGameEntitySystem* system, uint32_t viewer, const decoy_slot& slot, const std::string& model,
-									   std::chrono::steady_clock::time_point now);
+									   CEntityInstance* collision_source, std::chrono::steady_clock::time_point now);
 		void remove_phantom(phantom_player& phantom, bool remove_entities);
 		void remove_all_phantoms(bool remove_entities);
 		void update_phantoms(CGameEntitySystem* system, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
@@ -682,6 +688,8 @@ namespace cs2glaz
 		void print_phantom_status() const;
 		// Front decoys (front_decoys.cpp).
 		bool front_enabled() const;
+		bool front_hittable() const;
+		void front_bullet_check(vec3 eye, vec3 impact);
 		phantom_player* front_phantom(uint32_t viewer);
 		void update_front_decoys(CGameEntitySystem* system, const visibility_snapshot& value, float elapsed_ms, std::chrono::steady_clock::time_point now);
 		void stop_front_decoys(uint32_t viewer, std::chrono::steady_clock::time_point now);
@@ -927,6 +935,7 @@ namespace cs2glaz
 		std::array<front_delivery, k_max_phantoms> front_delivery_ {};			 // transmit lock
 		std::array<front_decoy, k_max_players> front_decoys_ {};
 		decoy_exposure front_server_ {};
+		std::string front_hittable_error_; // hittable front bodies off until the plugin reloads
 		std::atomic<uint64_t> phantom_slots_ {}; // entity slots (index - 1) holding phantom controllers
 		std::string phantom_error_;				 // phantoms turned off until the plugin reloads
 		std::chrono::steady_clock::time_point phantom_next_create_ {};

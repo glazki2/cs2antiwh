@@ -372,14 +372,22 @@ namespace cs2glaz
 		std::span<const vec3> taken;   // the viewer's other front decoy
 		const vec3* from {};		   // a jump from here: also decoy_jump_distance_ok
 		uint32_t seed {};
+		// The viewer's feet: a decoy never stands at his side (front_crowds_viewer).
+		// NaN: not checked.
+		vec3 viewer_feet {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
 	};
+
+	// A body this close to the viewer's feet across and in height would be in
+	// his way (k_front_hittable_clearance, defined below with the bodies).
+	bool front_crowds_viewer(vec3 viewer_feet, vec3 origin);
 
 	// Degrees between the view and the line from the eye to a body's centre.
 	float front_offset_degrees(vec3 eye, float pitch_degrees, float yaw_degrees, vec3 origin);
 
 	// The rules without traces: distance, offset, not on the crosshair, away
-	// from players and from the line to any of them, apart on screen from the
-	// taken spots, and a jump's distance from query.from.
+	// from players and from the line to any of them, not at the viewer's side,
+	// apart on screen from the taken spots, and a jump's distance from
+	// query.from.
 	bool front_spot_rules(const front_spot_query& query, vec3 candidate);
 
 	// Among recorded floor spots meeting front_spot_rules whose centre and head
@@ -388,8 +396,49 @@ namespace cs2glaz
 	bool choose_front_spot(const bvh8_data& data, const decoy_spot_history& history, const front_spot_query& query, vec3& spot);
 
 	// Whether a front decoy standing at origin may stay: within the keep
-	// limits, away from players, and in clear view of the eye.
+	// limits, away from players, not at the viewer's side, and in clear view
+	// of the eye.
 	bool front_spot_keeps(const bvh8_data& data, const front_spot_query& query, vec3 origin);
+
+	enum class front_move : uint8_t
+	{
+		stay,
+		jump,	 // 12-50 degrees from where it stands (front_spot_query::from)
+		replace, // anywhere near the crosshair: it may not stay
+	};
+
+	// What a front decoy does this update: placed again when it may not stay
+	// (even during a jump test, which then ends); otherwise it stands while its
+	// jump test runs, and jumps when a crosshair has rested on it for
+	// k_front_dodge_ms or its pause is over.
+	inline front_move front_decide(bool keeps, bool testing, float aim_ms, bool pause_over)
+	{
+		if (!keeps)
+		{
+			return front_move::replace;
+		}
+		if (testing)
+		{
+			return front_move::stay;
+		}
+		return aim_ms >= k_front_dodge_ms || pause_over ? front_move::jump : front_move::stay;
+	}
+
+	// Front decoys against triggerbots (cs2glaz_decoy_front 2): the body
+	// carries a real player's collision for its viewer's client, whose
+	// crosshair trace (what most triggerbots read) then finds it. The server
+	// never made a physics object for it, so its own bullets pass through. If
+	// one ever does not, this sees it: a bullet impact inside the body's box,
+	// above its knees (a weapon on the floor or a chicken there is not it),
+	// where the map has nothing within 8 units along the bullet. Half the box
+	// width, its height, and the knees:
+	inline constexpr float k_front_body_half_width = 20.0f;
+	inline constexpr float k_front_body_height = 80.0f;
+	inline constexpr float k_front_body_floor_margin = 32.0f;
+	// A body that is hit by its viewer's client must stay out of his way.
+	inline constexpr float k_front_hittable_clearance = 128.0f;
+
+	bool front_body_stopped_bullet(const bvh8_data& data, vec3 body_origin, vec3 eye, vec3 impact);
 
 	// Blind hits: gun damage to an enemy whose pawn CS2GLAZ had not sent to the
 	// attacker for k_blind_hit_unsent_ms. Honest players get some (spraying a
