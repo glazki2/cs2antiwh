@@ -222,6 +222,9 @@ namespace cs2glaz
 		// A front decoy (front_decoys.cpp): in plain view near the crosshair,
 		// never through a wall; a control one has no entity at all.
 		bool front {};
+		// A crosshair ghost's turn (crosshair_ghosts.cpp), for its report only.
+		bool crosshair {};
+		float reaction_ms {-1.0f}; // a crosshair report: from the ghost reaching him to the shot
 		std::chrono::steady_clock::time_point spawned_at;
 		std::chrono::steady_clock::time_point expires;
 		float aim_ms {};
@@ -305,6 +308,12 @@ namespace cs2glaz
 		uint32_t front_control_shots {};
 		double front_real_seconds {};
 		double front_control_seconds {};
+		// Crosshair ghosts (crosshair_ghosts.cpp): shots in the open window of
+		// real turns and of control turns.
+		uint32_t crosshair_shots {};
+		uint32_t crosshair_control_shots {};
+		double crosshair_real_seconds {};
+		double crosshair_control_seconds {};
 		double evidence_at_kick {}; // evidence (decoy_player_evidence) when cs2glaz_decoy_kick last kicked him
 		double evidence_reported {}; // whole evidence last reported to CSVILKA
 		uint32_t kicks {};
@@ -323,9 +332,14 @@ namespace cs2glaz
 					front_real_seconds, front_control_seconds};
 		}
 
+		decoy_exposure crosshair_exposure() const
+		{
+			return {crosshair_shots, crosshair_control_shots, crosshair_real_seconds, crosshair_control_seconds};
+		}
+
 		bool anything() const
 		{
-			return aims + shots + jumps + front_jumps + front_shots + blind_hits != 0;
+			return aims + shots + jumps + front_jumps + front_shots + crosshair_shots + blind_hits != 0;
 		}
 	};
 
@@ -365,6 +379,14 @@ namespace cs2glaz
 		uint64_t front_no_spot {}; // no recorded floor spot in clear view near the crosshair
 		uint64_t front_dodges {};  // jumps made because a crosshair rested on it
 		uint64_t front_hittable_created {}; // phantoms whose body carries a player's collision
+		uint64_t crosshair_turns {};		 // real turns: a ghost sent to one player on his crosshair
+		uint64_t crosshair_controls {};		 // control turns: nothing sent
+		uint64_t crosshair_delivered {};	 // real turns whose ghost the engine sent him
+		uint64_t crosshair_undelivered {};
+		uint64_t crosshair_no_spot {};		 // a player was due but his crosshair had no fitting spot
+		uint64_t crosshair_shots {};
+		uint64_t crosshair_control_shots {};
+		uint64_t crosshair_foreign_bullets {}; // another player's bullet stopped in a shown ghost
 	};
 
 	// A fake player that exists for one viewer only (ghosts.cpp): ESPs that
@@ -385,6 +407,8 @@ namespace cs2glaz
 		uint32_t join_attempts {};
 		uint32_t driving_id {}; // the decoy slot id it stands in for; 0 none
 		CEntityHandle pawn;		// its pawn while alive and kept harmless
+		void* teleport {};		// its pawn's Teleport, read once per pawn
+		CEntityHandle teleport_pawn;
 		bool harmless {};		// fields applied this update
 		bool has_bomb {};
 		int32_t health {};		// when it was last made harmless
@@ -446,11 +470,31 @@ namespace cs2glaz
 		std::chrono::steady_clock::time_point last_sent;
 	};
 
+	// One turn of a crosshair ghost (crosshair_ghosts.cpp): the player it is
+	// shown to, where it stands, and the window in which his shot counts.
+	struct crosshair_turn
+	{
+		uint32_t id {}; // 0 none
+		uint32_t viewer {k_max_players};
+		bool control {}; // nothing sent: his honest coincidences
+		vec3 feet;
+		float yaw {};
+		float rtt_ms {};
+		bool counts {}; // not drawn (cs2glaz_decoys 2 counts nothing)
+		bool reported {};
+		std::chrono::steady_clock::time_point started;
+		std::chrono::steady_clock::time_point opened; // reached him (control: when it would have)
+		std::chrono::steady_clock::time_point closes;
+	};
+
 	// What CheckTransmit needs about a ghost; guarded by the transmit lock.
 	struct ghost_transmit_entry
 	{
 		int controller {-1};	// entity index of its controller
 		uint32_t viewer {k_max_players};
+		bool shared {};		// a crosshair ghost: controller and pawn go to the viewer only while presenting
+		bool presenting {};
+		uint32_t turn {};
 		CEntityHandle pawn;		// sent to the viewer only through its decoy slot
 		CEntityHandle observer; // never sent
 	};
@@ -729,6 +773,14 @@ namespace cs2glaz
 		}
 		bool ghost_radar_entity(int index) const;
 		void print_ghost_status() const;
+		// Crosshair ghosts (crosshair_ghosts.cpp).
+		bool crosshair_enabled() const;
+		void update_crosshair_ghosts(CGameEntitySystem* system, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
+		void end_crosshair_turn(CGameEntitySystem* system, size_t index, std::chrono::steady_clock::time_point now);
+		bool ghost_teleport(CGameEntitySystem* system, ghost_player& ghost, vec3 feet, float yaw);
+		void crosshair_shot(uint32_t shooter, vec3 eye, vec3 direction, std::span<const vec3> others, std::chrono::steady_clock::time_point now);
+		void crosshair_bullet_check(uint32_t shooter, vec3 eye, vec3 impact);
+		void print_crosshair_status() const;
 		KHook::Return<bool> khook_fire_event(IGameEventManager2* manager, IGameEvent* event, bool dont_broadcast);
 		void decoy_weapon_fire(IGameEvent* event);
 		void decoy_bullet_impact(IGameEvent* event);
@@ -749,7 +801,7 @@ namespace cs2glaz
 			bool warmup {};
 		};
 		match_moment current_moment() const;
-		void write_decoy_log(uint64_t xuid, const char* event, int distance, const decoy_player_record& record) const;
+		void write_decoy_log(uint64_t xuid, const char* event, int distance, const decoy_player_record& record, int reaction_ms = -1) const;
 		void write_decoy_map_summary();
 		void print_decoy_status() const;
 		bool human_player(uint32_t slot) const;
@@ -957,6 +1009,15 @@ namespace cs2glaz
 		std::atomic<uint64_t> ghost_slots_ {};		 // slots that are ghosts now
 		std::atomic<uint64_t> ghost_event_slots_ {}; // the same, plus slots kicked in the last seconds
 		std::array<std::chrono::steady_clock::time_point, k_max_players> ghost_kicked_at_ {};
+		std::array<crosshair_turn, k_max_ghosts> crosshair_turns_ {};
+		std::array<front_delivery, k_max_ghosts> crosshair_delivery_ {}; // transmit lock
+		std::array<std::chrono::steady_clock::time_point, k_max_ghosts> crosshair_next_turn_ {};
+		std::array<uint32_t, k_max_ghosts> crosshair_rotation_ {};
+		std::array<std::chrono::steady_clock::time_point, k_max_players> crosshair_viewer_next_ {};
+		std::array<std::chrono::steady_clock::time_point, k_max_players> last_fire_at_ {}; // last gun shot (weapon_fire)
+		decoy_exposure crosshair_server_ {};
+		std::string crosshair_error_; // crosshair ghosts off until the plugin reloads
+		bool ghosts_shared_ {};		  // the ghosts now are crosshair ghosts
 		std::array<phantom_player, k_max_phantoms> phantoms_ {};
 		std::array<phantom_transmit_entry, k_max_phantoms> phantom_transmit_ {}; // transmit lock
 		std::array<front_delivery, k_max_phantoms> front_delivery_ {};			 // transmit lock

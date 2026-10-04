@@ -386,6 +386,97 @@ namespace cs2glaz
 					.blocked;
 	}
 
+	bool choose_crosshair_spot(const bvh8_data& data, const crosshair_spot_query& query, vec3& feet)
+	{
+		const vec3 eye = query.viewer_eye;
+		if (!finite(eye) || !std::isfinite(query.view_pitch_degrees) || !std::isfinite(query.view_yaw_degrees)
+			|| std::fabs(query.view_pitch_degrees) > k_crosshair_max_pitch)
+		{
+			return false;
+		}
+		const vec3 forward = view_forward(query.view_pitch_degrees, query.view_yaw_degrees);
+		const auto along = [&](float distance) { return vec3 {eye.x + forward.x * distance, eye.y + forward.y * distance, eye.z + forward.z * distance}; };
+		// Another player near the crosshair line: a shot at him would pass the ghost.
+		for (const vec3 player : query.players)
+		{
+			if (!finite(player))
+			{
+				return false;
+			}
+			const vec3 center = body_center(player);
+			if (angle_degrees(forward, {center.x - eye.x, center.y - eye.y, center.z - eye.z}) < k_crosshair_player_degrees)
+			{
+				return false;
+			}
+		}
+		// How far the crosshair line is clear, in steps.
+		constexpr float k_step = 50.0f;
+		float reach = 0.0f;
+		for (float distance = k_crosshair_max_distance; distance >= k_crosshair_min_distance; distance -= k_step)
+		{
+			if (!segment_blocked(data, eye, along(distance)).blocked)
+			{
+				reach = distance;
+				break;
+			}
+		}
+		const float farthest = std::min(reach, k_crosshair_max_distance) - (reach < k_crosshair_max_distance ? k_crosshair_wall_margin : 0.0f);
+		if (farthest < k_crosshair_min_distance)
+		{
+			return false;
+		}
+		uint32_t state = query.seed == 0 ? 0x9e3779b9u : query.seed;
+		for (int attempt = 0; attempt < 4; ++attempt)
+		{
+			const float share = static_cast<float>(decoy_random(state) % 1000u) / 1000.0f;
+			const float distance = k_crosshair_min_distance + share * (farthest - k_crosshair_min_distance);
+			const vec3 head = along(distance);
+			const vec3 spot {head.x, head.y, head.z - k_crosshair_head_height};
+			const vec3 center = body_center(spot);
+			if (segment_blocked(data, head, spot).blocked)
+			{
+				continue; // the floor or a ledge inside its body
+			}
+			const bool crowded = std::any_of(query.players.begin(), query.players.end(), [&](vec3 player)
+											 { return distance_sq(player, spot) < k_crosshair_player_clearance * k_crosshair_player_clearance; });
+			const bool watched = std::any_of(query.watchers.begin(), query.watchers.end(), [&](vec3 watcher)
+											 { return !finite(watcher) || !segment_blocked(data, watcher, head).blocked || !segment_blocked(data, watcher, center).blocked; });
+			if (!crowded && !watched)
+			{
+				feet = spot;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool direction_on_standing_body(vec3 eye, vec3 direction, vec3 feet)
+	{
+		const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+		if (!finite(eye) || !finite(feet) || !finite(direction) || !(length > 1.0e-6f) || !std::isfinite(length))
+		{
+			return false;
+		}
+		const vec3 d {direction.x / length, direction.y / length, direction.z / length};
+		// Closest approach between the ray and the body's axis, feet to the top of the head.
+		const vec3 a {feet.x, feet.y, feet.z + 8.0f};
+		const vec3 axis {0.0f, 0.0f, k_crosshair_head_height + 6.0f - 8.0f};
+		const vec3 w {eye.x - a.x, eye.y - a.y, eye.z - a.z};
+		const float b = d.x * axis.x + d.y * axis.y + d.z * axis.z;
+		const float c = axis.x * axis.x + axis.y * axis.y + axis.z * axis.z;
+		const float dw = d.x * w.x + d.y * w.y + d.z * w.z;
+		const float aw = axis.x * w.x + axis.y * w.y + axis.z * w.z;
+		const float denominator = c - b * b; // the ray is unit length
+		float t = denominator > 1.0e-6f ? std::clamp((aw - b * dw) / denominator, 0.0f, 1.0f) : 0.0f;
+		float s = std::max(0.0f, b * t - dw);
+		// With the ray's point fixed, the nearest point on the axis again.
+		t = std::clamp((aw + b * s) / c, 0.0f, 1.0f);
+		const vec3 on_ray {eye.x + d.x * s, eye.y + d.y * s, eye.z + d.z * s};
+		const vec3 on_axis {a.x + axis.x * t, a.y + axis.y * t, a.z + axis.z * t};
+		const float distance = std::sqrt(distance_sq(on_ray, on_axis));
+		return s > 1.0f && distance <= k_crosshair_body_radius + s * std::tan(k_aim_tolerance_degrees * k_degrees_to_radians);
+	}
+
 	float decoy_follow_degrees(vec3 eye_before, vec3 forward_before, vec3 decoy_before, vec3 eye_now, vec3 forward_now, vec3 decoy_now)
 	{
 		const vec3 center_before = body_center(decoy_before);

@@ -485,6 +485,70 @@ namespace
 		assert(!decoy_jump_update(broken, std::nanf(""), true, 15.0f) && broken.done);
 	}
 
+	void test_crosshair_spots()
+	{
+		const bvh8_data open = decoy_world({{{5000, 5000, -10}, {5010, 5000, -10}, {5000, 5010, -10}}});
+		const vec3 eye {0, 0, 64};
+		const std::vector<vec3> players {{600, 600, 0}};
+		crosshair_spot_query query {eye, 0.0f, 0.0f, players, {}, 7};
+		vec3 feet;
+		assert(choose_crosshair_spot(open, query, feet));
+		// On the crosshair line, head at the crosshair, in range, away from the player.
+		assert(feet.x >= k_crosshair_min_distance && feet.x <= k_crosshair_max_distance);
+		assert(std::fabs(feet.y) < 0.01f && std::fabs(feet.z - (eye.z - k_crosshair_head_height)) < 0.01f);
+		assert(std::hypot(feet.x - 600.0f, feet.y - 600.0f) >= k_crosshair_player_clearance);
+		assert(direction_on_standing_body(eye, view_forward(0.0f, 0.0f), feet));
+		// Shots: at the head, at the body, beside it, behind the shooter.
+		assert(direction_on_standing_body(eye, {feet.x - eye.x, feet.y - eye.y, feet.z + 30.0f - eye.z}, feet));
+		assert(!direction_on_standing_body(eye, view_forward(0.0f, 8.0f), feet));
+		assert(!direction_on_standing_body(eye, view_forward(0.0f, 180.0f), feet));
+		assert(!direction_on_standing_body(eye, view_forward(-30.0f, 0.0f), feet));
+		// Seeds spread it along the line.
+		int different = 0;
+		for (uint32_t seed = 1; seed < 20; ++seed)
+		{
+			vec3 other;
+			query.seed = seed;
+			assert(choose_crosshair_spot(open, query, other));
+			different += std::fabs(other.x - feet.x) > 1.0f ? 1 : 0;
+		}
+		assert(different > 0);
+
+		// A wall close ahead: no room. A wall farther: the head stays in front of it.
+		const bvh8_data wall = decoy_world(wall_at_200());
+		query.seed = 7;
+		assert(!choose_crosshair_spot(wall, query, feet));
+		const bvh8_data far_wall = decoy_world({{{600, -400, -100}, {600, 400, -100}, {600, -400, 300}}, {{600, 400, 300}, {600, -400, 300}, {600, 400, -100}}});
+		for (uint32_t seed = 1; seed < 20; ++seed)
+		{
+			query.seed = seed;
+			assert(choose_crosshair_spot(far_wall, query, feet));
+			assert(feet.x <= 600.0f - k_crosshair_wall_margin + 0.01f);
+		}
+
+		// Another player near the line, or next to the spot: no ghost.
+		const std::vector<vec3> in_line {{1200, 40, 0}};
+		const crosshair_spot_query blocked_line {eye, 0.0f, 0.0f, in_line, {}, 7};
+		assert(!choose_crosshair_spot(open, blocked_line, feet));
+		// Someone else who could see it: none in the open; behind a wall, yes.
+		const std::vector<vec3> watcher {{500, 400, 64}};
+		const crosshair_spot_query watched {eye, 0.0f, 0.0f, {}, watcher, 7};
+		assert(!choose_crosshair_spot(open, watched, feet));
+		const bvh8_data side_wall =
+			decoy_world({{{-400, 200, -100}, {2000, 200, -100}, {-400, 200, 300}}, {{2000, 200, 300}, {-400, 200, 300}, {2000, 200, -100}}});
+		assert(choose_crosshair_spot(side_wall, watched, feet));
+		// Looking at the floor or the sky, or bad numbers: nothing.
+		const crosshair_spot_query down {eye, 60.0f, 0.0f, {}, {}, 7};
+		assert(!choose_crosshair_spot(open, down, feet));
+		const crosshair_spot_query broken {eye, std::nanf(""), 0.0f, {}, {}, 7};
+		assert(!choose_crosshair_spot(open, broken, feet));
+		assert(!direction_on_standing_body(eye, {0.0f, 0.0f, 0.0f}, {300.0f, 0.0f, 0.0f}));
+		// A floor inside its body (looking down at a step): not there.
+		const bvh8_data step = decoy_world({{{100, -400, 20}, {2000, -400, 20}, {100, 400, 20}}, {{2000, 400, 20}, {100, 400, 20}, {2000, -400, 20}}});
+		const crosshair_spot_query level {eye, 0.0f, 0.0f, {}, {}, 7};
+		assert(!choose_crosshair_spot(step, level, feet));
+	}
+
 	void test_front_spots()
 	{
 		// Floor spots on a grid ahead of the viewer, who looks along +x.
@@ -644,5 +708,6 @@ void run_decoy_tests()
 	test_decoy_one_run();
 	test_decoy_jump();
 	test_front_spots();
+	test_crosshair_spots();
 	test_blind_hits();
 }

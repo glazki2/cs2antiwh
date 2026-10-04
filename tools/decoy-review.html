@@ -139,6 +139,7 @@ tbody tr.player.active { background: var(--accent-soft); box-shadow: inset 3px 0
             <th class="num">Ожидалось бы</th>
             <th>Приманки за стеной</th>
             <th>Фронтальные</th>
+            <th>Призрак на прицеле</th>
             <th class="num hide-narrow">Слепые попадания</th>
             <th class="hide-narrow">Последний раз</th>
             <th>Отметки</th>
@@ -151,6 +152,7 @@ tbody tr.player.active { background: var(--accent-soft); box-shadow: inset 3px 0
       <div><b>Доказательства</b>: насколько сообщения игрока о настоящих приманках превышают его же честный фон по контрольным двойникам. 1 и выше стоит проверить, 3 и выше сильный случай.</div>
       <div><b>Приманки за стеной</b>: прицел / выстрел / след прыжка по настоящим приманкам, через косую черту то же по контрольным, которые ему не отправлялись.</div>
       <div><b>Фронтальные</b>: прыжки и выстрелы по невидимому фантому у прицела (аимбот, триггербот), рядом его контроль.</div>
+      <div><b>Призрак на прицеле</b>: выстрелы в невидимого призрака, поставленного головой на прицел (триггербот, аимбот), рядом выстрелы в контрольных показах, где ничего не отправлялось.</div>
       <div><b>Слепые попадания</b>: попадания по врагу, которого его клиент в тот момент не получал.</div>
     </div>
   </section>
@@ -168,7 +170,7 @@ tbody tr.player.active { background: var(--accent-soft); box-shadow: inset 3px 0
             <th>Время UTC</th>
             <th>Карта, раунд</th>
             <th>Событие</th>
-            <th class="num hide-narrow">Дистанция</th>
+            <th class="num hide-narrow">Дистанция, реакция</th>
             <th class="num">Доказательства</th>
             <th class="hide-narrow">Тик</th>
           </tr>
@@ -185,6 +187,7 @@ const SAMPLE = `2026-10-03 19:02:11Z map=de_mirage tick=40211 round=4 round_time
 2026-10-03 19:07:02Z map=de_mirage tick=58840 round=7 round_time=0:27 player="sample_walls" steamid=76561198000000002 event=shot distance=980 aims=4 shots=1 jumps=1 control_aims=0 control_shots=0 control_jumps=0 gun_hits=6 blind_hits=1 real_seconds=262 control_seconds=88 expected=0.32 front_jumps=0 front_shots=0 control_front_jumps=0 control_front_shots=0 front_seconds=0 control_front_seconds=0 front_expected=0.00 evidence=3.60
 2026-10-03 19:07:02Z map=de_mirage tick=58840 round=7 round_time=0:27 player="sample_walls" steamid=76561198000000002 event=reported_to_csvilka aims=4 shots=1 jumps=1 control_aims=0 control_shots=0 control_jumps=0 gun_hits=6 blind_hits=1 real_seconds=262 control_seconds=88 expected=0.32 front_jumps=0 front_shots=0 control_front_jumps=0 control_front_shots=0 front_seconds=0 control_front_seconds=0 front_expected=0.00 evidence=3.60
 2026-10-03 19:09:15Z map=de_mirage tick=67352 round=8 round_time=1:12 player="sample_aimbot" steamid=76561198000000003 event=front_jump distance=640 aims=0 shots=0 jumps=0 control_aims=0 control_shots=0 control_jumps=0 gun_hits=9 blind_hits=0 real_seconds=0 control_seconds=0 expected=0.00 front_jumps=4 front_shots=1 control_front_jumps=0 control_front_shots=0 front_seconds=310 control_front_seconds=95 front_expected=0.05 evidence=4.10
+2026-10-03 19:11:02Z map=de_mirage tick=73960 round=9 round_time=0:52 player="sample_trigger" steamid=76561198000000004 event=crosshair_shot distance=420 reaction_ms=96 aims=0 shots=0 jumps=0 control_aims=0 control_shots=0 control_jumps=0 gun_hits=4 blind_hits=0 real_seconds=0 control_seconds=0 expected=0.00 front_jumps=0 front_shots=0 control_front_jumps=0 control_front_shots=0 front_seconds=0 control_front_seconds=0 front_expected=0.00 crosshair_shots=9 control_crosshair_shots=0 crosshair_seconds=41.5 control_crosshair_seconds=20.3 crosshair_expected=0.62 evidence=6.02
 2026-10-03 19:12:40Z map=de_mirage tick=80470 round=10 round_time=0:15 player="sample_aimbot" steamid=76561198000000003 event=kick distance=700 aims=0 shots=0 jumps=0 control_aims=0 control_shots=0 control_jumps=0 gun_hits=11 blind_hits=0 real_seconds=0 control_seconds=0 expected=0.00 front_jumps=6 front_shots=2 control_front_jumps=0 control_front_shots=0 front_seconds=402 control_front_seconds=120 front_expected=0.06 evidence=5.30`;
 
 const EVENTS = {
@@ -200,6 +203,8 @@ const EVENTS = {
   control_jump: ["control", "контроль: след прыжка двойника"],
   control_front_jump: ["control", "контроль: фронтальный двойник"],
   control_front_shot: ["control", "контроль: выстрел во фронтального двойника"],
+  crosshair_shot: ["real", "выстрелил в невидимого призрака на прицеле"],
+  control_crosshair_shot: ["control", "контроль: выстрел в пустую точку на прицеле"],
   reported_to_csvilka: ["info", "передано в CSVILKA"],
   whitelisted: ["info", "в белом списке CSVILKA, не кикнут"],
   kick: ["real", "кикнут по доказательствам"],
@@ -278,7 +283,7 @@ function renderPlayers() {
     .filter((p) => !query || p.name.toLowerCase().includes(query) || p.steamid.includes(query));
   const body = $("players");
   if (!shown.length) {
-    body.innerHTML = `<tr><td colspan="8" class="empty">${players.length ? "Никто не проходит фильтр. Выберите «всех», чтобы увидеть остальных." : "Пока нет строк лога. Вставьте decoys.log выше и нажмите «Разобрать»."}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" class="empty">${players.length ? "Никто не проходит фильтр. Выберите «всех», чтобы увидеть остальных." : "Пока нет строк лога. Вставьте decoys.log выше и нажмите «Разобрать»."}</td></tr>`;
     return;
   }
   body.innerHTML = shown.map((p) => {
@@ -291,9 +296,10 @@ function renderPlayers() {
     return `<tr class="player${selected === p.steamid ? " active" : ""}" data-id="${esc(p.steamid)}" tabindex="0">
       <td><div class="name">${esc(p.name)}</div><div class="sid">${esc(p.steamid)}</div></td>
       <td class="num">${evidencePill(l.evidence)}</td>
-      <td class="num">${num(l.expected).toFixed(2)}${num(l.front_expected) ? " / " + num(l.front_expected).toFixed(2) : ""}</td>
+      <td class="num">${(num(l.expected) + num(l.front_expected) + num(l.crosshair_expected)).toFixed(2)}</td>
       <td class="vs">${num(l.aims)}/${num(l.shots)}/${num(l.jumps)} <span class="ctl">· ${num(l.control_aims)}/${num(l.control_shots)}/${num(l.control_jumps)}</span><br><span class="ctl">${num(l.real_seconds)} с · ${num(l.control_seconds)} с</span></td>
       <td class="vs">${num(l.front_jumps)}/${num(l.front_shots)} <span class="ctl">· ${num(l.control_front_jumps)}/${num(l.control_front_shots)}</span><br><span class="ctl">${num(l.front_seconds)} с · ${num(l.control_front_seconds)} с</span></td>
+      <td class="vs">${num(l.crosshair_shots)} <span class="ctl">· ${num(l.control_crosshair_shots)}</span><br><span class="ctl">${num(l.crosshair_seconds).toFixed(0)} с · ${num(l.control_crosshair_seconds).toFixed(0)} с</span></td>
       <td class="num hide-narrow">${num(l.blind_hits)}</td>
       <td class="where hide-narrow">${esc(where(l))}</td>
       <td><div class="tags">${tags}</div></td>
@@ -321,7 +327,7 @@ function renderTimeline() {
       <td class="where">${esc(e.time.replace("Z", ""))}</td>
       <td class="where">${esc(where(e))}</td>
       <td><span class="ev ${kind}">${esc(text)}</span></td>
-      <td class="num hide-narrow">${e.distance ? esc(e.distance) : ""}</td>
+      <td class="num hide-narrow">${e.distance ? esc(e.distance) : ""}${e.reaction_ms ? " · " + esc(e.reaction_ms) + " мс" : ""}</td>
       <td class="num">${evidencePill(e.evidence)}</td>
       <td class="hide-narrow">${tick}</td>
     </tr>`;

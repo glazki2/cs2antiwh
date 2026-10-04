@@ -136,6 +136,8 @@ namespace cs2glaz
 			engine_->KickClient(CPlayerSlot(ghost.slot), reason, NETWORK_DISCONNECT_KICKED);
 			++ghost_counters_.kicked;
 		}
+		// A crosshair ghost's turn ends with it.
+		end_crosshair_turn(nullptr, static_cast<size_t>(&ghost - ghosts_.data()), std::chrono::steady_clock::now());
 		if (ghost.driving_id != 0)
 		{
 			for (auto& row : decoys_)
@@ -178,9 +180,26 @@ namespace cs2glaz
 			}
 		}
 		std::string reason;
-		const int wanted = decoy_mode() == 0 ? 0 : std::clamp(cs2glaz_decoy_ghosts.Get(), 0, static_cast<int>(k_max_ghosts));
+		// Crosshair ghosts (crosshair_ghosts.cpp) take both ghosts, one per team,
+		// shared by every player of the other team in turns.
+		const bool shared = crosshair_enabled();
+		const int wanted = decoy_mode() == 0 ? 0 : shared ? static_cast<int>(k_max_ghosts) : std::clamp(cs2glaz_decoy_ghosts.Get(), 0, static_cast<int>(k_max_ghosts));
+		if (shared != ghosts_shared_)
+		{
+			// A ghost made for one use is never handed to the other.
+			for (size_t index = 0; index < ghosts_.size(); ++index)
+			{
+				end_crosshair_turn(system, index, now);
+			}
+			kick_all_ghosts("cs2glaz ghost mode changed");
+			ghosts_shared_ = shared;
+		}
 		if (wanted == 0 || system == nullptr || !ghosts_available(reason))
 		{
+			for (size_t index = 0; index < ghosts_.size(); ++index)
+			{
+				end_crosshair_turn(system, index, now);
+			}
 			kick_all_ghosts("cs2glaz ghosts off");
 			ghost_slots_.store(0);
 			ghost_event_slots_.store(lingering);
@@ -250,13 +269,14 @@ namespace cs2glaz
 			}
 			// Its viewer stays its viewer while he is connected, on the other team
 			// and (mode 3) watched, alive or dead: its controller keeps going to
-			// him instead of leaving and coming back with every death.
+			// him instead of leaving and coming back with every death. A crosshair
+			// ghost's viewer is the one of its current turn.
 			CEntityInstance* viewer_controller =
 				ghost.viewer < k_max_players ? system->GetEntityInstance(CEntityIndex(static_cast<int>(ghost.viewer + 1u))) : nullptr;
 			const bool viewer_ok = viewer_controller != nullptr && human_player(ghost.viewer)
 								   && enemy_team(field<uint8_t>(viewer_controller, fields.team)) == ghost.team
 								   && (decoy_mode() != 3 || is_suspect(ghost.viewer, now));
-			if (!viewer_ok && ghost.viewer != k_max_players)
+			if (!shared && !viewer_ok && ghost.viewer != k_max_players)
 			{
 				ghost.viewer = k_max_players;
 				ghost.unused_since = now;
@@ -300,15 +320,21 @@ namespace cs2glaz
 				continue;
 			}
 			// Harmless: no damage, not solid, no trace touches it, it does not move.
+			// A crosshair ghost keeps a player's collision, so its viewer's client
+			// finds it under his crosshair as it finds any enemy (what triggerbots
+			// read); it is shown only where nobody else can see or reach it.
 			field<bool>(body, fields.takes_damage) = false;
 			field<uint8_t>(body, fields.move_type) = k_move_type_none;
 			field<uint8_t>(body, fields.actual_move_type) = k_move_type_none;
-			void* collision = reinterpret_cast<std::byte*>(body) + fields.model_collision;
-			field<uint8_t>(collision, fields.solid_type) = k_solid_none;
-			field<uint8_t>(collision, fields.solid_flags) |= k_solid_flag_not_solid;
-			void* attribute = reinterpret_cast<std::byte*>(collision) + fields.collision_attribute;
-			field<uint64_t>(attribute, fields.interacts_as) = 0;
-			field<uint64_t>(attribute, fields.interacts_with) = 0;
+			if (!shared)
+			{
+				void* collision = reinterpret_cast<std::byte*>(body) + fields.model_collision;
+				field<uint8_t>(collision, fields.solid_type) = k_solid_none;
+				field<uint8_t>(collision, fields.solid_flags) |= k_solid_flag_not_solid;
+				void* attribute = reinterpret_cast<std::byte*>(collision) + fields.collision_attribute;
+				field<uint64_t>(attribute, fields.interacts_as) = 0;
+				field<uint64_t>(attribute, fields.interacts_with) = 0;
+			}
 			if (compatibility_.shadow_strength_available())
 			{
 				field<float>(body, fields.shadow_strength) = 0.0f;
@@ -368,28 +394,15 @@ namespace cs2glaz
 				ghost.harmless = false;
 			}
 		}
-		// Assign free ghosts and create missing ones: one per enemy team.
-		for (const uint32_t viewer : viewers)
+		// Makes a ghost on this team, for this viewer (k_max_players: none yet).
+		const auto create = [&](uint8_t team, uint32_t viewer)
 		{
-			const uint8_t team = enemy_team(value.players[viewer].team);
-			if (team == 0 || std::any_of(ghosts_.begin(), ghosts_.end(), [&](const ghost_player& ghost) { return ghost.slot >= 0 && ghost.viewer == viewer; }))
-			{
-				continue;
-			}
-			auto idle = std::find_if(ghosts_.begin(), ghosts_.end(),
-									 [&](const ghost_player& ghost) { return ghost.slot >= 0 && ghost.team == team && ghost.viewer == k_max_players; });
-			if (idle != ghosts_.end())
-			{
-				idle->viewer = viewer;
-				idle->unused_since = {};
-				continue;
-			}
 			const auto on_team = std::count_if(ghosts_.begin(), ghosts_.end(), [&](const ghost_player& ghost) { return ghost.slot >= 0 && ghost.team == team; });
 			const auto existing = std::count_if(ghosts_.begin(), ghosts_.end(), [](const ghost_player& ghost) { return ghost.slot >= 0; });
 			auto free = std::find_if(ghosts_.begin(), ghosts_.end(), [](const ghost_player& ghost) { return ghost.slot < 0; });
 			if (on_team != 0 || existing >= wanted || free == ghosts_.end() || now < ghost_next_create_)
 			{
-				continue;
+				return;
 			}
 			// Keep a slot free for a real player.
 			INetworkGameServer* server = g_pNetworkServerService == nullptr ? nullptr : g_pNetworkServerService->GetIGameServer();
@@ -403,7 +416,7 @@ namespace cs2glaz
 			ghost_next_create_ = now + k_ghost_create_cooldown;
 			if (max_clients - occupied < 2)
 			{
-				continue;
+				return;
 			}
 			ghost_name_seed_ = ghost_name_seed_ * 1664525u + 1013904223u;
 			const char* name = k_ghost_names[(ghost_name_seed_ >> 16) % std::size(k_ghost_names)];
@@ -413,7 +426,7 @@ namespace cs2glaz
 			if (created.Get() < 0 || created.Get() >= static_cast<int>(k_max_players))
 			{
 				META_CONPRINTF("[CS2GLAZ] ghost: the engine did not create a fake client (no free slot?)\n");
-				continue;
+				return;
 			}
 			ghost_player& ghost = *free;
 			ghost = {};
@@ -427,14 +440,64 @@ namespace cs2glaz
 			ghost_slots_.fetch_or(uint64_t {1} << ghost.slot);
 			ghost_event_slots_.fetch_or(uint64_t {1} << ghost.slot);
 			++ghost_counters_.created;
-			META_CONPRINTF("[CS2GLAZ] ghost \"%s\" (slot %d) created for viewer slot %u on team %u\n", name, ghost.slot, viewer, static_cast<unsigned>(team));
+			if (viewer < k_max_players)
+			{
+				META_CONPRINTF("[CS2GLAZ] ghost \"%s\" (slot %d) created for viewer slot %u on team %u\n", name, ghost.slot, viewer, static_cast<unsigned>(team));
+			}
+			else
+			{
+				META_CONPRINTF("[CS2GLAZ] crosshair ghost \"%s\" (slot %d) created on team %u\n", name, ghost.slot, static_cast<unsigned>(team));
+			}
+		};
+		if (shared)
+		{
+			// One per team while the other team has a player to show it to; a
+			// ghost with nobody to show it to leaves after a while.
+			for (const uint8_t team : {k_team_t, k_team_ct})
+			{
+				const bool needed = std::any_of(viewers.begin(), viewers.end(), [&](uint32_t viewer) { return enemy_team(value.players[viewer].team) == team; });
+				for (ghost_player& ghost : ghosts_)
+				{
+					if (ghost.slot >= 0 && ghost.team == team)
+					{
+						ghost.unused_since = needed ? std::chrono::steady_clock::time_point {} : (ghost.unused_since == std::chrono::steady_clock::time_point {} ? now : ghost.unused_since);
+					}
+				}
+				if (needed)
+				{
+					create(team, k_max_players);
+				}
+			}
+		}
+		else
+		{
+			// Assign free ghosts and create missing ones: one per enemy team.
+			for (const uint32_t viewer : viewers)
+			{
+				const uint8_t team = enemy_team(value.players[viewer].team);
+				if (team == 0 || std::any_of(ghosts_.begin(), ghosts_.end(), [&](const ghost_player& ghost) { return ghost.slot >= 0 && ghost.viewer == viewer; }))
+				{
+					continue;
+				}
+				auto idle = std::find_if(ghosts_.begin(), ghosts_.end(),
+										 [&](const ghost_player& ghost) { return ghost.slot >= 0 && ghost.team == team && ghost.viewer == k_max_players; });
+				if (idle != ghosts_.end())
+				{
+					idle->viewer = viewer;
+					idle->unused_since = {};
+					continue;
+				}
+				create(team, viewer);
+			}
 		}
 		// Ghosts nobody needs for a while leave.
-		for (ghost_player& ghost : ghosts_)
+		for (size_t index = 0; index < ghosts_.size(); ++index)
 		{
+			ghost_player& ghost = ghosts_[index];
 			if (ghost.slot >= 0 && ghost.viewer == k_max_players && ghost.unused_since != std::chrono::steady_clock::time_point {}
 				&& now - ghost.unused_since >= k_ghost_unused_kick)
 			{
+				end_crosshair_turn(system, index, now);
 				kick_ghost(ghost, "cs2glaz ghost unused");
 			}
 		}
@@ -479,6 +542,11 @@ namespace cs2glaz
 		if (system == nullptr || slot.control)
 		{
 			return false;
+		}
+		if (ghosts_shared_)
+		{
+			// Both ghosts are crosshair ghosts: hidden decoys use phantoms.
+			return phantom_take(system, viewer, slot, model, now);
 		}
 		for (ghost_player& ghost : ghosts_)
 		{
@@ -550,6 +618,10 @@ namespace cs2glaz
 			entry.controller = ghost.slot + 1;
 			entry.viewer = ghost.viewer;
 			entry.pawn = ghost.pawn;
+			entry.shared = ghosts_shared_;
+			const crosshair_turn& turn = crosshair_turns_[index];
+			entry.presenting = ghosts_shared_ && turn.id != 0 && !turn.control && turn.viewer == ghost.viewer && ghost.pawn.IsValid();
+			entry.turn = entry.presenting ? turn.id : 0;
 			CEntityInstance* controller = system == nullptr ? nullptr : system->GetEntityInstance(CEntityIndex(ghost.slot + 1));
 			if (controller != nullptr)
 			{
@@ -575,8 +647,10 @@ namespace cs2glaz
 		{
 			return;
 		}
-		for (const ghost_transmit_entry& entry : ghost_transmit_)
+		const auto now = std::chrono::steady_clock::now();
+		for (size_t entry_index = 0; entry_index < ghost_transmit_.size(); ++entry_index)
 		{
+			const ghost_transmit_entry& entry = ghost_transmit_[entry_index];
 			if (entry.controller <= 0)
 			{
 				continue;
@@ -597,13 +671,29 @@ namespace cs2glaz
 				}
 				int slot = -1;
 				std::memcpy(&slot, reinterpret_cast<const char*>(info) + compatibility_.recipient_slot_offset(), sizeof(slot));
-				const bool viewer = slot >= 0 && static_cast<uint32_t>(slot) == entry.viewer;
+				// A crosshair ghost reaches its viewer only while it is shown to him.
+				const bool viewer = slot >= 0 && static_cast<uint32_t>(slot) == entry.viewer && (!entry.shared || entry.presenting);
 				if (!viewer)
 				{
 					withhold_entity(slot, info->m_pTransmitEntity, info->m_pTransmitAlways, entry.controller, withhold_reason::ghost);
 					if (valid_networked_edict_index(pawn_index))
 					{
 						withhold_entity(slot, info->m_pTransmitEntity, info->m_pTransmitAlways, pawn_index, withhold_reason::ghost);
+					}
+				}
+				else if (entry.shared)
+				{
+					// The engine packed its pawn for him: the turn's ghost reaches him.
+					if (valid_networked_edict_index(pawn_index) && info->m_pTransmitEntity->IsBitSet(pawn_index))
+					{
+						front_delivery& sent = crosshair_delivery_[entry_index];
+						if (sent.run != entry.turn)
+						{
+							sent = {};
+							sent.run = entry.turn;
+							sent.first_sent = now;
+						}
+						sent.last_sent = now;
 					}
 				}
 				else if (valid_networked_edict_index(pawn_index) && entry.pawn.IsValid()

@@ -347,7 +347,24 @@ namespace cs2glaz
 			{
 				report.line(check_level::ok, "front decoys", front_mode() == 2 ? "against aimbots and triggerbots" : "against aimbots");
 			}
-			if (ghost_limit() == 0)
+			if (crosshair_enabled())
+			{
+				if (!ghosts_available(reason))
+				{
+					report.line(check_level::warn, "crosshair", format("crosshair ghosts need ghost players: %s", reason.c_str()),
+								"Crosshair ghosts stay off; the other decoys work.");
+				}
+				else if (decoy_entity_mode() == 2)
+				{
+					report.line(check_level::warn, "crosshair", "crosshair ghosts drawn for a test (cs2glaz_decoys 2): nothing counts",
+								"Use cs2glaz_decoys 1 or 3 on a live server.");
+				}
+				else
+				{
+					report.line(check_level::ok, "crosshair", "two ghosts, one per team, shown in turns on enemies' crosshairs");
+				}
+			}
+			else if (ghost_limit() == 0)
 			{
 				report.line(check_level::off, "ghosts", "cs2glaz_decoy_ghosts 0",
 							"Optional: ghosts are real player pawns, which cheats that skip phantoms still draw.");

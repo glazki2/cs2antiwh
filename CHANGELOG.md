@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0
+
+Crosshair ghosts: a real fake player on the enemy's crosshair, against triggerbots and aimbots.
+
+- A server test showed the cheat in use ignored front decoys: a phantom is a controller above the player slots whose pawn is a prop, which cheats that check the slot range, the pawn's class or its bones skip.
+- `cs2glaz_decoy_crosshair 1` (0 off by default, needs `cs2glaz_decoys` 1 or 3): the two ghost players become one per team, each shown in turns to one player of the other team. For one turn (his round trip plus 350 ms after the engine first sent it) its pawn stands in the open with its head on his crosshair, and only he receives controller and pawn; it is not rendered and casts no shadow. The spot (`choose_crosshair_spot`, tested) is 200-900 units along the crosshair line and in front of what the crosshair points at, its body clear of the map, with no other living player within 10 degrees of the line or 300 units of it and none with a line of sight to it. No turn starts while he is shooting (600 ms after his last gun shot), and his turns are 2.5-5 s apart.
+- A shot through its standing body (`direction_on_standing_body`) from half his round trip after it reached him until the window closes is a report (`event=crosshair_shot` with `reaction_ms`); one turn in three is a control turn that sends nothing and counts the same shots (`control_crosshair_shot`). Crosshair reports have their own exposure and controls (prior one per 50 s of open window) and add to the evidence used for kicks, CSVILKA and Discord.
+- The ghost keeps a player's collision, so its viewer's client finds it under the crosshair like any enemy; it takes no damage and does not move, is parked 1024 units above the map between turns, and three bullets of other players stopping in a shown ghost turn the mode off until the plugin reloads.
+- The decoy log, `cs2glaz_status`, the suspect lines, `cs2glaz_selftest` and the review page show crosshair ghosts.
+
 ## 0.14.1
 
 Hitches found in a server log, and self-check fixes.

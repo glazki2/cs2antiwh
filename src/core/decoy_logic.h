@@ -440,6 +440,45 @@ namespace cs2glaz
 
 	bool front_body_stopped_bullet(const bvh8_data& data, vec3 body_origin, vec3 eye, vec3 impact);
 
+	// Crosshair ghosts (crosshair_ghosts.cpp): one fake player per team, shown
+	// in turns to one enemy at a time, standing in the open with its head on his
+	// crosshair. A cheat takes it for a player (it is one): a triggerbot fires at
+	// once, an aimbot is already on it. He cannot see it, and nobody else can see
+	// the spot, so an honest shot at it within the short window is a
+	// coincidence, measured on control turns where nothing is sent.
+	inline constexpr float k_crosshair_head_height = 64.0f; // feet to the middle of a standing player's head
+	inline constexpr float k_crosshair_min_distance = 200.0f;
+	inline constexpr float k_crosshair_max_distance = 900.0f;
+	inline constexpr float k_crosshair_max_pitch = 35.0f;		  // looking further up or down: no turn
+	inline constexpr float k_crosshair_player_degrees = 10.0f;	  // no other player this close to the crosshair line
+	inline constexpr float k_crosshair_player_clearance = 300.0f; // nor this close to the ghost
+	inline constexpr float k_crosshair_wall_margin = 32.0f;		  // its head stays this far in front of what the crosshair points at
+	inline constexpr float k_crosshair_body_radius = 16.0f;
+	// Honest shots at the empty crosshair spot per second of open window, until
+	// the server's control turns say more (decoy_server_rate).
+	inline constexpr double k_crosshair_prior_rate = 0.02;
+
+	struct crosshair_spot_query
+	{
+		vec3 viewer_eye;
+		float view_pitch_degrees {};
+		float view_yaw_degrees {};
+		std::span<const vec3> players;	// every other living player (feet)
+		std::span<const vec3> watchers; // every other living player (eyes): none may see the spot
+		uint32_t seed {};
+	};
+
+	// Where a ghost's feet go so its head is on the viewer's crosshair: in clear
+	// view from his eye, between the minimum distance and what his crosshair
+	// points at, its body clear of the map, no other player near the crosshair
+	// line or the spot, and no other player with a line of sight to it (nobody
+	// else can see it or shoot through it).
+	bool choose_crosshair_spot(const bvh8_data& data, const crosshair_spot_query& query, vec3& feet);
+
+	// Whether a shot (a direction from the eye, any length) passes through a
+	// standing ghost's body, head included.
+	bool direction_on_standing_body(vec3 eye, vec3 direction, vec3 feet);
+
 	// Blind hits: gun damage to an enemy whose pawn CS2GLAZ had not sent to the
 	// attacker for k_blind_hit_unsent_ms. Honest players get some (spraying a
 	// smoke, wallbanging a common spot, a teammate's call); a sound ESP or a

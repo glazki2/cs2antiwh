@@ -478,7 +478,8 @@ namespace cs2glaz
 
 	double plugin::decoy_player_evidence(const decoy_player_record& record) const
 	{
-		return decoy_evidence(record.exposure(), decoy_server_) + decoy_evidence(record.front_exposure(), front_server_, k_front_prior_rate);
+		return decoy_evidence(record.exposure(), decoy_server_) + decoy_evidence(record.front_exposure(), front_server_, k_front_prior_rate)
+			   + decoy_evidence(record.crosshair_exposure(), crosshair_server_, k_crosshair_prior_rate);
 	}
 
 	void plugin::print_front_status() const

@@ -132,6 +132,7 @@ plugin.sources += [
   os.path.join(root, 'src', 'plugin', 'decoys.cpp'),
   os.path.join(root, 'src', 'plugin', 'front_decoys.cpp'),
   os.path.join(root, 'src', 'plugin', 'selftest.cpp'),
+  os.path.join(root, 'src', 'plugin', 'crosshair_ghosts.cpp'),
   os.path.join(root, 'src', 'plugin', 'game_state.cpp'),
   os.path.join(root, 'src', 'plugin', 'ghosts.cpp'),
   os.path.join(root, 'src', 'plugin', 'journal.cpp'),

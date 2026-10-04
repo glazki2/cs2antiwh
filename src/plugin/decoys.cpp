@@ -945,6 +945,7 @@ namespace cs2glaz
 		if (decoy_functions_.ready)
 		{
 			update_front_decoys(system, value, elapsed_ms, now);
+			update_crosshair_ghosts(system, value, now);
 		}
 		for (uint32_t viewer_slot = 0; viewer_slot < k_max_players; ++viewer_slot)
 		{
@@ -1273,6 +1274,7 @@ namespace cs2glaz
 		{
 			return;
 		}
+		last_fire_at_[static_cast<size_t>(shooter)] = std::chrono::steady_clock::now();
 		// The view as the shot is fired: this event comes while the shooting
 		// command runs, and the last capture is a tick older.
 		view_sample view;
@@ -1311,6 +1313,7 @@ namespace cs2glaz
 		{
 			// Anyone's bullet, a bot's too: a hittable front body must never stop one.
 			front_bullet_check(view.eye, impact);
+			crosshair_bullet_check(static_cast<uint32_t>(shooter), view.eye, impact);
 			decoy_shot(static_cast<uint32_t>(shooter), view.eye, {impact.x - view.eye.x, impact.y - view.eye.y, impact.z - view.eye.z});
 		}
 	}
@@ -1333,6 +1336,7 @@ namespace cs2glaz
 			}
 		}
 		front_shot(shooter, eye, direction, others);
+		crosshair_shot(shooter, eye, direction, others, now);
 		for (uint32_t index = 0; index < k_max_decoys_per_viewer; ++index)
 		{
 			decoy_slot& slot = decoys_[shooter][index];
@@ -1386,7 +1390,23 @@ namespace cs2glaz
 		const uint64_t xuid = engine_->GetClientXUID(CPlayerSlot(static_cast<int>(viewer)));
 		record->name = slot_name(system, viewer);
 		record->this_map = true;
-		if (slot.front)
+		const int reaction = slot.reaction_ms >= 0.0f ? static_cast<int>(slot.reaction_ms + 0.5f) : -1;
+		if (slot.crosshair)
+		{
+			// A crosshair ghost (crosshair_ghosts.cpp): only shots are reported.
+			if (slot.control)
+			{
+				++record->crosshair_control_shots;
+				++decoy_counters_.crosshair_control_shots;
+				++crosshair_server_.control_reports;
+				write_decoy_log(xuid, "control_crosshair_shot", static_cast<int>(distance), *record, reaction);
+				return;
+			}
+			++record->crosshair_shots;
+			++decoy_counters_.crosshair_shots;
+			++crosshair_server_.real_reports;
+		}
+		else if (slot.front)
 		{
 			// A front decoy (front_decoys.cpp): only jumps and shots are reported.
 			const bool shot = kind == decoy_report::shot;
@@ -1448,9 +1468,10 @@ namespace cs2glaz
 		const bool shot = kind == decoy_report::shot;
 		// Front decoys and decoys behind walls are weighed against their own
 		// controls; the evidence is the sum.
-		const decoy_exposure exposure = slot.front ? record->front_exposure() : record->exposure();
-		const double expected =
-			slot.front ? decoy_expected_reports(exposure, front_server_, k_front_prior_rate) : decoy_expected_reports(exposure, decoy_server_);
+		const decoy_exposure exposure = slot.crosshair ? record->crosshair_exposure() : slot.front ? record->front_exposure() : record->exposure();
+		const double expected = slot.crosshair ? decoy_expected_reports(exposure, crosshair_server_, k_crosshair_prior_rate)
+								: slot.front   ? decoy_expected_reports(exposure, front_server_, k_front_prior_rate)
+											   : decoy_expected_reports(exposure, decoy_server_);
 		const double evidence = decoy_player_evidence(*record);
 		// An aimbot locked onto a front decoy follows it every second or so:
 		// every report goes to the log, the console gets one every few seconds.
@@ -1473,17 +1494,24 @@ namespace cs2glaz
 								  static_cast<int>(moment.round_seconds) % 60);
 				}
 			}
+			char what[96] {};
+			if (slot.crosshair)
+			{
+				std::snprintf(what, sizeof(what), "an invisible ghost on his crosshair %d ms after it reached him (a triggerbot or aimbot?)", reaction);
+			}
 			META_CONPRINTF("[CS2GLAZ] decoy: \"%s\" %llu %s %s (%.0f units). Since load: %llu at real ones in %.0f s of them, "
 						   "%llu at controls in %.0f s; an honest player would have about %.1f; evidence %.1f - suspect, check the demo%s\n",
 						   record->name.c_str(), static_cast<unsigned long long>(xuid),
 						   shot ? "shot at" : (kind == decoy_report::jump ? "followed the jump of" : "aimed at"),
-						   slot.front ? "an invisible front decoy (an aimbot or triggerbot?)" : "a decoy through a wall", distance,
+						   slot.crosshair ? what : slot.front ? "an invisible front decoy (an aimbot or triggerbot?)" : "a decoy through a wall", distance,
 						   static_cast<unsigned long long>(exposure.real_reports), exposure.real_seconds,
 						   static_cast<unsigned long long>(exposure.control_reports), exposure.control_seconds, expected, evidence, where);
 		}
 		write_decoy_log(xuid,
-						slot.front ? (shot ? "front_shot" : "front_jump") : (shot ? "shot" : (kind == decoy_report::jump ? "jump" : "aim")),
-						static_cast<int>(distance), *record);
+						slot.crosshair ? "crosshair_shot"
+						: slot.front   ? (shot ? "front_shot" : "front_jump")
+									   : (shot ? "shot" : (kind == decoy_report::jump ? "jump" : "aim")),
+						static_cast<int>(distance), *record, reaction);
 		// CSVILKA weighs it together with its own checks and punishes by its own
 		// rules: every whole point of new evidence goes to it.
 		if (evidence >= 1.0 && std::floor(evidence) > record->evidence_reported)
@@ -1584,7 +1612,7 @@ namespace cs2glaz
 		return moment;
 	}
 
-	void plugin::write_decoy_log(uint64_t xuid, const char* event, int distance, const decoy_player_record& record) const
+	void plugin::write_decoy_log(uint64_t xuid, const char* event, int distance, const decoy_player_record& record, int reaction_ms) const
 	{
 		if (api_ == nullptr)
 		{
@@ -1600,13 +1628,17 @@ namespace cs2glaz
 		}
 		const decoy_exposure exposure = record.exposure();
 		const decoy_exposure front = record.front_exposure();
-		char numbers[384] {};
+		const decoy_exposure crosshair = record.crosshair_exposure();
+		char numbers[640] {};
 		std::snprintf(numbers, sizeof(numbers),
 					  "real_seconds=%.0f control_seconds=%.0f expected=%.2f front_jumps=%u front_shots=%u control_front_jumps=%u "
-					  "control_front_shots=%u front_seconds=%.0f control_front_seconds=%.0f front_expected=%.2f evidence=%.2f",
+					  "control_front_shots=%u front_seconds=%.0f control_front_seconds=%.0f front_expected=%.2f crosshair_shots=%u "
+					  "control_crosshair_shots=%u crosshair_seconds=%.1f control_crosshair_seconds=%.1f crosshair_expected=%.2f evidence=%.2f",
 					  exposure.real_seconds, exposure.control_seconds, decoy_expected_reports(exposure, decoy_server_), record.front_jumps,
 					  record.front_shots, record.front_control_jumps, record.front_control_shots, front.real_seconds, front.control_seconds,
-					  decoy_expected_reports(front, front_server_, k_front_prior_rate), decoy_player_evidence(record));
+					  decoy_expected_reports(front, front_server_, k_front_prior_rate), record.crosshair_shots, record.crosshair_control_shots,
+					  crosshair.real_seconds, crosshair.control_seconds, decoy_expected_reports(crosshair, crosshair_server_, k_crosshair_prior_rate),
+					  decoy_player_evidence(record));
 		log << utc_timestamp() << " map=" << map_;
 		const match_moment moment = current_moment();
 		if (moment.tick >= 0)
@@ -1629,6 +1661,10 @@ namespace cs2glaz
 		if (distance >= 0)
 		{
 			log << " distance=" << distance;
+		}
+		if (reaction_ms >= 0)
+		{
+			log << " reaction_ms=" << reaction_ms;
 		}
 		log << " aims=" << record.aims << " shots=" << record.shots << " jumps=" << record.jumps << " control_aims=" << record.control_aims
 			<< " control_shots=" << record.control_shots << " control_jumps=" << record.control_jumps << " gun_hits=" << record.gun_hits
@@ -1700,6 +1736,7 @@ namespace cs2glaz
 		}
 		print_ghost_status();
 		print_front_status();
+		print_crosshair_status();
 		// The server's honest coincidences: what every player's real reports are
 		// weighed against until his own controls say more.
 		META_CONPRINTF("[CS2GLAZ] decoy reports since load: aims=%llu shots=%llu at real decoys over %.0f s; aims=%llu shots=%llu at control twins "
@@ -1711,7 +1748,7 @@ namespace cs2glaz
 		std::vector<std::pair<uint64_t, const decoy_player_record*>> suspects;
 		for (const auto& [xuid, record] : decoy_players_)
 		{
-			if (record.aims + record.shots + record.jumps + record.front_jumps + record.front_shots != 0)
+			if (record.aims + record.shots + record.jumps + record.front_jumps + record.front_shots + record.crosshair_shots != 0)
 			{
 				suspects.emplace_back(xuid, &record);
 			}
@@ -1728,14 +1765,17 @@ namespace cs2glaz
 			const decoy_player_record& record = *suspects[index].second;
 			const decoy_exposure exposure = record.exposure();
 			const decoy_exposure front = record.front_exposure();
+			const decoy_exposure crosshair = record.crosshair_exposure();
 			META_CONPRINTF("[CS2GLAZ] decoy suspect: \"%s\" %llu aims=%u shots=%u jumps=%u in %.0f s of real decoys; control aims=%u shots=%u "
 						   "jumps=%u in %.0f s; expected %.1f; front decoys: jumps=%u shots=%u in %.0f s, at controls %u and %u in %.0f s, "
-						   "expected %.1f; evidence %.1f; kicks=%u\n",
+						   "expected %.1f; crosshair ghosts: shots=%u in %.1f s, at controls %u in %.1f s, expected %.1f; evidence %.1f; kicks=%u\n",
 						   record.name.c_str(), value(suspects[index].first), record.aims, record.shots, record.jumps, exposure.real_seconds,
 						   record.control_aims, record.control_shots, record.control_jumps, exposure.control_seconds,
 						   decoy_expected_reports(exposure, decoy_server_), record.front_jumps, record.front_shots, front.real_seconds,
 						   record.front_control_jumps, record.front_control_shots, front.control_seconds,
-						   decoy_expected_reports(front, front_server_, k_front_prior_rate), decoy_player_evidence(record), record.kicks);
+						   decoy_expected_reports(front, front_server_, k_front_prior_rate), record.crosshair_shots, crosshair.real_seconds,
+						   record.crosshair_control_shots, crosshair.control_seconds,
+						   decoy_expected_reports(crosshair, crosshair_server_, k_crosshair_prior_rate), decoy_player_evidence(record), record.kicks);
 		}
 		// Blind hits: weak evidence of a sound ESP or radar hack, the channels
 		// hiding enemies does not close.
