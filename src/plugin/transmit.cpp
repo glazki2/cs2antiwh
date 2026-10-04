@@ -290,37 +290,38 @@ namespace cs2glaz
 		// Once per map, before anything is read directly: prove with guarded reads
 		// that the recipient array, each recipient record, and both entity lists are
 		// mapped memory. A CS2 update that changed these layouts fails here instead
-		// of faulting the server.
-		const auto readable = [](const void* address, size_t size)
+		// of faulting the server. Whole ranges are read at once: each guarded read
+		// is a system call, slow on some hosts.
+		std::array<CCheckTransmitInfo*, k_max_players> records {};
+		if (count <= 0 || count > static_cast<int>(k_max_players)
+			|| !runtime_compatibility::safe_read(infos, records.data(), sizeof(CCheckTransmitInfo*) * static_cast<size_t>(count)))
 		{
-			if (address == nullptr)
-			{
-				return true;
-			}
-			const auto* first = static_cast<const std::byte*>(address);
-			uint32_t word = 0;
-			return runtime_compatibility::safe_read(first, &word, sizeof(word))
-				   && runtime_compatibility::safe_read(first + size - sizeof(word), &word, sizeof(word));
-		};
+			return false;
+		}
+		static_assert(offsetof(CCheckTransmitInfo, m_pTransmitEntity) == 0 && offsetof(CCheckTransmitInfo, m_pTransmitAlways) == sizeof(void*));
+		const size_t record_size = std::max<size_t>({2 * sizeof(void*), compatibility_.recipient_slot_offset() + sizeof(int),
+													 compatibility_.transmit_offsets().full_update_offset + sizeof(bool)});
+		std::vector<std::byte> record(record_size);
+		CBitVec<MAX_EDICTS> list;
 		for (int i = 0; i < count; ++i)
 		{
-			CCheckTransmitInfo* info = nullptr;
-			if (!runtime_compatibility::safe_read(infos + i, &info, sizeof(info)))
-			{
-				return false;
-			}
+			const CCheckTransmitInfo* info = records[static_cast<size_t>(i)];
 			if (info == nullptr)
 			{
 				continue;
 			}
-			static_assert(offsetof(CCheckTransmitInfo, m_pTransmitEntity) == 0 && offsetof(CCheckTransmitInfo, m_pTransmitAlways) == sizeof(void*));
-			CBitVec<MAX_EDICTS>* lists[2] {};
-			const size_t record_size = std::max<size_t>(compatibility_.recipient_slot_offset() + sizeof(int),
-														compatibility_.transmit_offsets().full_update_offset + sizeof(bool));
-			if (!readable(info, record_size) || !runtime_compatibility::safe_read(info, lists, sizeof(lists))
-				|| !readable(lists[0], sizeof(CBitVec<MAX_EDICTS>)) || !readable(lists[1], sizeof(CBitVec<MAX_EDICTS>)))
+			if (!runtime_compatibility::safe_read(info, record.data(), record.size()))
 			{
 				return false;
+			}
+			CBitVec<MAX_EDICTS>* lists[2] {};
+			std::memcpy(lists, record.data(), sizeof(lists));
+			for (const CBitVec<MAX_EDICTS>* bits : lists)
+			{
+				if (bits != nullptr && !runtime_compatibility::safe_read(bits, &list, sizeof(list)))
+				{
+					return false;
+				}
 			}
 		}
 		return true;

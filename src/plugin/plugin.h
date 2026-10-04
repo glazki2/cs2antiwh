@@ -623,7 +623,10 @@ namespace cs2glaz
 			const std::byte* storage {};
 			smoke_voxel_stats voxels;
 		};
-		smoke_layout_probe probe_smoke_layout(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation, float game_time) const;
+		// window: entity bytes from window_offset, copied once; header fields
+		// inside it are read from the copy instead of one guarded read each.
+		smoke_layout_probe probe_smoke_layout(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation, float game_time,
+											  std::span<const std::byte> window = {}, int64_t window_offset = 0) const;
 		void write_smoke_layout_report(const CEntityInstance* smoke, vec3 detonation, float game_time, const smoke_layout_probe& probe,
 									   uint32_t matches);
 		bool smoke_header_readable(const CEntityInstance* smoke) const;
@@ -676,6 +679,7 @@ namespace cs2glaz
 							 std::chrono::steady_clock::time_point now);
 		// Ghost players (ghosts.cpp).
 		bool ghosts_available(std::string& reason) const;
+		int ghost_limit() const; // cs2glaz_decoy_ghosts
 		void update_ghosts(CGameEntitySystem* system, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
 		bool ghost_take(CGameEntitySystem* system, uint32_t viewer, decoy_slot& slot, const std::string& model,
 						std::chrono::steady_clock::time_point now);
@@ -824,6 +828,7 @@ namespace cs2glaz
 		smoke_layout_state smoke_layout_state_ {smoke_layout_state::unchecked};
 		std::array<smoke_seen, k_max_smoke_volumes> smoke_seen_ {};
 		uint32_t smoke_layout_failures_ {};
+		std::vector<std::byte> smoke_search_window_; // reused by the moved-volume search
 		uint32_t smoke_layout_judged_ {};
 		int64_t smoke_layout_shift_ {};
 		// addons/cs2glaz/logs/smoke_layout.txt is started over once per plugin

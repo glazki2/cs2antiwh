@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.1
+
+Hitches found in a server log, and self-check fixes.
+
+- The search for a moved smoke volume (limited mode, first smoke after each start) read every candidate header field with its own guarded read: about a thousand `process_vm_readv` calls, which took 91 ms in one game frame on a hosted server (`capture maximum=91.019ms`, `UNEXPECTED LONG FRAME ... 92.69ms sim time`). The searched bytes are now copied with one guarded read and the headers are read from the copy (falling back to field reads if that range cannot be read); a local benchmark of the same calls: 0.52 ms before, under 0.01 ms after, and on that host about 1 ms instead of 91.
+- The per-copy smoke check reads the three header fields at once (3 guarded reads per smoke every 100 ms instead of 5), and the once-per-map CheckTransmit list check reads the recipient array, each record and each list in one guarded read each.
+- `cs2glaz_selftest` reuses the decoy signature scan the decoys already made instead of scanning the server again (a 36 ms frame in the same log); it says the smoke check simply waits for the first smoke after a start instead of suggesting an update, and shows whether ghost players are configured.
+
 ## 0.14.0
 
 A one-command self-check, demo positions in the decoy log, a review page, and fewer allocations per tick.

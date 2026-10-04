@@ -399,18 +399,26 @@ namespace cs2glaz
 		he_tracked_count_ = grenade_count;
 	}
 
-	plugin::smoke_layout_probe plugin::probe_smoke_layout(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation,
-														   float game_time) const
+	plugin::smoke_layout_probe plugin::probe_smoke_layout(const CEntityInstance* smoke, uint32_t volume_offset, vec3 detonation, float game_time,
+														   std::span<const std::byte> window, int64_t window_offset) const
 	{
 		const smoke_private_layout& layout = compatibility_.smoke_layout();
 		const auto* volume = reinterpret_cast<const std::byte*>(smoke) + volume_offset;
 		smoke_layout_probe probe;
 		Vector center;
 		smoke_volume_header header;
-		if (!runtime_compatibility::safe_read(volume + layout.center, &center, sizeof(center))
-			|| !runtime_compatibility::safe_read(volume + layout.start_time, &header.start_time, sizeof(header.start_time))
-			|| !runtime_compatibility::safe_read(volume + layout.frame, &header.frame, sizeof(header.frame))
-			|| !runtime_compatibility::safe_read(volume + layout.storage, &header.storage, sizeof(header.storage)))
+		const auto read = [&](uint32_t field_offset, void* output, size_t size)
+		{
+			const int64_t start = static_cast<int64_t>(volume_offset) + field_offset - window_offset;
+			if (start >= 0 && static_cast<uint64_t>(start) + size <= window.size())
+			{
+				std::memcpy(output, window.data() + start, size);
+				return true;
+			}
+			return runtime_compatibility::safe_read(volume + field_offset, output, size);
+		};
+		if (!read(layout.center, &center, sizeof(center)) || !read(layout.start_time, &header.start_time, sizeof(header.start_time))
+			|| !read(layout.frame, &header.frame, sizeof(header.frame)) || !read(layout.storage, &header.storage, sizeof(header.storage)))
 		{
 			return probe;
 		}
@@ -498,8 +506,24 @@ namespace cs2glaz
 			{
 				// A new build may have moved the volume inside the entity; its own
 				// layout must still match exactly one nearby offset. Tried on every
-				// probe (a header read per offset, voxels only where it fits), so a
-				// moved volume is found as early as the candidate would be.
+				// probe (headers from one copy of the searched bytes, voxels only
+				// where a header fits), so a moved volume is found as early as the
+				// candidate would be. One guarded read per header field made this
+				// about a thousand system calls, 91 ms on a hosted server.
+				const smoke_private_layout& layout = compatibility_.smoke_layout();
+				const uint32_t first_field = std::min({layout.center, layout.start_time, layout.frame, layout.storage});
+				const uint32_t field_end =
+					std::max({layout.center + static_cast<uint32_t>(sizeof(Vector)), layout.start_time + static_cast<uint32_t>(sizeof(float)),
+							  layout.frame + static_cast<uint32_t>(sizeof(int32_t)), layout.storage + static_cast<uint32_t>(sizeof(void*))});
+				const int64_t window_offset = std::max<int64_t>(64, static_cast<int64_t>(base) - 1024) + first_field;
+				const int64_t window_end = static_cast<int64_t>(base) + 1024 + field_end;
+				std::vector<std::byte>& window = smoke_search_window_;
+				window.resize(static_cast<size_t>(std::max<int64_t>(0, window_end - window_offset)));
+				if (window.empty()
+					|| !runtime_compatibility::safe_read(reinterpret_cast<const std::byte*>(smoke) + window_offset, window.data(), window.size()))
+				{
+					window.clear(); // read field by field instead
+				}
 				for (int64_t shift = -1024; shift <= 1024 && matches < 2; shift += 8)
 				{
 					const int64_t offset = static_cast<int64_t>(base) + shift;
@@ -507,7 +531,8 @@ namespace cs2glaz
 					{
 						continue;
 					}
-					const smoke_layout_probe other = probe_smoke_layout(smoke, static_cast<uint32_t>(offset), detonation, game_time);
+					const smoke_layout_probe other =
+						probe_smoke_layout(smoke, static_cast<uint32_t>(offset), detonation, game_time, window, window_offset);
 					if (other.header_ok && other.voxels_ok)
 					{
 						++matches;
@@ -696,10 +721,29 @@ namespace cs2glaz
 		const std::byte* storage = nullptr;
 		uint8_t probe = 0;
 		const vec3 detonation = to_vec3(field<Vector>(const_cast<CEntityInstance*>(smoke), compatibility_.fields().smoke_detonation_pos));
-		if (!runtime_compatibility::safe_read(volume + layout.center, &center, sizeof(center))
-			|| !runtime_compatibility::safe_read(volume + layout.frame, &frame, sizeof(frame))
-			|| !runtime_compatibility::safe_read(volume + layout.storage, &storage, sizeof(storage)) || (frame != 0 && frame != 1)
-			|| storage == nullptr)
+		// One guarded read for the three header fields (each guarded read is a
+		// system call, slow on some hosts), then two inside the storage.
+		const uint32_t first = std::min({layout.center, layout.frame, layout.storage});
+		const uint32_t end = std::max({layout.center + static_cast<uint32_t>(sizeof(center)), layout.frame + static_cast<uint32_t>(sizeof(frame)),
+									   layout.storage + static_cast<uint32_t>(sizeof(storage))});
+		std::array<std::byte, 512> header {};
+		if (end - first <= header.size())
+		{
+			if (!runtime_compatibility::safe_read(volume + first, header.data(), end - first))
+			{
+				return false;
+			}
+			std::memcpy(static_cast<void*>(&center), header.data() + (layout.center - first), sizeof(center));
+			std::memcpy(&frame, header.data() + (layout.frame - first), sizeof(frame));
+			std::memcpy(&storage, header.data() + (layout.storage - first), sizeof(storage));
+		}
+		else if (!runtime_compatibility::safe_read(volume + layout.center, &center, sizeof(center))
+				 || !runtime_compatibility::safe_read(volume + layout.frame, &frame, sizeof(frame))
+				 || !runtime_compatibility::safe_read(volume + layout.storage, &storage, sizeof(storage)))
+		{
+			return false;
+		}
+		if ((frame != 0 && frame != 1) || storage == nullptr)
 		{
 			return false;
 		}

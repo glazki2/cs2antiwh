@@ -63,6 +63,11 @@ namespace cs2glaz
 
 	} // namespace
 
+	int plugin::ghost_limit() const
+	{
+		return std::clamp(cs2glaz_decoy_ghosts.Get(), 0, static_cast<int>(k_max_ghosts));
+	}
+
 	bool plugin::ghosts_available(std::string& reason) const
 	{
 		if (!ghost_error_.empty())

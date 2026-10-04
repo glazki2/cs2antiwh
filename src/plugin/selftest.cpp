@@ -183,10 +183,12 @@ namespace cs2glaz
 		{
 			report.line(check_level::ok, "smoke", compatibility_.limited() ? "layout verified on a live smoke" : "verified gamedata");
 		}
-		else if (compatibility_.limited() && smoke_layout_state_ == smoke_layout_state::unchecked && compatibility_.smoke_available())
+		else if (smoke_layout_state_ == smoke_layout_state::unchecked && compatibility_.smoke_layout_candidate())
 		{
-			report.line(check_level::warn, "smoke", "waiting for the first live smoke to prove the layout",
-						"Throw a smoke grenade (a bot round is enough) and run cs2glaz_selftest again.");
+			// Normal after every start on a build the gamedata does not verify.
+			report.line(check_level::warn, "smoke", "waiting for the first live smoke of this run to prove the layout",
+						"Nothing to fix: the first smoke thrown turns it on. To see it now, throw one (a bot round is enough) and run "
+						"cs2glaz_selftest again.");
 		}
 		else
 		{
@@ -272,7 +274,9 @@ namespace cs2glaz
 		}
 		else
 		{
-			const decoy_functions found = find_decoy_functions();
+			// Scanning the server's code takes tens of ms on the game thread:
+			// only when the decoys have not scanned it yet.
+			const decoy_functions found = decoy_functions_resolved_ ? decoy_functions_ : find_decoy_functions();
 			std::string teleport_error;
 			bool teleport_wrong = false;
 			if (found.ready)
@@ -297,13 +301,10 @@ namespace cs2glaz
 			}
 			if (!found.ready)
 			{
-				report.line(check_level::fail, "decoys", format("signatures: %s", found.error.c_str()),
-							"Update CS2GLAZ (cs2glaz.signatures.txt); until then set cs2glaz_decoys 0.");
-			}
-			else if (decoy_functions_resolved_ && !decoy_functions_.ready)
-			{
-				report.line(check_level::fail, "decoys", format("turned off: %s", decoy_functions_.error.c_str()),
-							"Restart the server; if it comes back, set cs2glaz_decoys 0 and send the console log.");
+				// A failed scan, or decoys turned off at run time (a spawn that
+				// did not behave): the reason says which.
+				report.line(check_level::fail, "decoys", format("unavailable: %s", found.error.c_str()),
+							"Restart the server; if it stays, update CS2GLAZ (cs2glaz.signatures.txt) and until then set cs2glaz_decoys 0.");
 			}
 			else if (!teleport_error.empty())
 			{
@@ -346,13 +347,18 @@ namespace cs2glaz
 			{
 				report.line(check_level::ok, "front decoys", front_mode() == 2 ? "against aimbots and triggerbots" : "against aimbots");
 			}
-			if (!ghosts_available(reason))
+			if (ghost_limit() == 0)
+			{
+				report.line(check_level::off, "ghosts", "cs2glaz_decoy_ghosts 0",
+							"Optional: ghosts are real player pawns, which cheats that skip phantoms still draw.");
+			}
+			else if (!ghosts_available(reason))
 			{
 				report.line(check_level::warn, "ghosts", reason, "Ghost players stay off; the other decoys work.");
 			}
 			else
 			{
-				report.line(check_level::ok, "ghosts", "available");
+				report.line(check_level::ok, "ghosts", format("up to %d", ghost_limit()));
 			}
 		}
 
