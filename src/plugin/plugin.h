@@ -778,6 +778,9 @@ namespace cs2glaz
 		void update_crosshair_ghosts(CGameEntitySystem* system, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
 		void end_crosshair_turn(CGameEntitySystem* system, size_t index, std::chrono::steady_clock::time_point now);
 		bool ghost_teleport(CGameEntitySystem* system, ghost_player& ghost, vec3 feet, float yaw);
+		bool crosshair_park_spots(vec3& above, vec3& below) const; // above and below the map's bounds
+		static constexpr size_t k_max_lying_items = 1024; // players' own weapons included: up to about 8 each
+		bool collect_lying_items(CGameEntitySystem* system, fixed_list<vec3, k_max_lying_items>& items) const; // false: more than fit
 		void crosshair_shot(uint32_t shooter, vec3 eye, vec3 direction, std::span<const vec3> others, std::chrono::steady_clock::time_point now);
 		void crosshair_bullet_check(uint32_t shooter, vec3 eye, vec3 impact);
 		void print_crosshair_status() const;

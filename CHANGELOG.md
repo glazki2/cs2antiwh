@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.15.1
+
+Fixes from a review of crosshair ghosts (0.15.0).
+
+- The bomb: a T ghost given the C4 while parked above the map would have dropped it from the sky (and a ghost kicked for keeping it, too). A ghost with the bomb now hangs 160 units above a living teammate, out of his jump, until update_ghosts has dropped it there.
+- Weapons and items: a ghost standing on the floor with a player's collision could pick up a weapon, the bomb or a defuse kit lying at its spot. Spots with a `weapon_*` or `item_*` entity within 96 units of its feet are refused (the lying items are read once per update and only when a spot is checked, players' own weapons included; more than 1024 refuse every spot).
+- Grenades: a grenade thrown along the crosshair would have bounced off the ghost. A turn starts only while the player holds a gun.
+- A ghost that kills itself (its team has nobody else alive) is moved below the map first, so the pistol it drops falls out of the world instead of onto the map.
+- No turn without the map's walls loaded: a spot could not be proven out of other players' sight.
+- Cost: the clear length of the crosshair line is found with one trace, or a binary search to 25 units (at most 7 traces instead of 15), with 3 distances tried instead of 4, and at most two players' crosshairs are checked per ghost and update. Measured on a synthetic map (9,000 triangles, 20 other players): 4 microseconds per checked crosshair.
+
 ## 0.15.0
 
 Crosshair ghosts: a real fake player on the enemy's crosshair, against triggerbots and aimbots.

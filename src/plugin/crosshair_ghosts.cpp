@@ -19,12 +19,16 @@
 // Between turns a ghost is parked high above the map, sent to nobody. It takes
 // no damage and does not move. It keeps a player's collision so his client
 // finds it under the crosshair as it finds any enemy (what triggerbots read);
-// that is why it only ever stands where nobody else can see it, and why a
-// bullet of anyone else stopping in it turns the mode off
-// (crosshair_bullet_check).
+// that is why it only ever stands where nobody else can see it, never where a
+// weapon or item lies (it would pick it up), never while he holds anything
+// but a gun (a grenade would bounce off it), and why bullets of anyone else
+// stopping in it turn the mode off (crosshair_bullet_check). Given the bomb,
+// it hangs above a living teammate until it has dropped it there; it dies
+// below the map, so its pistol falls out of the world.
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace cs2glaz
 {
@@ -48,8 +52,13 @@ namespace cs2glaz
 		constexpr uint32_t k_crosshair_viewer_gap_ms = 2500;					// between one player's turns, plus up to as much again
 		constexpr auto k_crosshair_quiet = std::chrono::milliseconds(600);		// no turn while he is shooting
 		constexpr uint32_t k_crosshair_control_one_in = 3;
+		// Players whose crosshair is checked for a spot per ghost and update: each
+		// check traces the map from every other player's eye.
+		constexpr uint32_t k_crosshair_candidates_per_update = 2;
 		constexpr uint32_t k_crosshair_foreign_bullet_limit = 3;
-		constexpr float k_park_height = 1024.0f;
+		constexpr float k_park_offset = 1024.0f;
+		constexpr float k_bomb_drop_height = 160.0f; // above a teammate: clear of his head when he jumps
+		constexpr float k_item_clearance = 96.0f;	  // no weapon or item lying this close to its feet
 
 		template<typename type>
 		type& field(void* object, uint32_t offset)
@@ -120,6 +129,53 @@ namespace cs2glaz
 		return true;
 	}
 
+	bool plugin::crosshair_park_spots(vec3& above, vec3& below) const
+	{
+		const auto& header = data_.header;
+		if (header.triangle_count == 0)
+		{
+			return false;
+		}
+		const float x = (header.world_min[0] + header.world_max[0]) * 0.5f;
+		const float y = (header.world_min[1] + header.world_max[1]) * 0.5f;
+		above = {x, y, std::min(header.world_max[2] + k_park_offset, 14000.0f)};
+		below = {x, y, std::max(header.world_min[2] - k_park_offset, -14000.0f)};
+		return std::isfinite(x) && std::isfinite(y) && std::isfinite(above.z) && std::isfinite(below.z);
+	}
+
+	bool plugin::collect_lying_items(CGameEntitySystem* system, fixed_list<vec3, k_max_lying_items>& items) const
+	{
+		if (system == nullptr)
+		{
+			return false;
+		}
+		const schema_offsets& fields = compatibility_.fields();
+		CEntityIdentity* identity = system->m_EntityList.m_pFirstActiveEntity;
+		for (uint32_t scanned = 0; identity != nullptr && scanned < k_entity_scan_hard_limit; identity = identity->m_pNext, ++scanned)
+		{
+			const char* name = identity->m_designerName.String();
+			CEntityInstance* entity = identity->m_pInstance;
+			if (name == nullptr || entity == nullptr || (std::strncmp(name, "weapon_", 7) != 0 && std::strncmp(name, "item_", 5) != 0))
+			{
+				continue;
+			}
+			// Players' own weapons are with them, and no player is near a spot.
+			void* body_component = field<void*>(entity, fields.body_component);
+			void* scene_node = body_component == nullptr ? nullptr : field<void*>(body_component, fields.scene_node);
+			if (scene_node == nullptr)
+			{
+				continue;
+			}
+			if (items.size() == k_max_lying_items)
+			{
+				return false; // more than can be checked: no spot is safe
+			}
+			const Vector origin = field<Vector>(scene_node, fields.abs_origin);
+			items.push_back({origin.x, origin.y, origin.z});
+		}
+		return true;
+	}
+
 	void plugin::end_crosshair_turn(CGameEntitySystem*, size_t index, std::chrono::steady_clock::time_point now)
 	{
 		if (index >= crosshair_turns_.size())
@@ -168,15 +224,73 @@ namespace cs2glaz
 			delivery = crosshair_delivery_;
 		}
 		const bool drawn = decoy_entity_mode() == 2;
-		const vec3 park {(data_.header.world_min[0] + data_.header.world_max[0]) * 0.5f, (data_.header.world_min[1] + data_.header.world_max[1]) * 0.5f,
-						 std::min(data_.header.world_max[2] + k_park_height, 14000.0f)};
-		const bool park_known = std::isfinite(park.x) && std::isfinite(park.y) && std::isfinite(park.z) && data_.header.triangle_count != 0;
+		vec3 park;
+		vec3 below;
+		const bool park_known = crosshair_park_spots(park, below);
 		const schema_offsets& fields = compatibility_.fields();
+		const auto origin_of = [&](const ghost_player& ghost, vec3& origin)
+		{
+			CEntityInstance* body = system->GetEntityInstance(ghost.pawn);
+			void* body_component = body == nullptr ? nullptr : field<void*>(body, fields.body_component);
+			void* scene_node = body_component == nullptr ? nullptr : field<void*>(body_component, fields.scene_node);
+			if (scene_node == nullptr)
+			{
+				return false;
+			}
+			const Vector value = field<Vector>(scene_node, fields.abs_origin);
+			origin = {value.x, value.y, value.z};
+			return true;
+		};
+		const auto near = [](vec3 a, vec3 b, float distance)
+		{
+			const float dx = a.x - b.x;
+			const float dy = a.y - b.y;
+			const float dz = a.z - b.z;
+			return dx * dx + dy * dy + dz * dz < distance * distance;
+		};
+		// Weapons and items lying on the map, read once per update when a spot is
+		// being checked: a ghost standing on one would pick it up.
+		fixed_list<vec3, k_max_lying_items> items;
+		int items_state = 0; // 0 not read, 1 read, -1 unknown
+		const auto items_near = [&](vec3 feet)
+		{
+			if (items_state == 0)
+			{
+				items_state = collect_lying_items(system, items) ? 1 : -1;
+			}
+			return items_state < 0 || std::any_of(items.begin(), items.end(), [&](vec3 item)
+												  {
+													  const float dx = item.x - feet.x;
+													  const float dy = item.y - feet.y;
+													  return dx * dx + dy * dy < k_item_clearance * k_item_clearance && item.z > feet.z - 48.0f
+															 && item.z < feet.z + k_crosshair_head_height + 32.0f;
+												  });
+		};
 		for (size_t index = 0; index < ghosts_.size(); ++index)
 		{
 			ghost_player& ghost = ghosts_[index];
 			crosshair_turn& turn = crosshair_turns_[index];
-			const bool usable = ghost.slot >= 0 && ghost.harmless && !ghost.has_bomb && ghost.pawn.IsValid();
+			if (ghost.slot >= 0 && ghost.harmless && ghost.has_bomb && ghost.pawn.IsValid())
+			{
+				// The bomb goes to a real player (update_ghosts drops it): it hangs
+				// above a living teammate meanwhile, so the bomb lands at his feet.
+				end_crosshair_turn(system, index, now);
+				for (const player_state& teammate : value.players)
+				{
+					if (teammate.valid && teammate.team == ghost.team)
+					{
+						const vec3 drop {teammate.origin.x, teammate.origin.y, teammate.origin.z + k_bomb_drop_height};
+						vec3 origin;
+						if (!origin_of(ghost, origin) || !near(origin, drop, 32.0f))
+						{
+							ghost_teleport(system, ghost, drop, 0.0f);
+						}
+						break;
+					}
+				}
+				continue;
+			}
+			const bool usable = ghost.slot >= 0 && ghost.harmless && ghost.pawn.IsValid();
 			if (!usable)
 			{
 				if (turn.id != 0)
@@ -213,17 +327,21 @@ namespace cs2glaz
 					end_crosshair_turn(system, index, now);
 				}
 			}
-			if (turn.id == 0 && now >= crosshair_next_turn_[index])
+			// Without the map's walls no spot can be proven out of others' sight.
+			if (turn.id == 0 && now >= crosshair_next_turn_[index] && data_.header.triangle_count != 0)
 			{
 				// The next player of the other team, in turns: alive, a human, not
 				// shooting, (mode 3) watched, and his own turns spaced out.
 				crosshair_next_turn_[index] = now + k_crosshair_retry;
 				const uint32_t start = crosshair_rotation_[index];
-				for (uint32_t step = 1; step <= k_max_players; ++step)
+				uint32_t candidates = 0;
+				for (uint32_t step = 1; step <= k_max_players && candidates < k_crosshair_candidates_per_update; ++step)
 				{
 					const uint32_t slot = (start + step) % k_max_players;
 					const player_state& viewer = value.players[slot];
-					if (!viewer.valid || enemy_team(viewer.team) != ghost.team || !human_player(slot) || ghost_capture_slot(slot)
+					// A gun in his hands: a grenade he throws must not bounce off it.
+					const bool holds_gun = viewer.muzzle_class != weapon_muzzle_class::none || !compatibility_.weapon_item_available();
+					if (!viewer.valid || enemy_team(viewer.team) != ghost.team || !human_player(slot) || ghost_capture_slot(slot) || !holds_gun
 						|| now < crosshair_viewer_next_[slot] || now - last_fire_at_[slot] < k_crosshair_quiet || (decoy_mode() == 3 && !is_suspect(slot, now)))
 					{
 						continue;
@@ -239,13 +357,15 @@ namespace cs2glaz
 						}
 					}
 					const crosshair_spot_query query {viewer.eye, viewer.eye_pitch_degrees, viewer.eye_yaw_degrees, players, watchers, decoy_random(decoy_seed_)};
+					// The next check starts after him, whether his crosshair fits or not.
+					++candidates;
+					crosshair_rotation_[index] = slot;
 					vec3 feet;
-					if (!choose_crosshair_spot(data_, query, feet))
+					if (!choose_crosshair_spot(data_, query, feet) || items_near(feet))
 					{
 						++decoy_counters_.crosshair_no_spot;
 						continue;
 					}
-					crosshair_rotation_[index] = slot;
 					crosshair_viewer_next_[slot] = now + std::chrono::milliseconds(k_crosshair_viewer_gap_ms + decoy_random(decoy_seed_) % k_crosshair_viewer_gap_ms);
 					turn = {};
 					turn.id = ++decoy_next_id_ == 0 ? ++decoy_next_id_ : decoy_next_id_;
@@ -278,22 +398,10 @@ namespace cs2glaz
 				}
 			}
 			// Not shown to anyone: parked high above the map, where nothing meets it.
-			if ((turn.id == 0 || turn.control) && park_known)
+			vec3 origin;
+			if ((turn.id == 0 || turn.control) && park_known && origin_of(ghost, origin) && !near(origin, park, 64.0f))
 			{
-				CEntityInstance* body = system->GetEntityInstance(ghost.pawn);
-				void* body_component = body == nullptr ? nullptr : field<void*>(body, fields.body_component);
-				void* scene_node = body_component == nullptr ? nullptr : field<void*>(body_component, fields.scene_node);
-				if (scene_node != nullptr)
-				{
-					const Vector origin = field<Vector>(scene_node, fields.abs_origin);
-					const float dx = origin.x - park.x;
-					const float dy = origin.y - park.y;
-					const float dz = origin.z - park.z;
-					if (!(dx * dx + dy * dy + dz * dz < 64.0f * 64.0f))
-					{
-						ghost_teleport(system, ghost, park, 0.0f);
-					}
-				}
+				ghost_teleport(system, ghost, park, 0.0f);
 			}
 		}
 	}

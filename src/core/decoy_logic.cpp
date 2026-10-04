@@ -409,24 +409,33 @@ namespace cs2glaz
 				return false;
 			}
 		}
-		// How far the crosshair line is clear, in steps.
-		constexpr float k_step = 50.0f;
-		float reach = 0.0f;
-		for (float distance = k_crosshair_max_distance; distance >= k_crosshair_min_distance; distance -= k_step)
+		// How far the crosshair line is clear (blocked at one distance, it is
+		// blocked at every longer one): one trace when it is clear, a binary
+		// search to within 25 units otherwise.
+		float reach = k_crosshair_max_distance;
+		if (segment_blocked(data, eye, along(k_crosshair_max_distance)).blocked)
 		{
-			if (!segment_blocked(data, eye, along(distance)).blocked)
+			if (segment_blocked(data, eye, along(k_crosshair_min_distance)).blocked)
 			{
-				reach = distance;
-				break;
+				return false;
 			}
+			float clear = k_crosshair_min_distance;
+			float blocked = k_crosshair_max_distance;
+			while (blocked - clear > 25.0f)
+			{
+				const float middle = (clear + blocked) * 0.5f;
+				(segment_blocked(data, eye, along(middle)).blocked ? blocked : clear) = middle;
+			}
+			reach = clear;
 		}
-		const float farthest = std::min(reach, k_crosshair_max_distance) - (reach < k_crosshair_max_distance ? k_crosshair_wall_margin : 0.0f);
+		// In front of what the crosshair points at.
+		const float farthest = reach < k_crosshair_max_distance ? reach - k_crosshair_wall_margin : reach;
 		if (farthest < k_crosshair_min_distance)
 		{
 			return false;
 		}
 		uint32_t state = query.seed == 0 ? 0x9e3779b9u : query.seed;
-		for (int attempt = 0; attempt < 4; ++attempt)
+		for (int attempt = 0; attempt < 3; ++attempt)
 		{
 			const float share = static_cast<float>(decoy_random(state) % 1000u) / 1000.0f;
 			const float distance = k_crosshair_min_distance + share * (farthest - k_crosshair_min_distance);

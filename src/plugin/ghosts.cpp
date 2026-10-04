@@ -388,6 +388,14 @@ namespace cs2glaz
 			// Nobody else on its team alive: it must not keep the round going.
 			if (alive_on_team(ghost.team) == 0)
 			{
+				// A crosshair ghost dies below the map, so the pistol it drops falls
+				// out of the world instead of onto it.
+				vec3 above;
+				vec3 below;
+				if (shared && crosshair_park_spots(above, below))
+				{
+					ghost_teleport(system, ghost, below, 0.0f);
+				}
 				ghost_command(ghost.slot, "kill");
 				++ghost_counters_.suicides;
 				ghost.pawn = CEntityHandle();
