@@ -125,7 +125,9 @@ namespace cs2glaz
 		const Vector origin(feet.x, feet.y, feet.z);
 		const QAngle angles(0.0f, yaw, 0.0f);
 		const Vector stop(0.0f, 0.0f, 0.0f);
+		ghost_trace("teleport slot %d to %.0f %.0f %.0f", ghost.slot, feet.x, feet.y, feet.z);
 		reinterpret_cast<void (*)(CEntityInstance*, const Vector*, const QAngle*, const Vector*)>(ghost.teleport)(body, &origin, &angles, &stop);
+		ghost_trace("teleport done");
 		return true;
 	}
 

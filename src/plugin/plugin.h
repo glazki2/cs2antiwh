@@ -407,6 +407,7 @@ namespace cs2glaz
 		uint32_t join_attempts {};
 		uint32_t driving_id {}; // the decoy slot id it stands in for; 0 none
 		CEntityHandle pawn;		// its pawn while alive and kept harmless
+		CEntityHandle traced_pawn; // the pawn ghost_trace last noted
 		void* teleport {};		// its pawn's Teleport, read once per pawn
 		CEntityHandle teleport_pawn;
 		bool harmless {};		// fields applied this update
@@ -773,6 +774,7 @@ namespace cs2glaz
 		}
 		bool ghost_radar_entity(int index) const;
 		void print_ghost_status() const;
+		void ghost_trace(const char* format, ...) const;
 		// Crosshair ghosts (crosshair_ghosts.cpp).
 		bool crosshair_enabled() const;
 		void update_crosshair_ghosts(CGameEntitySystem* system, const visibility_snapshot& value, std::chrono::steady_clock::time_point now);
@@ -1021,6 +1023,7 @@ namespace cs2glaz
 		decoy_exposure crosshair_server_ {};
 		std::string crosshair_error_; // crosshair ghosts off until the plugin reloads
 		bool ghosts_shared_ {};		  // the ghosts now are crosshair ghosts
+		mutable bool ghost_trace_started_ {}; // ghost_trace.log started over this load
 		std::array<phantom_player, k_max_phantoms> phantoms_ {};
 		std::array<phantom_transmit_entry, k_max_phantoms> phantom_transmit_ {}; // transmit lock
 		std::array<front_delivery, k_max_phantoms> front_delivery_ {};			 // transmit lock

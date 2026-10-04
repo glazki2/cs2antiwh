@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.2
+
+- A server crashed as soon as `cs2glaz_decoy_crosshair 1` was set (the first time ghost players ran on a live server; the dump went to Valve only). Every ghost step that calls into the game (creating the fake client, its console commands, kicks, making its pawn harmless, every teleport) is now written to `addons/cs2glaz/logs/ghost_trace.log` and flushed to disk before the call, so after a crash the file's last line names the step that crashed. The file starts over with each plugin load.
+
 ## 0.15.1
 
 Fixes from a review of crosshair ghosts (0.15.0).

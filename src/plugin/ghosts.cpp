@@ -20,8 +20,14 @@
 // hiding are not affected.
 
 #include <algorithm>
+#include <cstdarg>
+#include <ctime>
+#include <filesystem>
 #include <cstdio>
 #include <cstring>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 namespace cs2glaz
 {
@@ -62,6 +68,47 @@ namespace cs2glaz
 		}
 
 	} // namespace
+
+	// Every step of a ghost that calls into the game, written and flushed to
+	// addons/cs2glaz/logs/ghost_trace.log before the call: after a crash its
+	// last line is the step that crashed. Ghost steps are rare (seconds apart).
+	void plugin::ghost_trace(const char* format, ...) const
+	{
+		if (api_ == nullptr || format == nullptr)
+		{
+			return;
+		}
+		char text[256];
+		va_list arguments;
+		va_start(arguments, format);
+		std::vsnprintf(text, sizeof(text), format, arguments);
+		va_end(arguments);
+		const std::filesystem::path directory = std::filesystem::path(api_->GetBaseDir()) / "addons" / "cs2glaz" / "logs";
+		std::error_code error;
+		std::filesystem::create_directories(directory, error);
+		const std::string path = (directory / "ghost_trace.log").string();
+		FILE* file = std::fopen(path.c_str(), ghost_trace_started_ ? "a" : "w");
+		if (file == nullptr)
+		{
+			return;
+		}
+		ghost_trace_started_ = true;
+		const std::time_t now = std::time(nullptr);
+		std::tm parts {};
+#if defined(_WIN32)
+		gmtime_s(&parts, &now);
+#else
+		gmtime_r(&now, &parts);
+#endif
+		char stamp[32] {};
+		std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%SZ", &parts);
+		std::fprintf(file, "%s %s\n", stamp, text);
+		std::fflush(file);
+#if !defined(_WIN32)
+		fsync(fileno(file));
+#endif
+		std::fclose(file);
+	}
 
 	int plugin::ghost_limit() const
 	{
@@ -124,7 +171,9 @@ namespace cs2glaz
 		{
 			return;
 		}
+		ghost_trace("command slot %d: %s", slot, command);
 		cvar_->DispatchConCommand(handle, CCommandContext(CT_FIRST_SPLITSCREEN_CLIENT, CPlayerSlot(slot)), args);
+		ghost_trace("command done");
 	}
 
 	void plugin::kick_ghost(ghost_player& ghost, const char* reason)
@@ -133,7 +182,9 @@ namespace cs2glaz
 		{
 			// Its disconnect event is still kept from clients for a few seconds.
 			ghost_kicked_at_[static_cast<size_t>(ghost.slot)] = std::chrono::steady_clock::now();
+			ghost_trace("kick slot %d: %s", ghost.slot, reason);
 			engine_->KickClient(CPlayerSlot(ghost.slot), reason, NETWORK_DISCONNECT_KICKED);
+			ghost_trace("kick done");
 			++ghost_counters_.kicked;
 		}
 		// A crosshair ghost's turn ends with it.
@@ -186,6 +237,7 @@ namespace cs2glaz
 		const int wanted = decoy_mode() == 0 ? 0 : shared ? static_cast<int>(k_max_ghosts) : std::clamp(cs2glaz_decoy_ghosts.Get(), 0, static_cast<int>(k_max_ghosts));
 		if (shared != ghosts_shared_)
 		{
+			ghost_trace("crosshair ghosts %s (decoys mode %d)", shared ? "on" : "off", decoy_mode());
 			// A ghost made for one use is never handed to the other.
 			for (size_t index = 0; index < ghosts_.size(); ++index)
 			{
@@ -319,6 +371,11 @@ namespace cs2glaz
 			{
 				continue;
 			}
+			if (handle != ghost.traced_pawn)
+			{
+				ghost_trace("slot %d alive on team %u: making it harmless%s", ghost.slot, static_cast<unsigned>(team), shared ? " (crosshair ghost)" : "");
+				ghost.traced_pawn = handle;
+			}
 			// Harmless: no damage, not solid, no trace touches it, it does not move.
 			// A crosshair ghost keeps a player's collision, so its viewer's client
 			// finds it under his crosshair as it finds any enemy (what triggerbots
@@ -429,7 +486,9 @@ namespace cs2glaz
 			ghost_name_seed_ = ghost_name_seed_ * 1664525u + 1013904223u;
 			const char* name = k_ghost_names[(ghost_name_seed_ >> 16) % std::size(k_ghost_names)];
 			ghost_creating_ = true;
+			ghost_trace("create fake client \"%s\" for team %u", name, static_cast<unsigned>(team));
 			const CPlayerSlot created = engine_->CreateFakeClient(name);
+			ghost_trace("created slot %d", created.Get());
 			ghost_creating_ = false;
 			if (created.Get() < 0 || created.Get() >= static_cast<int>(k_max_players))
 			{
