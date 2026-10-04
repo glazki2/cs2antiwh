@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.15.4
+
+- The real cause of the crash when crosshair ghosts were turned on: to keep a ghost's game events off clients, `khook_fire_event` called the original `FireEvent` with `dont_broadcast` and superseded the call. The original frees the event, and every plugin hooking `FireEvent` after CS2GLAZ (on that server the Ghost plugin) was then handed the freed event; it crashed at the fake client's first event (`player_connect`) and would have at every later one (team, spawn, death). The hook now uses `KHook::Recall`, which runs the whole chain again with `dont_broadcast` set, the way CounterStrikeSharp hides events: the event stays alive for every hook and is freed once, by the engine. The connect event during creation is hidden again (0.15.3 had left it alone).
+- A ghost's console commands (`jointeam`, `drop`, `kill`) are dispatched with a `CT_NO_TARGET` context and its player slot, the way CounterStrikeSharp issues commands as a client.
+
 ## 0.15.3
 
 - The server crashed inside `CreateFakeClient` right after the fake client's `player_connect` ("Egor<10><BOT> connected", then the crash), with crosshair ghosts turned on. CS2GLAZ superseded that event (fired again without broadcast) while the engine was still creating the client, and another FireEvent hook (the Ghost plugin) was in the chain. That one event is no longer touched: the ghost's connect line may show, its later events stay hidden.

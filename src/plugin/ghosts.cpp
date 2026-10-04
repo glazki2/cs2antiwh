@@ -172,7 +172,7 @@ namespace cs2glaz
 			return;
 		}
 		ghost_trace("command slot %d: %s", slot, command);
-		cvar_->DispatchConCommand(handle, CCommandContext(CT_FIRST_SPLITSCREEN_CLIENT, CPlayerSlot(slot)), args);
+		cvar_->DispatchConCommand(handle, CCommandContext(CT_NO_TARGET, CPlayerSlot(slot)), args);
 		ghost_trace("command done");
 	}
 
@@ -796,12 +796,9 @@ namespace cs2glaz
 
 	bool plugin::ghost_event(IGameEvent* event) const
 	{
-		// Not while the engine creates the fake client: superseding its connect
-		// event inside CreateFakeClient crashed a server (0.15.1). Its slot is
-		// hidden from the next event on.
 		if (ghost_creating_)
 		{
-			return false;
+			return true;
 		}
 		if (event == nullptr || ghost_event_slots_.load(std::memory_order_relaxed) == 0)
 		{
@@ -823,10 +820,13 @@ namespace cs2glaz
 		{
 			return {KHook::Action::Ignore, false};
 		}
-		// Fired for the server as usual, but not sent to any client.
+		// Fired for the server as usual, but not sent to any client: the whole
+		// hook chain runs again with dont_broadcast set (as CounterStrikeSharp
+		// does). Calling the original here and superseding crashed a server
+		// (0.15.1): the original frees the event, and the other plugins hooking
+		// FireEvent after this one were then handed the freed event.
 		++ghost_counters_.events_hidden;
-		const bool result = KHook::CallOriginal(&IGameEventManager2::FireEvent, manager, event, true);
-		return {KHook::Action::Supersede, result};
+		return KHook::Recall(&IGameEventManager2::FireEvent, KHook::Return<bool> {KHook::Action::Ignore, false}, manager, event, true);
 	}
 
 	bool plugin::ghost_radar_entity(int index) const
