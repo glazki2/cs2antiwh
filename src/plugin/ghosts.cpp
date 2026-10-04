@@ -796,9 +796,12 @@ namespace cs2glaz
 
 	bool plugin::ghost_event(IGameEvent* event) const
 	{
+		// Not while the engine creates the fake client: superseding its connect
+		// event inside CreateFakeClient crashed a server (0.15.1). Its slot is
+		// hidden from the next event on.
 		if (ghost_creating_)
 		{
-			return true;
+			return false;
 		}
 		if (event == nullptr || ghost_event_slots_.load(std::memory_order_relaxed) == 0)
 		{

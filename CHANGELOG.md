@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.3
+
+- The server crashed inside `CreateFakeClient` right after the fake client's `player_connect` ("Egor<10><BOT> connected", then the crash), with crosshair ghosts turned on. CS2GLAZ superseded that event (fired again without broadcast) while the engine was still creating the client, and another FireEvent hook (the Ghost plugin) was in the chain. That one event is no longer touched: the ghost's connect line may show, its later events stay hidden.
+
 ## 0.15.2
 
 - A server crashed as soon as `cs2glaz_decoy_crosshair 1` was set (the first time ghost players ran on a live server; the dump went to Valve only). Every ghost step that calls into the game (creating the fake client, its console commands, kicks, making its pawn harmless, every teleport) is now written to `addons/cs2glaz/logs/ghost_trace.log` and flushed to disk before the call, so after a crash the file's last line names the step that crashed. The file starts over with each plugin load.
