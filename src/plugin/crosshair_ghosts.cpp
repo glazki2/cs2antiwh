@@ -241,7 +241,7 @@ namespace cs2glaz
 			origin = {value.x, value.y, value.z};
 			return true;
 		};
-		const auto near = [](vec3 a, vec3 b, float distance)
+		const auto within = [](vec3 a, vec3 b, float distance)
 		{
 			const float dx = a.x - b.x;
 			const float dy = a.y - b.y;
@@ -281,7 +281,7 @@ namespace cs2glaz
 					{
 						const vec3 drop {teammate.origin.x, teammate.origin.y, teammate.origin.z + k_bomb_drop_height};
 						vec3 origin;
-						if (!origin_of(ghost, origin) || !near(origin, drop, 32.0f))
+						if (!origin_of(ghost, origin) || !within(origin, drop, 32.0f))
 						{
 							ghost_teleport(system, ghost, drop, 0.0f);
 						}
@@ -399,7 +399,7 @@ namespace cs2glaz
 			}
 			// Not shown to anyone: parked high above the map, where nothing meets it.
 			vec3 origin;
-			if ((turn.id == 0 || turn.control) && park_known && origin_of(ghost, origin) && !near(origin, park, 64.0f))
+			if ((turn.id == 0 || turn.control) && park_known && origin_of(ghost, origin) && !within(origin, park, 64.0f))
 			{
 				ghost_teleport(system, ghost, park, 0.0f);
 			}
